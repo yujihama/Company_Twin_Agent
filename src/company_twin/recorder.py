@@ -14,9 +14,9 @@ def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-# Only these origins may ever appear on records. "agent_policy" (the removed
-# scripted seat path) is intentionally NOT in this set: any attempt to record
-# under a scripted origin must fail loudly instead of polluting measurements.
+# Only these origins may ever appear on records. Removed scripted seat paths are
+# intentionally NOT represented here: any attempt to record under a non-world
+# origin must fail loudly instead of polluting measurements.
 ALLOWED_ORIGINS = frozenset({"system", "agent", "customer"})
 
 

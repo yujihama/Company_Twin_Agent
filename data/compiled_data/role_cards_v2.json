@@ -1,0 +1,30 @@
+{
+  "role_cards": [
+    {
+      "path": "data/design/role_cards/sales.md",
+      "role": "sales",
+      "sha256": "1a70c515e27dc2f91d50fc4ad0edf7faf4f9f8c36342d51c4041da284416fdcd"
+    },
+    {
+      "path": "data/design/role_cards/manager.md",
+      "role": "manager",
+      "sha256": "703dedc85f6de967de23adbb7cfe140821b931aeb31ae6479f523d4595435833"
+    },
+    {
+      "path": "data/design/role_cards/second_line.md",
+      "role": "second_line",
+      "sha256": "ef718b9962b4a42e95c627608c1b75a801db7169691ecc237f91ebef652c07e4"
+    },
+    {
+      "path": "data/design/role_cards/application.md",
+      "role": "application",
+      "sha256": "3d84f9685eae7cd79204060c4e361d38b66f69694e3372591ec216a48a7bc7f5"
+    },
+    {
+      "path": "data/design/role_cards/audit.md",
+      "role": "audit",
+      "sha256": "97929bb8cbd1f8a603669ba94ea5389dbb9f47147cbee4f71afae682b4a97de7"
+    }
+  ],
+  "schema_version": "company_twin.role_cards.v2"
+}

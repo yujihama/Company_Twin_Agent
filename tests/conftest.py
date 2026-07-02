@@ -78,6 +78,7 @@ class FakeSeatAgent:
             doc_id = hits[0]["doc_id"] if hits else "DFH-SAL-018"
             self.tools["read_document"](doc_id, "承認", 600)
             self.tools["note_to_self"](f"case-{app_id}", "確認済みの読みをメモ")
+            self.tools["recall_notes"](5)
             self.tools["record_customer_contact"](message["customer_id"], "phone", message["utterance"][:80], self._basis(doc_id, "contact"))
             self.tools["request_approval"](app_id, "manager", "確認依頼", self._basis(doc_id, "request"))
             self.tools["send_chat"]("emp-M", "workflow", f"{app_id} の確認をお願いします")

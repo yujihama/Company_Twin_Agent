@@ -6,8 +6,9 @@ from pathlib import Path
 
 import pytest
 
-from company_twin.acceptance import a05_grounding_population, a09_anchor_is_live, a10_tool_bundle_role_scoped, a11_stale_visibility
+from company_twin.acceptance import a05_grounding_population, a09_anchor_is_live, a10_tool_bundle_role_scoped, a11_stale_visibility, a12_d4_store_read_before_action
 from company_twin.agents import load_role_card
+from company_twin.campaign import static_world_surface_lint
 from company_twin.corpus import Corpus
 from company_twin.design_loader import load_design
 from company_twin.harness import _s0_prompt, run_s1_episode
@@ -82,6 +83,17 @@ def test_d4_disabled_removes_store_tools(tmp_path: Path) -> None:
     assert {"note_to_self", "recall_notes"}.isdisjoint(names)
 
 
+def test_standalone_basis_is_not_grounding_coverage(tmp_path: Path) -> None:
+    design, corpus = _design_corpus()
+    recorder = RunRecorder(tmp_path, "basis-only")
+    kernel = WorldKernel(recorder)
+    tools = {tool.__name__: tool for tool in build_role_tools(corpus=corpus, kernel=kernel, recorder=recorder, seat_id="emp-A", seat_role="sales", include_workflow=False)}
+    tools["record_interpretation_basis"]("s0_reading", '[{"doc_id":"DFH-SAL-021","version":"1.1"}]', "整理", "次に確認する", "読む")
+    rows = read_jsonl(tmp_path / "basis_records.jsonl")
+    assert rows and rows[0]["action_id"] is None
+    assert rows[0]["grounded"] is None
+
+
 # ── Blocker 5: interactive customer ─────────────────────────────────────────
 
 def test_customer_replies_to_contact_next_tick(tmp_path: Path) -> None:
@@ -111,6 +123,12 @@ def test_world_config_role_card_hash_matches_prompt_source() -> None:
         assert seat["role_card_sha256"] == actual
         assert (design.root / seat["role_card_path"]).read_text(encoding="utf-8") == card_text
     assert seats["emp-A"]["tools"] == list(ROLE_TOOL_BUNDLES["sales"]) + ["note_to_self", "recall_notes"]
+
+
+def test_static_lint_blocks_legacy_policy_symbols() -> None:
+    design, _ = _design_corpus()
+    result = static_world_surface_lint(design)
+    assert result["passed"], result["failures"]
 
 
 # ── Major 6: stale visibility enforcement ────────────────────────────────────
@@ -173,6 +191,21 @@ def test_a11_flags_non_sales_stale_read(tmp_path: Path) -> None:
     assert a11_stale_visibility(ok, roles).passed
     bad = _mini_bundle(tmp_path / "bad", [_attempt("emp-Q", "read_document", args={"doc_id": "DFH-SAL-021@v1.0"})])
     assert not a11_stale_visibility(bad, roles).passed
+
+
+def test_a12_requires_d4_read_before_s2_action(tmp_path: Path) -> None:
+    root = tmp_path / "s2"
+    root.mkdir(parents=True)
+    (root / "meta.json").write_text(json.dumps({"stage": "S2", "live": True}), encoding="utf-8")
+    (root / "config.json").write_text(json.dumps({"runtime_delta": {"d4_enabled": True}}), encoding="utf-8")
+    (root / "attempts.jsonl").write_text("", encoding="utf-8")
+    (root / "basis_records.jsonl").write_text("", encoding="utf-8")
+    (root / "world_ledger.jsonl").write_text("", encoding="utf-8")
+    (root / "triage").mkdir()
+    (root / "triage" / "metrics.json").write_text(json.dumps({"store_reads_agent": 0, "controlled_actions_after_store_read": 0}), encoding="utf-8")
+    assert not a12_d4_store_read_before_action(root).passed
+    (root / "triage" / "metrics.json").write_text(json.dumps({"store_reads_agent": 1, "controlled_actions_after_store_read": 1}), encoding="utf-8")
+    assert a12_d4_store_read_before_action(root).passed
 
 
 # ── Major 4 (partial): ensemble incidence rates with Wilson intervals ────────

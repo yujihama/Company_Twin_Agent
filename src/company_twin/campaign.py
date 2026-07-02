@@ -39,6 +39,14 @@ WORLD_PROMPT_BANNED_TERMS = (
     "probe",
 )
 
+PRODUCTION_SOURCE_BANNED_SYMBOLS = (
+    "agent" + "_policy",
+    "run" + "_policy" + "_seat" + "_turn",
+    "_handle" + "_customer" + "_utterance",
+    "_handle" + "_application" + "_work",
+    "policy" + "_fixture",
+)
+
 
 @dataclass(frozen=True)
 class S0MatrixRow:
@@ -168,11 +176,15 @@ def aggregate_s0_divergence(design: DesignInputs, s0_results: list[dict[str, Any
         candidates = design.spans[span_id].candidates if span_id in design.spans else {}
         clusters = Counter(classify_answer(_answer_text(row), candidates) for row in rows)
         span_consistent = all(str(row.get("span_id_from_run") or row.get("span_id") or "") == span_id for row in rows)
+        parsed_answers = sum(1 for row in rows if row.get("parsed") is True)
         out_cells.append(
             {
                 "span_id": span_id,
                 "role": role,
                 "answers": len(rows),
+                "answer_count": len(rows),
+                "parsed_answers": parsed_answers,
+                "parsed_rate": round(parsed_answers / len(rows), 4) if rows else 0.0,
                 "model_count": len({row.get("model") for row in rows}),
                 "variant_count": len({row.get("variant") for row in rows}),
                 "span_specific": span_consistent,
@@ -241,11 +253,11 @@ def _promote_probe(divergence: dict[str, Any]) -> str | None:
 
 
 def _diverse_s0_rows(matrix: list[S0MatrixRow], *, budget: int) -> list[S0MatrixRow]:
-    """Select rows cell-complete: whole (span,seat) cells at a time so every
+    """Select rows cell-complete: whole (probe,span,seat) cells at a time so every
     executed cell carries its full model x variant set (reviewer Major 3)."""
-    cells: dict[tuple[str, str], list[S0MatrixRow]] = {}
+    cells: dict[tuple[str, str, str], list[S0MatrixRow]] = {}
     for row in matrix:
-        cells.setdefault((row.span_id, row.seat_id), []).append(row)
+        cells.setdefault((row.probe_id, row.span_id, row.seat_id), []).append(row)
     selected: list[S0MatrixRow] = []
     for _, rows in sorted(cells.items()):
         if len(selected) + len(rows) > budget and selected:
@@ -282,4 +294,11 @@ def static_world_surface_lint(design: DesignInputs) -> dict[str, Any]:
             for term in WORLD_PROMPT_BANNED_TERMS:
                 if term.lower() in lower:
                     failures.append({"check": "tool_doc_leak", "detail": term})
+    for path in sorted((design.root / "src" / "company_twin").glob("*.py")):
+        if path.name == "campaign.py":
+            continue
+        text = path.read_text(encoding="utf-8")
+        for symbol in PRODUCTION_SOURCE_BANNED_SYMBOLS:
+            if symbol in text:
+                failures.append({"check": "production_source_banned_symbol", "detail": f"{path.name}: {symbol}"})
     return {"passed": not failures, "failures": failures}

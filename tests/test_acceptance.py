@@ -110,3 +110,7 @@ def test_a08_customer_utterances_need_customer_llm(tmp_path: Path) -> None:
 
     template_only = _bundle(tmp_path, "template", attempts=[LIVE_CALL], ledger=[utterance_event])
     assert not a08_customer_is_agent(template_only).passed
+
+    empty_world = _bundle(tmp_path, "empty-world", attempts=[LIVE_CALL], ledger=[], meta={"stage": "S1", "live": True})
+    result = a08_customer_is_agent(empty_world)
+    assert not result.passed and "no customer utterances" in result.detail

@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Iterable
+from typing import Any, Iterable
+
+from pydantic import BaseModel, ConfigDict, Field
 
 
 @dataclass(frozen=True)
@@ -47,6 +51,98 @@ class DesignInputs:
     probes: dict[str, ProbeDefinition]
     seats: dict[str, SeatDefinition]
     world_config_text: str
+    retrieval_profiles: dict[str, dict[str, Any]] = field(default_factory=dict)
+    role_cards: dict[str, dict[str, str]] = field(default_factory=dict)
+    s0_question_templates: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    compiled_artifact_hashes: dict[str, str] = field(default_factory=dict)
+
+
+class _Artifact(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: str
+
+
+class _DocumentItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    doc_id: str = Field(pattern=r"^DFH-SAL-\d{3}$")
+    kind: str = ""
+    authority: int | None = None
+    owner: str = ""
+    scope: str = ""
+    version: str = ""
+    path: str | None = None
+
+
+class _ManifestArtifact(_Artifact):
+    corpus_id: str
+    documents: list[_DocumentItem]
+
+
+class _SpanItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    span_id: str = Field(pattern=r"^[A-Z]+-\d+[a-z]?$")
+    raw: str
+    issue: str = ""
+    candidates: dict[str, str] = Field(default_factory=dict)
+
+
+class _SpanRegistryArtifact(_Artifact):
+    spans: list[_SpanItem]
+
+
+class _ProbeItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    probe_id: str = Field(pattern=r"^P-\d{2}$")
+    title: str
+    binds: list[str] = Field(default_factory=list)
+
+
+class _DeckArtifact(_Artifact):
+    probes: list[_ProbeItem]
+    events: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class _SeatItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    seat_id: str
+    role: str
+    description: str = ""
+
+
+class _PopulationArtifact(_Artifact):
+    seats: list[_SeatItem]
+
+
+class _RetrievalProfilesArtifact(_Artifact):
+    profiles: dict[str, dict[str, Any]]
+
+
+class _RoleCardItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    role: str
+    path: str
+    sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class _RoleCardsArtifact(_Artifact):
+    role_cards: list[_RoleCardItem]
+
+
+class _S0TemplateItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    span_id: str
+    variants: list[str] = Field(min_length=2)
+
+
+class _S0TemplatesArtifact(_Artifact):
+    templates: list[_S0TemplateItem]
 
 
 INLINE_FIELD_RE = re.compile(r"(?P<key>[A-Za-z_]+):\s*(?P<value>'[^']*'|[^,}]+)")
@@ -58,6 +154,8 @@ EMP_RE = re.compile(r"(emp-[A-Z])(?:\(([^)]*)\))?")
 
 def load_design(root: Path) -> DesignInputs:
     compiled = root / "data" / "compiled_data"
+    if _schema_artifacts_available(compiled):
+        return _load_schema_artifacts(root, compiled)
     manifest = (compiled / "00_corpus_manifest_v2.yaml").read_text(encoding="utf-8")
     registry = (compiled / "06_seeded_span_registry_v2.yaml").read_text(encoding="utf-8")
     world_config = (compiled / "world_config_v2.yaml").read_text(encoding="utf-8")
@@ -77,13 +175,87 @@ def load_design(root: Path) -> DesignInputs:
     return design
 
 
+SCHEMA_ARTIFACTS = {
+    "manifest_v2.json": ("company_twin.manifest.v2", _ManifestArtifact),
+    "span_registry_v2.json": ("company_twin.span_registry.v2", _SpanRegistryArtifact),
+    "deck_v2.json": ("company_twin.deck.v2", _DeckArtifact),
+    "population_v2.json": ("company_twin.population.v2", _PopulationArtifact),
+    "retrieval_profiles_v2.json": ("company_twin.retrieval_profiles.v2", _RetrievalProfilesArtifact),
+    "role_cards_v2.json": ("company_twin.role_cards.v2", _RoleCardsArtifact),
+    "s0_question_templates_v2.json": ("company_twin.s0_question_templates.v2", _S0TemplatesArtifact),
+}
+
+
+def _schema_artifacts_available(compiled: Path) -> bool:
+    return all((compiled / filename).exists() for filename in SCHEMA_ARTIFACTS)
+
+
+def _load_schema_artifacts(root: Path, compiled: Path) -> DesignInputs:
+    manifest: _ManifestArtifact = _load_artifact(compiled / "manifest_v2.json", _ManifestArtifact, "company_twin.manifest.v2")
+    registry: _SpanRegistryArtifact = _load_artifact(compiled / "span_registry_v2.json", _SpanRegistryArtifact, "company_twin.span_registry.v2")
+    deck: _DeckArtifact = _load_artifact(compiled / "deck_v2.json", _DeckArtifact, "company_twin.deck.v2")
+    population: _PopulationArtifact = _load_artifact(compiled / "population_v2.json", _PopulationArtifact, "company_twin.population.v2")
+    retrieval: _RetrievalProfilesArtifact = _load_artifact(compiled / "retrieval_profiles_v2.json", _RetrievalProfilesArtifact, "company_twin.retrieval_profiles.v2")
+    role_cards: _RoleCardsArtifact = _load_artifact(compiled / "role_cards_v2.json", _RoleCardsArtifact, "company_twin.role_cards.v2")
+    s0_templates: _S0TemplatesArtifact = _load_artifact(compiled / "s0_question_templates_v2.json", _S0TemplatesArtifact, "company_twin.s0_question_templates.v2")
+
+    documents = {
+        item.doc_id: DocumentMeta(
+            doc_id=item.doc_id,
+            kind=item.kind,
+            authority=item.authority,
+            owner=item.owner,
+            scope=item.scope,
+            version=item.version,
+            path=(root / item.path) if item.path else None,
+        )
+        for item in manifest.documents
+    }
+    spans = {
+        item.span_id: SpanDefinition(span_id=item.span_id, raw=item.raw, issue=item.issue, candidates=dict(item.candidates))
+        for item in registry.spans
+    }
+    probes = {
+        item.probe_id: ProbeDefinition(probe_id=item.probe_id, title=item.title, binds=tuple(item.binds))
+        for item in deck.probes
+    }
+    seats = {
+        item.seat_id: SeatDefinition(seat_id=item.seat_id, role=item.role, description=item.description)
+        for item in population.seats
+    }
+    artifact_hashes = {filename: _file_sha256(compiled / filename) for filename in SCHEMA_ARTIFACTS}
+    design = DesignInputs(
+        root=root,
+        documents=documents,
+        spans=spans,
+        probes=probes,
+        seats=seats,
+        world_config_text=(compiled / "world_config_v2.yaml").read_text(encoding="utf-8"),
+        retrieval_profiles=retrieval.profiles,
+        role_cards={item.role: {"path": item.path, "sha256": item.sha256} for item in role_cards.role_cards},
+        s0_question_templates={item.span_id: tuple(item.variants) for item in s0_templates.templates},
+        compiled_artifact_hashes=artifact_hashes,
+    )
+    validate_design(design)
+    return design
+
+
+def _load_artifact(path: Path, model: type[BaseModel], schema_version: str):
+    payload = model.model_validate_json(path.read_text(encoding="utf-8"))
+    if getattr(payload, "schema_version") != schema_version:
+        raise ValueError(f"{path.name} schema_version must be {schema_version}, got {payload.schema_version}")
+    return payload
+
+
 KNOWN_ROLES = {"sales", "manager", "application", "second_line", "audit", "unknown"}
 
 
 def validate_design(design: DesignInputs) -> None:
-    """Hard validation of compiled inputs (partial answer to the schema-artifact
-    reviewer blocker): undefined binds, pathless docs, and unknown roles fail
-    loudly instead of being silently dropped downstream."""
+    """Hard validation of executable compiled inputs.
+
+    Normal execution reads schema-validated JSON artifacts. The regex parsers
+    below are retained only as a legacy importer when those artifacts are absent.
+    """
     problems: list[str] = []
     for probe_id, probe in design.probes.items():
         for span_id in probe.binds:
@@ -98,8 +270,38 @@ def validate_design(design: DesignInputs) -> None:
     for span_id, span in design.spans.items():
         if not span.raw.strip():
             problems.append(f"span {span_id} has empty registry block")
+    if design.retrieval_profiles:
+        missing_profiles = sorted({seat.role for seat in design.seats.values()} - set(design.retrieval_profiles))
+        if missing_profiles:
+            problems.append(f"retrieval profiles missing roles: {missing_profiles}")
+    if design.role_cards:
+        missing_cards = sorted({seat.role for seat in design.seats.values()} - set(design.role_cards))
+        if missing_cards:
+            problems.append(f"role cards missing roles: {missing_cards}")
+        for role, meta in design.role_cards.items():
+            path = design.root / meta.get("path", "")
+            if not path.exists():
+                problems.append(f"role card for {role} missing: {meta.get('path')}")
+                continue
+            actual = _file_sha256(path)
+            if actual != meta.get("sha256"):
+                problems.append(f"role card hash mismatch for {role}")
+    if design.s0_question_templates:
+        missing_templates = sorted(set(design.spans) - set(design.s0_question_templates))
+        extra_templates = sorted(set(design.s0_question_templates) - set(design.spans))
+        if missing_templates:
+            problems.append(f"s0 templates missing spans: {missing_templates}")
+        if extra_templates:
+            problems.append(f"s0 templates reference unknown spans: {extra_templates}")
+        for span_id, variants in design.s0_question_templates.items():
+            if len(variants) < 2 or any(not variant.strip() for variant in variants):
+                problems.append(f"s0 template {span_id} must have at least two non-empty variants")
     if problems:
         raise ValueError("compiled design inputs failed validation: " + "; ".join(problems))
+
+
+def _file_sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def _parse_manifest(text: str, root: Path) -> dict[str, DocumentMeta]:

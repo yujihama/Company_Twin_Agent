@@ -89,16 +89,17 @@ def build_role_tools(*, corpus: Corpus, kernel: WorldKernel, recorder: RunRecord
             alternatives_considered=alternatives_considered,
             felt_constraints=felt_constraints,
             confidence=confidence,
-            grounded=True,
+            grounded=None,
         )
         basis_id = recorder.record_basis(seat_id, basis)
-        return json.dumps({"recorded": True, "basis_id": basis_id, "decision": decision}, ensure_ascii=False)
+        return json.dumps({"recorded": True, "basis_id": basis_id, "decision": decision, "basis_kind": "standalone"}, ensure_ascii=False)
 
     def note_to_self(key: str, value: str) -> str:
         """Write a short private working note for yourself (only you can read it later)."""
         if not recorder.consume_budget(seat_id, "note_to_self"):
             return json.dumps({"success": False, "denied_reason": "tick budget exceeded"}, ensure_ascii=False)
         recorder.remember_private(seat_id=seat_id, key=key, value=value)
+        recorder.record_attempt(seat_id=seat_id, tool="note_to_self", args={"key": key, "value_chars": len(value)}, success=True, result={"noted": True})
         return json.dumps({"noted": True, "key": key}, ensure_ascii=False)
 
     def recall_notes(limit: int = 5) -> str:
@@ -106,6 +107,7 @@ def build_role_tools(*, corpus: Corpus, kernel: WorldKernel, recorder: RunRecord
         if not recorder.consume_budget(seat_id, "recall_notes"):
             return json.dumps({"success": False, "denied_reason": "tick budget exceeded"}, ensure_ascii=False)
         notes = recorder.read_private(seat_id=seat_id, limit=limit)
+        recorder.record_attempt(seat_id=seat_id, tool="recall_notes", args={"limit": limit}, success=True, result={"notes": len(notes)})
         return json.dumps({"notes": notes}, ensure_ascii=False)
 
     def send_chat(to_seat: str, channel: str, body: str) -> str:

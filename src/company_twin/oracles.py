@@ -177,6 +177,7 @@ def _metrics(run_root: Path, findings: list[Finding]) -> dict[str, Any]:
     attempts = read_jsonl(run_root / "attempts.jsonl")
     ledger = read_jsonl(run_root / "world_ledger.jsonl")
     basis = read_jsonl(run_root / "basis_records.jsonl")
+    store_events = read_jsonl(run_root / "store_events.jsonl")
     origin_breakdown = dict(Counter(str(row.get("origin") or "unknown") for row in attempts))
     banned = {origin for origin in origin_breakdown if origin not in {"system", "agent", "customer"}}
     if banned:
@@ -189,6 +190,28 @@ def _metrics(run_root: Path, findings: list[Finding]) -> dict[str, Any]:
     action_bound_basis = [row for row in agent_basis if row.get("action_id")]
     standalone_basis = [row for row in agent_basis if not row.get("action_id")]
     grounded = [row for row in action_bound_basis if row.get("grounded")]
+    g1 = [row for row in action_bound_basis if row.get("g1_span_exists") is True]
+    g2 = [row for row in action_bound_basis if row.get("g2_prior_read") is True]
+    g3 = [row for row in action_bound_basis if row.get("g3_entailment") == "supported"]
+    all3 = [
+        row
+        for row in action_bound_basis
+        if row.get("g1_span_exists") is True and row.get("g2_prior_read") is True and row.get("g3_entailment") == "supported"
+    ]
+    store_reads = [row for row in store_events if row.get("op") == "read" and row.get("origin") == "agent"]
+    store_writes = [row for row in store_events if row.get("op") == "write" and row.get("origin") == "agent"]
+    first_read_tick_by_seat: dict[str, int] = {}
+    for row in store_reads:
+        seat_id = str(row.get("seat_id") or "")
+        if not seat_id:
+            continue
+        tick = int(row.get("tick") or 0)
+        first_read_tick_by_seat[seat_id] = min(tick, first_read_tick_by_seat.get(seat_id, 999999))
+    controlled_after_store_read = [
+        row
+        for row in controlled
+        if first_read_tick_by_seat.get(str(row.get("seat_id") or ""), 999999) <= int(row.get("tick") or 0)
+    ]
     return {
         "stage": _stage(run_root),
         "attempts": len(attempts),
@@ -198,6 +221,13 @@ def _metrics(run_root: Path, findings: list[Finding]) -> dict[str, Any]:
         "basis_action_bound": len(action_bound_basis),
         "basis_standalone": len(standalone_basis),
         "grounding_coverage_machine": (len(grounded) / len(controlled)) if controlled else 0.0,
+        "grounding_g1_rate": (len(g1) / len(action_bound_basis)) if action_bound_basis else 0.0,
+        "grounding_g2_rate": (len(g2) / len(action_bound_basis)) if action_bound_basis else 0.0,
+        "grounding_g3_rate": (len(g3) / len(action_bound_basis)) if action_bound_basis else 0.0,
+        "grounding_all3_rate": (len(all3) / len(action_bound_basis)) if action_bound_basis else 0.0,
+        "store_writes_agent": len(store_writes),
+        "store_reads_agent": len(store_reads),
+        "controlled_actions_after_store_read": len(controlled_after_store_read),
         "customer_events": sum(1 for row in ledger if row.get("event_type") == "customer_event"),
         "permission_denied": sum(1 for row in attempts if not row.get("success")),
         "llm_invocations": sum(1 for row in attempts if row.get("tool") == "llm_invoke"),

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -67,6 +68,7 @@ class KernelProfile:
     knobs: dict[str, bool] = field(default_factory=dict)
     valid_doc_ids: set[str] = field(default_factory=set)
     valid_span_ids: set[str] = field(default_factory=set)
+    span_text_by_id: dict[str, str] = field(default_factory=dict)
     require_prior_read_for_basis: bool = False
     seat_roles: dict[str, str] = field(default_factory=dict)
     scc_switch_enabled: bool = False
@@ -339,6 +341,10 @@ class WorldKernel:
         return True, ""
 
     def _record_action_basis(self, seat_id: str, action_id: str, trigger_event: str, basis: dict[str, Any], *, grounded: bool) -> str:
+        g1_span_exists = self._basis_g1_span_exists(basis)
+        g2_prior_read = self._basis_g2_prior_read(seat_id, basis) if self.profile.require_prior_read_for_basis else None
+        action_grounded = grounded and g1_span_exists and (g2_prior_read is not False)
+        g3_entailment = self._basis_entailment_label(basis)
         record = BasisRecord(
             basis_id=self.recorder.next_basis_id(),
             ts=utc_now(),
@@ -354,12 +360,42 @@ class WorldKernel:
             alternatives_considered=str(basis.get("alternatives_considered") or ""),
             felt_constraints=str(basis.get("felt_constraints") or ""),
             confidence=float(basis.get("confidence", 0.5)),
-            grounded=grounded,
-            g1_span_exists=grounded,
-            g2_prior_read=grounded if self.profile.require_prior_read_for_basis else None,
-            g3_entailment="not_evaluated",
+            grounded=action_grounded,
+            g1_span_exists=g1_span_exists,
+            g2_prior_read=g2_prior_read,
+            g3_entailment=g3_entailment,
         )
         return self.recorder.record_basis(seat_id, record)
+
+    def _basis_g1_span_exists(self, basis: dict[str, Any]) -> bool:
+        span_ids = [str((item or {}).get("span_id") or "") for item in basis.get("retrieved") or []]
+        span_ids = [span_id for span_id in span_ids if span_id]
+        return bool(span_ids) and all((not self.profile.valid_span_ids) or span_id in self.profile.valid_span_ids for span_id in span_ids)
+
+    def _basis_g2_prior_read(self, seat_id: str, basis: dict[str, Any]) -> bool:
+        doc_ids = [str((item or {}).get("doc_id") or "") for item in basis.get("retrieved") or [] if (item or {}).get("doc_id")]
+        return bool(doc_ids) and all(self.recorder.has_read_doc(seat_id, doc_id) for doc_id in doc_ids)
+
+    def _basis_entailment_label(self, basis: dict[str, Any]) -> str:
+        """Lightweight deterministic g3 oracle.
+
+        This is intentionally conservative: it marks a basis supported only
+        when its construal/decision shares enough content words with the cited
+        span registry text. Full L2 semantic entailment can replace this later.
+        """
+        cited_texts: list[str] = []
+        for item in basis.get("retrieved") or []:
+            span_id = str((item or {}).get("span_id") or "")
+            if span_id and span_id in self.profile.span_text_by_id:
+                cited_texts.append(self.profile.span_text_by_id[span_id])
+        if not cited_texts:
+            return "not_evaluated"
+        basis_text = f"{basis.get('construal') or ''} {basis.get('decision') or ''} {basis.get('evidence_plan') or ''}"
+        basis_terms = set(_terms_for_entailment(basis_text))
+        cited_terms = set(_terms_for_entailment(" ".join(cited_texts)))
+        if len(basis_terms & cited_terms) >= 2:
+            return "supported"
+        return "unsupported"
 
     def _ensure_application(self, application_id: str, *, customer_id: str = "", product: str = "") -> dict[str, Any]:
         if application_id not in self.applications:
@@ -412,6 +448,11 @@ class WorldKernel:
         self.recorder.record_attempt(seat_id=seat_id, tool=tool, args=args, success=False, result=result, denied_reason=reason)
         self.recorder.append_ledger("permission_denied", {"seat_id": seat_id, "tool": tool, "reason": reason, "args": args})
         return result
+
+
+def _terms_for_entailment(text: str) -> list[str]:
+    tokens = re.findall(r"[A-Za-z0-9_-]+|[\u3040-\u30ff\u3400-\u9fff]{2,}", text or "")
+    return [token.lower() for token in tokens if len(token) >= 2]
 
 
 def parse_json_arg(value: str | dict[str, Any] | None) -> dict[str, Any]:

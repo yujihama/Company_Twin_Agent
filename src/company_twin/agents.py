@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 from typing import Any, Callable, Protocol
 
-from .env import normalize_openrouter_model
+from .env import normalize_openrouter_model, openrouter_slug
 from .recorder import RunRecorder
 
 _PROFILE_REGISTERED = False
@@ -16,13 +16,12 @@ def register_company_twin_profile() -> None:
         return
     from deepagents import GeneralPurposeSubagentProfile, HarnessProfile, register_harness_profile
 
-    register_harness_profile(
-        "openrouter",
-        HarnessProfile(
-            excluded_tools=frozenset({"task", "write_todos", "ls", "read_file", "write_file", "edit_file", "glob", "grep", "execute"}),
-            general_purpose_subagent=GeneralPurposeSubagentProfile(enabled=False),
-        ),
+    profile = HarnessProfile(
+        excluded_tools=frozenset({"task", "write_todos", "ls", "read_file", "write_file", "edit_file", "glob", "grep", "execute"}),
+        general_purpose_subagent=GeneralPurposeSubagentProfile(enabled=False),
     )
+    register_harness_profile("openrouter", profile)
+    register_harness_profile("openai", profile)
     _PROFILE_REGISTERED = True
 
 
@@ -78,7 +77,7 @@ class DeepAgentSeat:
         self.recorder = recorder
         self.recursion_limit = recursion_limit
         self._agent = create_deep_agent(
-            model=self.model,
+            model=_chat_model(self.model),
             tools=tools,
             system_prompt=role_system_prompt(seat_id, role, role_card=load_role_card(root, role)),
             subagents=[],
@@ -121,7 +120,7 @@ class DeepAgentCustomer:
 
         self.model = normalize_openrouter_model(model)
         self.recorder = recorder
-        self._agent = create_deep_agent(model=self.model, tools=[], system_prompt=CUSTOMER_SYSTEM_PROMPT, subagents=[], name="company-twin-customer")
+        self._agent = create_deep_agent(model=_chat_model(self.model), tools=[], system_prompt=CUSTOMER_SYSTEM_PROMPT, subagents=[], name="company-twin-customer")
 
     def __call__(self, persona_prompt: str) -> str:
         result = self._agent.invoke({"messages": [{"role": "user", "content": persona_prompt}]}, config={"recursion_limit": 8})
@@ -138,6 +137,20 @@ class DeepAgentCustomer:
 
 def default_customer_llm(*, model: str | None, recorder: RunRecorder) -> CustomerLLM:
     return DeepAgentCustomer(model=normalize_openrouter_model(model), recorder=recorder)
+
+
+def _chat_model(model: str):
+    from langchain_openai import ChatOpenAI
+
+    timeout = int(os.getenv("OPENROUTER_TIMEOUT_SECONDS", "45"))
+    return ChatOpenAI(
+        api_key=os.environ["OPENROUTER_API_KEY"],
+        model=openrouter_slug(model),
+        base_url="https://openrouter.ai/api/v1",
+        timeout=timeout,
+        max_retries=0,
+        max_completion_tokens=int(os.getenv("OPENROUTER_MAX_COMPLETION_TOKENS", "1200")),
+    )
 
 
 def final_text(result: Any) -> str:

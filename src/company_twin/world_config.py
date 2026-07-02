@@ -58,9 +58,13 @@ def build_world_config(
         "world": {
             "corpus": {
                 "corpus_id": "dfh_sales_v2",
-                "manifest_hash": _text_hash(_read(design.root / "data" / "compiled_data" / "00_corpus_manifest_v2.yaml")),
+                "manifest_hash": design.compiled_artifact_hashes.get("manifest_v2.json") or _text_hash(_read(design.root / "data" / "compiled_data" / "00_corpus_manifest_v2.yaml")),
                 "raw_corpus_hash": _raw_corpus_hash(design),
-                "span_registry_hash": _text_hash(_read(design.root / "data" / "compiled_data" / "06_seeded_span_registry_v2.yaml")),
+                "span_registry_hash": design.compiled_artifact_hashes.get("span_registry_v2.json") or _text_hash(_read(design.root / "data" / "compiled_data" / "06_seeded_span_registry_v2.yaml")),
+                "deck_artifact_hash": design.compiled_artifact_hashes.get("deck_v2.json", ""),
+                "retrieval_profiles_hash": design.compiled_artifact_hashes.get("retrieval_profiles_v2.json", ""),
+                "role_cards_hash": design.compiled_artifact_hashes.get("role_cards_v2.json", ""),
+                "s0_question_templates_hash": design.compiled_artifact_hashes.get("s0_question_templates_v2.json", ""),
                 "mutations": mutations or [],
                 "document_count": len(design.documents),
             },
@@ -76,7 +80,7 @@ def build_world_config(
                 "absence": {"emp-M": [23, 24]},
                 "tick_budget": {seat_id_: seat["tick_budget"] for seat_id_, seat in seats.items()},
             },
-            "retrieval_profiles": default_retrieval_profiles(),
+            "retrieval_profiles": design.retrieval_profiles or default_retrieval_profiles(),
             "deck": {
                 "deck_id": "deck_v2",
                 "deck_hash": _json_hash(deck),

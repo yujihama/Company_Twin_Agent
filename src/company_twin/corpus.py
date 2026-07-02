@@ -64,7 +64,7 @@ class Corpus:
                     path=v10_path,
                 )
                 docs[stale_meta.doc_id] = CorpusDocument(meta=stale_meta, text=extract_text(v10_path))
-        return cls(docs, default_retrieval_profiles())
+        return cls(docs, design.retrieval_profiles or default_retrieval_profiles())
 
     def readable_by(self, doc_id: str, role: str) -> bool:
         """Stale @v1.0 entries exist only in the sales library index; other roles

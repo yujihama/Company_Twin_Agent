@@ -160,8 +160,11 @@ def a07_stale_content_differs(design: DesignInputs, corpus: Corpus) -> GateResul
 
 def a08_customer_is_agent(run_root: Path) -> GateResult:
     data = _load(run_root)
+    stage = str(data["meta"].get("stage") or "")
     utterances = [row for row in data["ledger"] if row.get("event_type") == "customer_utterance"]
     if not utterances:
+        if stage in {"S1", "S2"}:
+            return GateResult("A-08 customer_is_agent", False, f"{stage} world run has no customer utterances")
         return GateResult("A-08 customer_is_agent", True, "no customer events in this bundle")
     customer_calls = [
         row
@@ -231,6 +234,28 @@ def a11_stale_visibility(run_root: Path, seat_roles: dict[str, str]) -> GateResu
     return GateResult("A-11 stale_visibility", not violations, "; ".join(violations[:5]))
 
 
+def a12_d4_store_read_before_action(run_root: Path) -> GateResult:
+    data = _load(run_root)
+    stage = str(data["meta"].get("stage") or "")
+    if stage != "S2":
+        return GateResult("A-12 d4_store_read_before_action", True, f"stage={stage}: not a D4 full-world gate")
+    config_path = run_root / "config.json"
+    d4_enabled = True
+    if config_path.exists():
+        config = json.loads(config_path.read_text(encoding="utf-8"))
+        d4_enabled = bool((config.get("runtime_delta") or {}).get("d4_enabled", True))
+    if not d4_enabled:
+        return GateResult("A-12 d4_store_read_before_action", True, "D4 disabled for this run")
+    metrics_path = run_root / "triage" / "metrics.json"
+    if not metrics_path.exists():
+        return GateResult("A-12 d4_store_read_before_action", False, "triage/metrics.json missing")
+    metrics = json.loads(metrics_path.read_text(encoding="utf-8"))
+    reads = int(metrics.get("store_reads_agent") or 0)
+    after = int(metrics.get("controlled_actions_after_store_read") or 0)
+    ok = reads >= 1 and after >= 1
+    return GateResult("A-12 d4_store_read_before_action", ok, "" if ok else f"store_reads_agent={reads}, controlled_actions_after_store_read={after}")
+
+
 def check_bundle(run_root: Path, seat_roles: dict[str, str] | None = None) -> BundleReport:
     report = BundleReport(run_root=run_root)
     report.results.append(a01_no_scripted_origin(run_root))
@@ -247,10 +272,12 @@ def check_bundle(run_root: Path, seat_roles: dict[str, str] | None = None) -> Bu
         report.results.append(a11_stale_visibility(run_root, seat_roles))
     if stage in {"S1", "S2"}:
         report.results.append(a08_customer_is_agent(run_root))
+    if stage == "S2":
+        report.results.append(a12_d4_store_read_before_action(run_root))
     return report
 
 
-def a06_s0_divergence_measured(campaign_root: Path) -> GateResult:
+def a06_s0_divergence_measured(campaign_root: Path, *, require_multimodel: bool = False) -> GateResult:
     path = campaign_root / "s0_divergence.json"
     if not path.exists():
         return GateResult("A-06 s0_divergence_measured", False, "s0_divergence.json missing")
@@ -258,8 +285,17 @@ def a06_s0_divergence_measured(campaign_root: Path) -> GateResult:
     rows = payload.get("cells") or []
     measured = [row for row in rows if row.get("answers", 0) >= 2 and "entropy" in row]
     live_backed = payload.get("all_answers_live") is True
-    ok = bool(measured) and live_backed
-    return GateResult("A-06 s0_divergence_measured", ok, "" if ok else f"measured cells={len(measured)}, all_answers_live={live_backed}")
+    enough_cold_read = True
+    if require_multimodel:
+        enough_cold_read = any(int(row.get("model_count") or 0) >= 2 and int(row.get("variant_count") or 0) >= 2 for row in measured)
+    ok = bool(measured) and live_backed and enough_cold_read
+    if ok:
+        return GateResult("A-06 s0_divergence_measured", True, "")
+    return GateResult(
+        "A-06 s0_divergence_measured",
+        False,
+        f"measured cells={len(measured)}, all_answers_live={live_backed}, require_multimodel={require_multimodel}, multimodel_cell={enough_cold_read}",
+    )
 
 
 def run_acceptance(*, campaign_root: Path, design: DesignInputs, corpus: Corpus, scope: str = "auto") -> dict[str, Any]:
@@ -274,7 +310,7 @@ def run_acceptance(*, campaign_root: Path, design: DesignInputs, corpus: Corpus,
     for path in sorted(campaign_root.iterdir()):
         if path.is_dir() and (path / "meta.json").exists():
             bundle_reports.append(check_bundle(path, seat_roles))
-    gates: list[GateResult] = [a06_s0_divergence_measured(campaign_root), a07_stale_content_differs(design, corpus), a09_anchor_is_live(campaign_root, scope=scope)]
+    gates: list[GateResult] = [a06_s0_divergence_measured(campaign_root, require_multimodel=scope == "full_world"), a07_stale_content_differs(design, corpus), a09_anchor_is_live(campaign_root, scope=scope)]
     payload = {
         "campaign_root": str(campaign_root),
         "scope": scope,

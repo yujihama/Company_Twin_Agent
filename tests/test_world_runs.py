@@ -3,11 +3,12 @@ from pathlib import Path
 
 import pytest
 
-from company_twin.acceptance import a01_no_scripted_origin, a03_inbox_whitelist, a04_basis_authorship
+from company_twin.acceptance import a01_no_scripted_origin, a03_inbox_whitelist, a04_basis_authorship, a12_d4_store_read_before_action
 from company_twin.corpus import Corpus
 from company_twin.design_loader import load_design
 from company_twin.harness import run_s0, run_s1_episode, run_s2_world
 from company_twin.kernel import InboxLeakError, WorldKernel
+from company_twin.oracles import write_triage
 from company_twin.recorder import RunRecorder, read_jsonl
 from company_twin.tools import build_role_tools
 from company_twin.world_config import assert_world_config_complete
@@ -107,12 +108,16 @@ def test_s2_world_runs_deck_month_end_and_anchor_purity(tmp_path: Path) -> None:
 
     run_root = tmp_path / "s2"
     run_s2_world(design=design, corpus=corpus, run_root=run_root, seed=0, ticks=40, seat_factory=fake_seat_factory(), customer_llm=_LateBoundCustomer(run_root))
+    triage = write_triage(run_root)
     ledger = read_jsonl(run_root / "world_ledger.jsonl")
     attempts = read_jsonl(run_root / "attempts.jsonl")
     assert sum(1 for row in ledger if row["event_type"] == "customer_event") >= 10
     assert any(row["event_type"] == "month_end_close" for row in ledger)
     assert any(row["event_type"] == "completion_gate_active" for row in ledger)
     assert len({row["seat_id"] for row in attempts if row["seat_id"].startswith("emp-")}) >= 4
+    assert triage["metrics"]["store_reads_agent"] >= 1
+    assert triage["metrics"]["controlled_actions_after_store_read"] >= 1
+    assert a12_d4_store_read_before_action(run_root).passed
 
     anchor_root = tmp_path / "anchor"
     run_s2_world(design=design, corpus=corpus, run_root=anchor_root, seed=0, ticks=40, anchor=True, seat_factory=fake_seat_factory(), customer_llm=_LateBoundCustomer(anchor_root))

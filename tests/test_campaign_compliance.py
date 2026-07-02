@@ -9,6 +9,7 @@ from company_twin.campaign import (
     classify_answer,
     entropy,
     static_world_surface_lint,
+    _diverse_s0_rows,
 )
 from company_twin.corpus import Corpus
 from company_twin.design_loader import load_design
@@ -28,6 +29,17 @@ def test_s0_matrix_covers_roles_spans_and_variants() -> None:
     assert {row.variant for row in matrix} == {0, 1}
     assert {"emp-A", "emp-M", "emp-Q"}.issubset({row.seat_id for row in matrix})
     assert {"AMB-02", "AMB-04d", "CONTRA-01"}.issubset({row.span_id for row in matrix})
+
+
+def test_s0_limit_selects_one_probe_span_seat_cell() -> None:
+    design = load_design(Path.cwd())
+    matrix = build_s0_matrix(design, models=["openrouter:qwen/qwen3.6-flash", "openrouter:qwen/qwen3.5-9b"], variants=2)
+    selected = _diverse_s0_rows(matrix, budget=4)
+
+    assert len(selected) == 4
+    assert len({(row.probe_id, row.span_id, row.seat_id) for row in selected}) == 1
+    assert len({row.model for row in selected}) == 2
+    assert {row.variant for row in selected} == {0, 1}
 
 
 def test_classify_answer_uses_span_candidates_then_heuristics() -> None:

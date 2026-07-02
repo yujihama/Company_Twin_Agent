@@ -127,6 +127,7 @@ def s2(
 @app.command("campaign")
 def campaign(
     s0_limit: Annotated[int | None, typer.Option("--s0-limit", help="Execute only N S0 rows (default: full matrix)")] = None,
+    s0_models: Annotated[list[str] | None, typer.Option("--s0-model", help="S0 cold-read model; repeat for multiple models")] = None,
     s0_variants: Annotated[int, typer.Option("--s0-variants")] = 2,
     s1_probe: Annotated[str | None, typer.Option("--s1-probe")] = None,
     s1_k: Annotated[int, typer.Option("--s1-k")] = 3,
@@ -146,6 +147,7 @@ def campaign(
         design=design,
         corpus=corpus,
         model=model,
+        s0_models=s0_models,
         s0_variants=s0_variants,
         s0_limit=s0_limit,
         s1_probe=s1_probe,

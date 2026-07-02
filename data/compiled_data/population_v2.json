@@ -1,0 +1,45 @@
+{
+  "schema_version": "company_twin.population.v2",
+  "seats": [
+    {
+      "description": "world-visible audit actor",
+      "role": "audit",
+      "seat_id": "audit-in-world"
+    },
+    {
+      "description": "投信/アプリ",
+      "role": "sales",
+      "seat_id": "emp-A"
+    },
+    {
+      "description": "保険/面談",
+      "role": "sales",
+      "seat_id": "emp-B"
+    },
+    {
+      "description": "",
+      "role": "application",
+      "seat_id": "emp-C"
+    },
+    {
+      "description": "加盟店/BtoB",
+      "role": "sales",
+      "seat_id": "emp-F"
+    },
+    {
+      "description": "口座/アプリ",
+      "role": "sales",
+      "seat_id": "emp-G"
+    },
+    {
+      "description": "W3水木不在",
+      "role": "manager",
+      "seat_id": "emp-M"
+    },
+    {
+      "description": "品質管理部",
+      "role": "second_line",
+      "seat_id": "emp-Q"
+    }
+  ]
+}
