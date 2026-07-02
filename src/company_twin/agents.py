@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import hashlib
 import os
 from pathlib import Path
 from typing import Any, Callable, Protocol
 
-from .env import normalize_openrouter_model
+from langchain_openrouter import ChatOpenRouter
+
+from .env import normalize_openrouter_model, openrouter_slug
 from .recorder import RunRecorder
 
 _PROFILE_REGISTERED = False
@@ -45,6 +48,13 @@ def recursion_for_budget(tick_budget: int) -> int:
     return max(12, 2 * tick_budget + 6)
 
 
+def openrouter_chat_model(model: str | None) -> ChatOpenRouter:
+    timeout = int(os.getenv("COMPANY_TWIN_LLM_TIMEOUT_SECONDS", "45"))
+    max_retries = int(os.getenv("COMPANY_TWIN_LLM_MAX_RETRIES", "0"))
+    max_tokens = int(os.getenv("COMPANY_TWIN_LLM_MAX_TOKENS", "700"))
+    return ChatOpenRouter(model=openrouter_slug(model), timeout=timeout, max_retries=max_retries, max_tokens=max_tokens)
+
+
 def load_role_card(root: Path, role: str) -> str:
     path = root / "data" / "design" / "role_cards" / f"{role}.md"
     if path.exists():
@@ -66,10 +76,14 @@ def role_system_prompt(seat_id: str, role: str, *, role_card: str = "") -> str:
 """
 
 
+def role_card_hash(role_card: str) -> str:
+    return hashlib.sha256(role_card.encode("utf-8")).hexdigest()
+
+
 class DeepAgentSeat:
     backend = "deepagents"
 
-    def __init__(self, *, seat_id: str, role: str, tools: list[Any], model: str, root: Path, recorder: RunRecorder, recursion_limit: int):
+    def __init__(self, *, seat_id: str, role: str, tools: list[Any], model: str, root: Path, recorder: RunRecorder, recursion_limit: int, role_card: str = ""):
         register_company_twin_profile()
         from deepagents import create_deep_agent
 
@@ -77,10 +91,13 @@ class DeepAgentSeat:
         self.model = normalize_openrouter_model(model)
         self.recorder = recorder
         self.recursion_limit = recursion_limit
+        self.role_card = role_card or load_role_card(root, role)
+        self.role_card_hash = role_card_hash(self.role_card)
+        system_prompt = role_system_prompt(seat_id, role, role_card=self.role_card)
         self._agent = create_deep_agent(
-            model=self.model,
+            model=openrouter_chat_model(self.model),
             tools=tools,
-            system_prompt=role_system_prompt(seat_id, role, role_card=load_role_card(root, role)),
+            system_prompt=system_prompt,
             subagents=[],
             name=f"company-twin-{seat_id}",
         )
@@ -89,7 +106,7 @@ class DeepAgentSeat:
         self.recorder.record_attempt(
             seat_id=self.seat_id,
             tool="llm_invoke",
-            args={"backend": self.backend, "model": self.model, "prompt_chars": len(prompt)},
+            args={"backend": self.backend, "model": self.model, "prompt_chars": len(prompt), "role_card_hash": self.role_card_hash},
             success=True,
             result={"state": "started"},
         )
@@ -108,8 +125,8 @@ class DeepAgentSeat:
 def default_seat_factory(*, root: Path, model: str | None) -> SeatFactory:
     model_name = normalize_openrouter_model(model)
 
-    def factory(*, seat_id: str, role: str, tools: list[Any], recorder: RunRecorder, recursion_limit: int) -> SeatAgent:
-        return DeepAgentSeat(seat_id=seat_id, role=role, tools=tools, model=model_name, root=root, recorder=recorder, recursion_limit=recursion_limit)
+    def factory(*, seat_id: str, role: str, tools: list[Any], recorder: RunRecorder, recursion_limit: int, role_card: str = "") -> SeatAgent:
+        return DeepAgentSeat(seat_id=seat_id, role=role, tools=tools, model=model_name, root=root, recorder=recorder, recursion_limit=recursion_limit, role_card=role_card)
 
     return factory
 
@@ -124,13 +141,14 @@ class DeepAgentCustomer:
 
     def __init__(self, *, model: str, recorder: RunRecorder):
         register_company_twin_profile()
-        from deepagents import create_deep_agent
 
         self.model = normalize_openrouter_model(model)
         self.recorder = recorder
-        self._agent = create_deep_agent(model=self.model, tools=[], system_prompt=CUSTOMER_SYSTEM_PROMPT, subagents=[], name="company-twin-customer")
 
     def __call__(self, persona_prompt: str) -> str:
+        from deepagents import create_deep_agent
+
+        agent = create_deep_agent(model=openrouter_chat_model(self.model), tools=[], system_prompt=CUSTOMER_SYSTEM_PROMPT, subagents=[], name="company-twin-customer")
         self.recorder.record_attempt(
             seat_id="customer",
             tool="llm_invoke",
@@ -138,7 +156,7 @@ class DeepAgentCustomer:
             success=True,
             result={"state": "started"},
         )
-        result = self._agent.invoke({"messages": [{"role": "user", "content": persona_prompt}]}, config={"recursion_limit": 8})
+        result = agent.invoke({"messages": [{"role": "user", "content": persona_prompt}]}, config={"recursion_limit": 8})
         text = final_text(result).strip()
         self.recorder.record_attempt(
             seat_id="customer",

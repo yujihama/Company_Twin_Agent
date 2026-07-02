@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from datetime import datetime
 from pathlib import Path
@@ -31,6 +32,7 @@ def run_s0(
     design: DesignInputs,
     corpus: Corpus,
     probe_id: str,
+    span_id: str | None = None,
     seat_id: str,
     run_root: Path,
     model: str | None = None,
@@ -38,25 +40,42 @@ def run_s0(
     seat_factory: SeatFactory | None = None,
 ) -> dict[str, Any]:
     seat = design.seats[seat_id]
+    resolved_span_id = span_id or (design.probes[probe_id].binds[0] if design.probes[probe_id].binds else "")
     model_name = normalize_openrouter_model(model)
     factory = seat_factory or default_seat_factory(root=design.root, model=model_name)
-    recorder = RunRecorder(run_root, run_id=run_root.name, meta={"stage": "S0", "probe": probe_id, "seat": seat_id, "model": model_name, "variant": variant})
-    write_config_snapshot(run_root, build_world_config(design, stage="S0", model=model_name, seed=variant, ticks=1, probe_id=probe_id, seat_id=seat_id, executed_s0_rows=1))
+    recorder = RunRecorder(run_root, run_id=run_root.name, meta={"stage": "S0", "probe": probe_id, "span_id": resolved_span_id, "seat": seat_id, "model": model_name, "variant": variant})
+    config = build_world_config(design, stage="S0", model=model_name, seed=variant, ticks=1, probe_id=probe_id, seat_id=seat_id, executed_s0_rows=1)
+    config["runtime_delta"]["span_id"] = resolved_span_id
+    write_config_snapshot(run_root, config)
     recorder.set_tick(1)
-    kernel = WorldKernel(recorder, kernel_profile(design))
-    tools = build_role_tools(corpus=corpus, kernel=kernel, recorder=recorder, seat_id=seat_id, seat_role=seat.role, include_workflow=False)
-    agent = factory(seat_id=seat_id, role=seat.role, tools=tools, recorder=recorder, recursion_limit=recursion_for_budget(14))
-    recorder.write_json("meta.json", {"run_id": recorder.run_id, "stage": "S0", "probe": probe_id, "seat": seat_id, "model": model_name, "variant": variant, "backend": getattr(agent, "backend", "unknown"), "live": getattr(agent, "backend", "") == "deepagents"})
+    kernel = WorldKernel(recorder, kernel_profile(design, config=config, ticks=1))
+    seat_config = config["world"]["population"]["seats"][seat_id]
+    workflow_names = {"send_chat", "record_customer_contact", "request_approval", "submit_application", "approve_application", "return_application", "verify_identity", "link_review", "complete_contract", "deliver_documents"}
+    tools = build_role_tools(
+        corpus=corpus,
+        kernel=kernel,
+        recorder=recorder,
+        seat_id=seat_id,
+        seat_role=seat.role,
+        include_workflow=False,
+        allowed_tools=set(seat_config["tools"]) - workflow_names,
+    )
+    role_card = seat_config["role_card"]["text"]
+    agent = factory(seat_id=seat_id, role=seat.role, tools=tools, recorder=recorder, recursion_limit=recursion_for_budget(14), role_card=role_card)
+    prompt = _s0_prompt(design, probe_id, resolved_span_id, variant) + _s0_span_suffix(design, resolved_span_id)
+    recorder.write_json("s0_question.json", {"probe_id": probe_id, "span_id": resolved_span_id, "variant": variant, "prompt": prompt, "prompt_sha256": _sha256(prompt)})
+    recorder.write_json("meta.json", {"run_id": recorder.run_id, "stage": "S0", "probe": probe_id, "span_id": resolved_span_id, "seat": seat_id, "model": model_name, "variant": variant, "backend": getattr(agent, "backend", "unknown"), "live": getattr(agent, "backend", "") == "deepagents"})
     with recorder.origin("agent"):
         try:
-            response = agent.turn(_s0_prompt(design, probe_id, variant))
+            response = agent.turn(prompt)
         except Exception as exc:  # noqa: BLE001 - recorded, run continues as failed row
             recorder.append_ledger("agent_error", {"seat_id": seat_id, "error_type": type(exc).__name__, "message": str(exc)[:500]})
             response = ""
-    recorder.append_ledger("s0_agent_response", {"seat_id": seat_id, "probe_id": probe_id, "response": response})
+    recorder.append_ledger("s0_agent_response", {"seat_id": seat_id, "probe_id": probe_id, "span_id": resolved_span_id, "response": response})
     parsed = _parse_s0_response(response)
     answer_record = {
         "probe_id": probe_id,
+        "span_id": resolved_span_id,
         "seat_id": seat_id,
         "role": seat.role,
         "model": model_name,
@@ -68,9 +87,20 @@ def run_s0(
     return {"run_root": str(run_root), **answer_record}
 
 
-def _s0_prompt(design: DesignInputs, probe_id: str, variant: int) -> str:
+def _s0_prompt(design: DesignInputs, probe_id: str, span_id: str, variant: int) -> str:
     event = event_for_probe(design, probe_id)
+    span = design.spans.get(span_id)
     situation = event.world_visible
+    span_context = ""
+    if span is not None:
+        candidates = "\n".join(f"- {key}: {value}" for key, value in sorted(span.candidates.items()))
+        span_context = f"""
+対象論点:
+{span.issue or span.raw}
+
+読みの候補:
+{candidates or "候補なし"}
+"""
     framing = (
         "次の案件があなたの担当キューに入りました。実際に処理へ入る前の整理として、"
         if variant % 2 == 0
@@ -91,6 +121,24 @@ def _s0_prompt(design: DesignInputs, probe_id: str, variant: int) -> str:
 }}
 
 読んでいない文書は cited_doc_ids に含めないでください。"""
+
+
+def _s0_span_suffix(design: DesignInputs, span_id: str) -> str:
+    span = design.spans.get(span_id)
+    if span is None:
+        return ""
+    candidates = "\n".join(f"- {key}: {value}" for key, value in sorted(span.candidates.items()))
+    return f"""
+
+Span-specific question context:
+Issue:
+{span.issue or span.raw}
+
+Candidate readings:
+{candidates or "none"}
+
+Answer this specific issue, not only the surrounding probe situation.
+"""
 
 
 def _parse_s0_response(response: str) -> dict[str, Any]:
@@ -175,8 +223,11 @@ def run_s2_world(
     seat_factory: SeatFactory | None = None,
     customer_llm: CustomerLLM | None = None,
     deck: list[CustomerEvent] | None = None,
+    event_limit: int | None = None,
 ) -> dict[str, Any]:
     events = deck if deck is not None else build_customer_deck(design, include_routine=True)
+    if event_limit is not None:
+        events = events[:event_limit]
     return _run_world(
         design=design,
         corpus=corpus,
@@ -217,7 +268,7 @@ def _run_world(
     write_config_snapshot(run_root, config)
     budgets = config["world"]["population"]["tick_budget"]
     recorder.configure_tick_budgets(budgets)
-    kernel = WorldKernel(recorder, kernel_profile(design, knobs=knobs, scc_switch_enabled=not anchor))
+    kernel = WorldKernel(recorder, kernel_profile(design, config=config, knobs=knobs, scc_switch_enabled=not anchor, ticks=ticks))
     customer = customer_llm or default_customer_llm(model=model_name, recorder=recorder)
     absence: dict[str, list[int]] = config["world"]["population"].get("absence", {})
 
@@ -226,9 +277,25 @@ def _run_world(
     def seat_agent(seat_id: str):
         if seat_id not in seats_cache:
             seat = design.seats[seat_id]
-            tools = build_role_tools(corpus=corpus, kernel=kernel, recorder=recorder, seat_id=seat_id, seat_role=seat.role, include_workflow=True)
+            seat_config = config["world"]["population"]["seats"][seat_id]
+            tools = build_role_tools(
+                corpus=corpus,
+                kernel=kernel,
+                recorder=recorder,
+                seat_id=seat_id,
+                seat_role=seat.role,
+                include_workflow=True,
+                allowed_tools=seat_config["tools"],
+            )
             budget = int(budgets.get(seat_id, 12))
-            seats_cache[seat_id] = factory(seat_id=seat_id, role=seat.role, tools=tools, recorder=recorder, recursion_limit=recursion_for_budget(budget))
+            seats_cache[seat_id] = factory(
+                seat_id=seat_id,
+                role=seat.role,
+                tools=tools,
+                recorder=recorder,
+                recursion_limit=recursion_for_budget(budget),
+                role_card=seat_config["role_card"]["text"],
+            )
         return seats_cache[seat_id]
 
     events_by_tick: dict[int, list[CustomerEvent]] = {}
@@ -260,6 +327,7 @@ def _run_world(
                         continue
                 recorder.append_ledger("agent_response", {"seat_id": seat_id, "response": response[:2000], "message_count": len(messages)})
                 agent_turns += 1
+        _deliver_customer_replies(kernel=kernel, recorder=recorder, customer_llm=customer)
         recorder.append_ledger("tick_committed", {"tick": tick})
 
     backend = getattr(next(iter(seats_cache.values()), None), "backend", "none")
@@ -287,21 +355,66 @@ def _turn_prompt(*, tick: int, ticks: int, budget_left: int, messages: list[dict
 あなたの受信箱:
 {rendered}
 
-これらをあなたの役割として処理してください。統制に関わる行為の前には必要な文書を検索・閲覧し、実際に読んだものだけを根拠に basis を書いてください。この半日で完了できない事項は、保留の判断と相手への連絡を自分で選んでください。"""
+これらをあなたの役割として処理してください。まず recall_private_memory で類似案件メモを確認し、処理後に再利用すべき判断・確認事項があれば note_to_self に残してください。統制に関わる行為の前には必要な文書を検索・閲覧し、実際に読んだものだけを根拠に basis を書いてください。この半日で完了できない事項は、保留の判断と相手への連絡を自分で選んでください。"""
 
 
 def _retime_event(event: CustomerEvent, *, trigger_tick: int, deadline_tick: int) -> CustomerEvent:
     return CustomerEvent(**{**event.to_dict(), "trigger_tick": trigger_tick, "deadline_tick": deadline_tick})
 
 
-def kernel_profile(design: DesignInputs, knobs: dict[str, bool] | None = None, *, scc_switch_enabled: bool = True) -> KernelProfile:
+def _deliver_customer_replies(*, kernel: WorldKernel, recorder: RunRecorder, customer_llm: CustomerLLM) -> None:
+    for customer_id, messages in sorted(kernel.pop_customer_inbox().items()):
+        reply_candidates = [message for message in messages if str(message.get("channel") or "").lower() not in {"email", "notice"}]
+        if not reply_candidates:
+            recorder.append_ledger("customer_reply_deferred", {"customer_id": customer_id, "messages": len(messages), "reason": "async_channel"})
+            continue
+        message = reply_candidates[-1]
+        prompt = (
+            "担当者から次の連絡がありました。顧客本人として、分からない点、保留したい点、"
+            "追加で確認したい点があれば短く返答してください。同じ半日の返信は1回だけにしてください。\n"
+            f"連絡内容: {message.get('body', '')}"
+        )
+        with recorder.origin("customer"):
+            utterance = customer_llm(prompt)
+        application_id, product = _customer_application(kernel, customer_id)
+        reply = {
+            "kind": "customer_utterance",
+            "tick": recorder.tick,
+            "event_id": f"CUS-REPLY-{recorder.tick}-{customer_id}",
+            "customer_id": customer_id,
+            "application_id": application_id,
+            "product": product,
+            "deadline_display": "顧客返信",
+            "utterance": utterance,
+        }
+        recorder.append_ledger("customer_utterance", {"event_id": reply["event_id"], "customer_id": customer_id, "utterance": utterance})
+        kernel.enqueue_inbox(str(message.get("from") or ""), reply)
+
+
+def _customer_application(kernel: WorldKernel, customer_id: str) -> tuple[str, str]:
+    for app in kernel.applications.values():
+        if app.get("customer_id") == customer_id:
+            return str(app.get("application_id") or ""), str(app.get("product") or "")
+    return "", ""
+
+
+def kernel_profile(design: DesignInputs, config: dict[str, Any] | None = None, knobs: dict[str, bool] | None = None, *, scc_switch_enabled: bool = True, ticks: int = 40) -> KernelProfile:
+    seat_tools: dict[str, set[str]] = {}
+    if config:
+        seats = ((config.get("world") or {}).get("population") or {}).get("seats") or {}
+        seat_tools = {seat_id: set((seat or {}).get("tools") or []) for seat_id, seat in seats.items()}
     return KernelProfile(
         knobs=dict(knobs or {}),
         valid_doc_ids=set(design.documents) | {f"{doc_id}@v1.0" for doc_id in ("DFH-SAL-021", "DFH-SAL-045")},
         valid_span_ids=set(design.spans),
         require_prior_read_for_basis=True,
         seat_roles={seat_id: seat.role for seat_id, seat in design.seats.items()},
+        tool_permissions=seat_tools,
         scc_switch_enabled=scc_switch_enabled,
+        scc_switch_tick=min(30, ticks),
+        campaign_deadline_tick=min(20, ticks),
+        manager_absence_ticks={tick for tick in {23, 24} if tick <= ticks},
+        month_end_tick=ticks,
         seat_qualifications={
             "emp-A": {"投資", "ロボアド"},
             "emp-B": {"保険"},
@@ -315,3 +428,7 @@ def kernel_profile(design: DesignInputs, knobs: dict[str, bool] | None = None, *
 def write_config_snapshot(run_root: Path, payload: dict[str, object]) -> None:
     run_root.mkdir(parents=True, exist_ok=True)
     (run_root / "config.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _sha256(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()

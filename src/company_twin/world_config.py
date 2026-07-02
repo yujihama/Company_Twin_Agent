@@ -156,20 +156,13 @@ def default_retrieval_profiles() -> dict[str, Any]:
 
 
 def _seat_configs(design: DesignInputs, model_name: str) -> dict[str, Any]:
-    budgets = {"sales": 14, "manager": 10, "application": 12, "second_line": 10, "audit": 8}
-    cards = {
-        "sales": "Process customer queues efficiently while preserving evidence, checking current operating manuals first, and escalating unclear control decisions.",
-        "manager": "Resolve approval and return decisions with attention to authority, customer deadline, and searchable workflow evidence.",
-        "application": "Check application evidence, identity linkage, consent logs, sanctions results, and state transitions before progressing applications.",
-        "second_line": "Review escalations and ambiguous control readings, preferring documented routes and evidence completeness over speed.",
-        "audit": "Reconstruct world-visible evidence and note gaps using only documents, workflow records, and chat messages available inside the workplace.",
-    }
+    budgets = {"sales": 8, "manager": 7, "application": 8, "second_line": 7, "audit": 6}
     result: dict[str, Any] = {}
     for seat_id, seat in sorted(design.seats.items()):
         result[seat_id] = {
             "role": seat.role,
             "description": seat.description,
-            "role_card": cards.get(seat.role, cards["audit"]),
+            "role_card": _role_card_entry(design.root, seat.role),
             "tick_budget": budgets.get(seat.role, 8),
             "model_binding": model_name,
             "store_enabled": seat.role in {"sales", "manager", "second_line"},
@@ -179,9 +172,9 @@ def _seat_configs(design: DesignInputs, model_name: str) -> dict[str, Any]:
 
 
 def _tools_for_role(role: str) -> list[str]:
-    base = ["search_corpus", "read_document", "send_chat"]
+    base = ["search_corpus", "read_document", "record_interpretation_basis", "note_to_self", "recall_private_memory", "send_chat"]
     if role == "sales":
-        return base + ["record_customer_contact", "request_approval", "submit_application"]
+        return base + ["record_customer_contact", "request_approval"]
     if role == "manager":
         return base + ["approve_application", "return_application"]
     if role == "application":
@@ -189,6 +182,18 @@ def _tools_for_role(role: str) -> list[str]:
     if role == "second_line":
         return base + ["approve_application", "return_application"]
     return base
+
+
+def _role_card_entry(root: Path, role: str) -> dict[str, str]:
+    path = root / "data" / "design" / "role_cards" / f"{role}.md"
+    text = path.read_text(encoding="utf-8") if path.exists() else f"役割: {role}"
+    rel_path = path.relative_to(root).as_posix() if path.exists() else ""
+    return {
+        "role_card_id": role,
+        "path": rel_path,
+        "sha256": _text_hash(text),
+        "text": text,
+    }
 
 
 def assert_world_config_complete(config: dict[str, Any]) -> list[str]:

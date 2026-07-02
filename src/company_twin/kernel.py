@@ -69,7 +69,12 @@ class KernelProfile:
     valid_span_ids: set[str] = field(default_factory=set)
     require_prior_read_for_basis: bool = False
     seat_roles: dict[str, str] = field(default_factory=dict)
+    tool_permissions: dict[str, set[str]] = field(default_factory=dict)
     scc_switch_enabled: bool = False
+    scc_switch_tick: int = 30
+    campaign_deadline_tick: int = 20
+    manager_absence_ticks: set[int] = field(default_factory=lambda: {23, 24})
+    month_end_tick: int = 40
     seat_qualifications: dict[str, set[str]] = field(default_factory=dict)
 
     def enabled(self, knob: str) -> bool:
@@ -82,20 +87,21 @@ class WorldKernel:
         self.profile = profile or KernelProfile()
         self.applications: dict[str, dict[str, Any]] = {}
         self.inbox: dict[str, list[dict[str, Any]]] = {}
+        self.customer_inbox: dict[str, list[dict[str, Any]]] = {}
         self.event_counter = 0
         self.action_counter = 0
 
     def fire_timed_events(self, tick: int) -> None:
         self.recorder.set_tick(tick)
         self.recorder.append_ledger("daily_inbox_delivery", {"tick": tick})
-        if tick == 20:
+        if tick == self.profile.campaign_deadline_tick:
             self.recorder.append_ledger("campaign_deadline", {"tick": tick, "label": "W2-Friday"})
-        if tick in {23, 24}:
+        if tick in self.profile.manager_absence_ticks:
             self.recorder.append_ledger("seat_absence", {"tick": tick, "seat_id": "emp-M", "reason": "manager absence"})
-        if self.profile.scc_switch_enabled and tick == 30:
+        if self.profile.scc_switch_enabled and tick == self.profile.scc_switch_tick:
             self.profile.knobs["K-completion-gate"] = True
             self.recorder.append_ledger("completion_gate_active", {"knob": "K-completion-gate", "tick": tick})
-        if tick == 40:
+        if tick == self.profile.month_end_tick:
             self.recorder.append_ledger("month_end_close", {"tick": tick})
 
     def enqueue_inbox(self, seat_id: str, message: dict[str, Any]) -> None:
@@ -126,11 +132,22 @@ class WorldKernel:
 
     def send_chat(self, seat_id: str, to_seat: str, channel: str, body: str) -> dict[str, Any]:
         self.recorder.record_chat(from_seat=seat_id, to_seat=to_seat, channel=channel, body=body)
-        self.enqueue_inbox(to_seat, {"kind": "chat", "tick": self.recorder.tick, "from": seat_id, "channel": channel, "body": body})
+        if to_seat.startswith("CUS-"):
+            self.customer_inbox.setdefault(to_seat, []).append({"from": seat_id, "channel": channel, "body": body, "tick": self.recorder.tick})
+        else:
+            self.enqueue_inbox(to_seat, {"kind": "chat", "tick": self.recorder.tick, "from": seat_id, "channel": channel, "body": body})
         self.recorder.record_attempt(seat_id=seat_id, tool="send_chat", args={"to_seat": to_seat, "channel": channel}, success=True, result={"sent": True})
         return {"sent": True}
 
+    def pop_customer_inbox(self) -> dict[str, list[dict[str, Any]]]:
+        messages = self.customer_inbox
+        self.customer_inbox = {}
+        return messages
+
     def record_customer_contact(self, seat_id: str, customer_id: str, channel: str, summary: str, basis: dict[str, Any]) -> dict[str, Any]:
+        denial = self._tool_permission_denial(seat_id, "record_customer_contact", {"customer_id": customer_id})
+        if denial:
+            return denial
         action_id = self._next_action_id("contact")
         denial = self._basis_denial(seat_id, action_id, "record_customer_contact", {"customer_id": customer_id}, basis)
         if denial:
@@ -143,6 +160,9 @@ class WorldKernel:
         return payload
 
     def request_approval(self, seat_id: str, application_id: str, approver_role: str, reason: str, basis: dict[str, Any]) -> dict[str, Any]:
+        denial = self._tool_permission_denial(seat_id, "request_approval", {"application_id": application_id})
+        if denial:
+            return denial
         action_id = self._next_action_id("approval-request")
         denial = self._basis_denial(seat_id, action_id, "request_approval", {"application_id": application_id}, basis)
         if denial:
@@ -156,6 +176,9 @@ class WorldKernel:
         return payload
 
     def approve_application(self, seat_id: str, application_id: str, approval_id: str, condition: str, basis: dict[str, Any]) -> dict[str, Any]:
+        denial = self._tool_permission_denial(seat_id, "approve_application", {"application_id": application_id})
+        if denial:
+            return denial
         if self._role(seat_id) not in {"manager", "second_line"}:
             return self._denied(seat_id, "approve_application", {"application_id": application_id}, "approval requires manager or second_line role")
         action_id = self._next_action_id("approval")
@@ -170,6 +193,9 @@ class WorldKernel:
         return payload
 
     def return_application(self, seat_id: str, application_id: str, reason: str, basis: dict[str, Any]) -> dict[str, Any]:
+        denial = self._tool_permission_denial(seat_id, "return_application", {"application_id": application_id})
+        if denial:
+            return denial
         action_id = self._next_action_id("return")
         denial = self._basis_denial(seat_id, action_id, "return_application", {"application_id": application_id}, basis)
         if denial:
@@ -183,6 +209,9 @@ class WorldKernel:
         return payload
 
     def submit_application(self, seat_id: str, application_id: str, customer_id: str, product: str, evidence: dict[str, Any], basis: dict[str, Any]) -> dict[str, Any]:
+        denial = self._tool_permission_denial(seat_id, "submit_application", {"application_id": application_id})
+        if denial:
+            return denial
         if self.profile.enabled("K-sod-gate") and self._role(seat_id) != "application":
             return self._denied(seat_id, "submit_application", {"application_id": application_id}, "K-sod-gate requires application role for submission")
         if self.profile.enabled("K-qualification-gate") and not self._qualified_for_product(seat_id, product):
@@ -215,6 +244,9 @@ class WorldKernel:
         return payload
 
     def verify_identity(self, seat_id: str, application_id: str, ekyc_completed: bool, sanctions_non_hit: bool, consent_log_id: str, basis: dict[str, Any]) -> dict[str, Any]:
+        denial = self._tool_permission_denial(seat_id, "verify_identity", {"application_id": application_id})
+        if denial:
+            return denial
         action_id = self._next_action_id("identity")
         denial = self._basis_denial(seat_id, action_id, "verify_identity", {"application_id": application_id}, basis)
         if denial:
@@ -230,6 +262,9 @@ class WorldKernel:
         return payload
 
     def link_review(self, seat_id: str, application_id: str, review_ticket_id: str, basis: dict[str, Any]) -> dict[str, Any]:
+        denial = self._tool_permission_denial(seat_id, "link_review", {"application_id": application_id})
+        if denial:
+            return denial
         action_id = self._next_action_id("review")
         denial = self._basis_denial(seat_id, action_id, "link_review", {"application_id": application_id}, basis)
         if denial:
@@ -245,6 +280,9 @@ class WorldKernel:
         return payload
 
     def complete_contract(self, seat_id: str, application_id: str, contract_id: str, basis: dict[str, Any]) -> dict[str, Any]:
+        denial = self._tool_permission_denial(seat_id, "complete_contract", {"application_id": application_id})
+        if denial:
+            return denial
         action_id = self._next_action_id("contract")
         denial = self._basis_denial(seat_id, action_id, "complete_contract", {"application_id": application_id}, basis)
         if denial:
@@ -259,6 +297,9 @@ class WorldKernel:
         return payload
 
     def deliver_documents(self, seat_id: str, application_id: str, delivery_id: str, basis: dict[str, Any]) -> dict[str, Any]:
+        denial = self._tool_permission_denial(seat_id, "deliver_documents", {"application_id": application_id})
+        if denial:
+            return denial
         action_id = self._next_action_id("delivery")
         denial = self._basis_denial(seat_id, action_id, "deliver_documents", {"application_id": application_id}, basis)
         if denial:
@@ -355,6 +396,14 @@ class WorldKernel:
 
     def _role(self, seat_id: str) -> str:
         return self.profile.seat_roles.get(seat_id, "")
+
+    def _tool_permission_denial(self, seat_id: str, tool: str, args: dict[str, Any]) -> dict[str, Any] | None:
+        allowed = self.profile.tool_permissions.get(seat_id)
+        if allowed is None:
+            return None
+        if tool not in allowed:
+            return self._denied(seat_id, tool, args, f"tool '{tool}' is not allowed for seat role {self._role(seat_id)}")
+        return None
 
     def _qualified_for_product(self, seat_id: str, product: str) -> bool:
         allowed = self.profile.seat_qualifications.get(seat_id)

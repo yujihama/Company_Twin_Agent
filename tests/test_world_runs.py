@@ -10,7 +10,7 @@ from company_twin.harness import run_s0, run_s1_episode, run_s2_world
 from company_twin.kernel import InboxLeakError, WorldKernel
 from company_twin.recorder import RunRecorder, read_jsonl
 from company_twin.tools import build_role_tools
-from company_twin.world_config import assert_world_config_complete
+from company_twin.world_config import assert_world_config_complete, build_world_config
 from conftest import FakeCustomerLLM, fake_seat_factory
 
 WORKFLOW_TOOLS = {
@@ -136,6 +136,25 @@ def test_s0_uses_agent_answer_not_harness_query(tmp_path: Path) -> None:
     assert searches and all(row["origin"] == "agent" for row in searches)  # the seat searched; the harness did not
 
 
+def test_s0_question_is_span_specific(tmp_path: Path) -> None:
+    design = load_design(Path.cwd())
+    corpus = Corpus.from_design(design)
+    span_a, span_b = design.probes["P-01"].binds[:2]
+
+    root_a = tmp_path / "s0_a"
+    root_b = tmp_path / "s0_b"
+    result_a = run_s0(design=design, corpus=corpus, probe_id="P-01", span_id=span_a, seat_id="emp-A", run_root=root_a, variant=0, seat_factory=fake_seat_factory())
+    result_b = run_s0(design=design, corpus=corpus, probe_id="P-01", span_id=span_b, seat_id="emp-A", run_root=root_b, variant=0, seat_factory=fake_seat_factory())
+
+    question_a = _json(root_a / "s0_question.json")
+    question_b = _json(root_b / "s0_question.json")
+    assert result_a["span_id"] == span_a
+    assert result_b["span_id"] == span_b
+    assert question_a["span_id"] == span_a
+    assert question_b["span_id"] == span_b
+    assert question_a["prompt_sha256"] != question_b["prompt_sha256"]
+
+
 def test_manager_absence_defers_inbox(tmp_path: Path) -> None:
     design = load_design(Path.cwd())
     corpus = Corpus.from_design(design)
@@ -175,3 +194,29 @@ def test_tick_budget_denies_excess_tool_calls(tmp_path: Path) -> None:
 
     assert "tick budget exceeded" in denied
     assert recorder.budget_left("emp-A") == 0
+
+
+def test_world_config_role_tool_bundles_are_scoped() -> None:
+    design = load_design(Path.cwd())
+    config = build_world_config(design, stage="S2", model=None, seed=0, ticks=40)
+    seats = config["world"]["population"]["seats"]
+
+    sales_tools = set(seats["emp-A"]["tools"])
+    manager_tools = set(seats["emp-M"]["tools"])
+    app_tools = set(seats["emp-C"]["tools"])
+
+    assert not sales_tools & {"submit_application", "verify_identity", "link_review", "complete_contract", "deliver_documents"}
+    assert not sales_tools & {"approve_application", "return_application"}
+    assert not manager_tools & {"submit_application", "verify_identity", "link_review", "complete_contract", "deliver_documents"}
+    assert not app_tools & {"approve_application", "return_application"}
+    assert {"note_to_self", "recall_private_memory", "send_chat"}.issubset(sales_tools)
+
+
+def test_version_skew_profile_exposes_stale_docs_only_to_sales() -> None:
+    design = load_design(Path.cwd())
+    corpus = Corpus.from_design(design)
+    sales_ids = [hit.doc_id for hit in corpus.search("DFH-SAL-021", seat_role="sales", top_k=10)]
+    second_line_ids = [hit.doc_id for hit in corpus.search("DFH-SAL-021", seat_role="second_line", top_k=10)]
+
+    assert "DFH-SAL-021@v1.0" in sales_ids
+    assert all("@v1.0" not in doc_id for doc_id in second_line_ids)

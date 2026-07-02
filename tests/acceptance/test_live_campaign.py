@@ -25,6 +25,7 @@ def test_live_campaign_passes_all_gates() -> None:
     assert campaign_root.exists(), f"campaign root not found: {campaign_root}"
     design = load_design(Path.cwd())
     corpus = Corpus.from_design(design)
-    report = run_acceptance(campaign_root=campaign_root, design=design, corpus=corpus)
+    scope = os.environ.get("COMPANY_TWIN_ACCEPT_SCOPE", "full_world")
+    report = run_acceptance(campaign_root=campaign_root, design=design, corpus=corpus, scope=scope)
     failed = [b for b in report["bundles"] if not b["passed"]] + [g for g in report["campaign_gates"] if not g["passed"]]
     assert report["passed"], f"acceptance failed: {failed[:5]}"

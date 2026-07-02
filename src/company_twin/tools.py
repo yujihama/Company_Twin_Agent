@@ -8,7 +8,16 @@ from .kernel import WorldKernel, parse_json_arg
 from .recorder import BasisRecord, RunRecorder, utc_now
 
 
-def build_role_tools(*, corpus: Corpus, kernel: WorldKernel, recorder: RunRecorder, seat_id: str, seat_role: str, include_workflow: bool = True):
+def build_role_tools(
+    *,
+    corpus: Corpus,
+    kernel: WorldKernel,
+    recorder: RunRecorder,
+    seat_id: str,
+    seat_role: str,
+    include_workflow: bool = True,
+    allowed_tools: set[str] | list[str] | tuple[str, ...] | None = None,
+):
     def search_corpus(query: str, top_k: int = 5) -> str:
         """Search world-visible control documents. Returns doc_id, title, score, and snippets."""
         if not recorder.consume_budget(seat_id, "search_corpus"):
@@ -66,10 +75,10 @@ def build_role_tools(*, corpus: Corpus, kernel: WorldKernel, recorder: RunRecord
             alternatives_considered=alternatives_considered,
             felt_constraints=felt_constraints,
             confidence=confidence,
-            grounded=True,
+            grounded=None,
         )
         basis_id = recorder.record_basis(seat_id, basis)
-        return json.dumps({"recorded": True, "basis_id": basis_id, "decision": decision}, ensure_ascii=False)
+        return json.dumps({"recorded": True, "basis_id": basis_id, "decision": decision, "basis_kind": "basis_only"}, ensure_ascii=False)
 
     def note_to_self(key: str, value: str) -> str:
         """Write a short private working note for yourself (only you can read it later)."""
@@ -77,6 +86,14 @@ def build_role_tools(*, corpus: Corpus, kernel: WorldKernel, recorder: RunRecord
             return json.dumps({"success": False, "denied_reason": "tick budget exceeded"}, ensure_ascii=False)
         recorder.remember_private(seat_id=seat_id, key=key, value=value)
         return json.dumps({"noted": True, "key": key}, ensure_ascii=False)
+
+    def recall_private_memory(query: str = "", limit: int = 5) -> str:
+        """Read your private working notes from earlier ticks."""
+        if not recorder.consume_budget(seat_id, "recall_private_memory"):
+            return json.dumps({"success": False, "denied_reason": "tick budget exceeded"}, ensure_ascii=False)
+        notes = recorder.recall_private(seat_id=seat_id, query=query, limit=limit)
+        recorder.record_attempt(seat_id=seat_id, tool="recall_private_memory", args={"query": query, "limit": limit}, success=True, result={"notes": len(notes)})
+        return json.dumps({"notes": notes}, ensure_ascii=False)
 
     def send_chat(to_seat: str, channel: str, body: str) -> str:
         """Send a world-visible chat or email message to another seat."""
@@ -147,7 +164,7 @@ def build_role_tools(*, corpus: Corpus, kernel: WorldKernel, recorder: RunRecord
         result = kernel.deliver_documents(seat_id, application_id, delivery_id, parse_json_arg(basis_json))
         return json.dumps(result, ensure_ascii=False)
 
-    reading_tools = [search_corpus, read_document, record_interpretation_basis, note_to_self]
+    reading_tools = [search_corpus, read_document, record_interpretation_basis, note_to_self, recall_private_memory]
     workflow_tools = [
         send_chat,
         record_customer_contact,
@@ -160,7 +177,11 @@ def build_role_tools(*, corpus: Corpus, kernel: WorldKernel, recorder: RunRecord
         complete_contract,
         deliver_documents,
     ]
-    return reading_tools + (workflow_tools if include_workflow else [])
+    tools = reading_tools + (workflow_tools if include_workflow else [])
+    if allowed_tools is None:
+        return tools
+    allowed = set(allowed_tools)
+    return [tool for tool in tools if tool.__name__ in allowed]
 
 
 def _list_json(value: str) -> list[dict[str, Any]]:

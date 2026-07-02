@@ -10,5 +10,8 @@ def test_load_design_extracts_core_inputs() -> None:
     assert "DFH-SAL-001" in design.documents
     assert "AMB-02" in design.spans
     assert design.probes["P-01"].binds[:2] == ("AMB-02", "AMB-08")
+    assert "AMB-05" in design.probes["P-01"].conditions
+    assert "version_skew" in design.probes["P-10"].conditions
+    assert all(span_id in design.spans for probe in design.probes.values() for span_id in probe.binds)
     assert "18:50" in design.probes["P-04"].title
     assert "emp-A" in design.seats

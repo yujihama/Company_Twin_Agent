@@ -60,6 +60,7 @@ def inspect_inputs(root: Annotated[Path | None, typer.Option("--root")] = None, 
 @app.command("s0")
 def s0(
     probe: Annotated[str, typer.Option("--probe")] = "P-01",
+    span: Annotated[str | None, typer.Option("--span")] = None,
     seat: Annotated[str, typer.Option("--seat")] = "emp-A",
     variant: Annotated[int, typer.Option("--variant")] = 0,
     root: Annotated[Path | None, typer.Option("--root")] = None,
@@ -72,11 +73,13 @@ def s0(
     design = load_design(base)
     if probe not in design.probes:
         raise typer.BadParameter(f"unknown probe: {probe}")
+    if span is not None and span not in design.spans:
+        raise typer.BadParameter(f"unknown span: {span}")
     if seat not in design.seats:
         raise typer.BadParameter(f"unknown seat: {seat}")
     corpus = Corpus.from_design(design)
     target_root = (run_root or make_run_root(base, f"s0_{probe}_{seat}")).resolve()
-    result = run_s0(design=design, corpus=corpus, probe_id=probe, seat_id=seat, run_root=target_root, model=model, variant=variant)
+    result = run_s0(design=design, corpus=corpus, probe_id=probe, span_id=span, seat_id=seat, run_root=target_root, model=model, variant=variant)
     write_triage(target_root)
     _echo_json(result)
 
@@ -109,6 +112,7 @@ def s2(
     seed: Annotated[int, typer.Option("--seed")] = 0,
     ticks: Annotated[int, typer.Option("--ticks")] = 40,
     anchor: Annotated[bool, typer.Option("--anchor")] = False,
+    event_limit: Annotated[int | None, typer.Option("--event-limit")] = None,
     root: Annotated[Path | None, typer.Option("--root")] = None,
     run_root: Annotated[Path | None, typer.Option("--run-root")] = None,
     model: Annotated[str | None, typer.Option("--model")] = None,
@@ -119,7 +123,7 @@ def s2(
     design = load_design(base)
     corpus = Corpus.from_design(design)
     target_root = (run_root or make_run_root(base, "anchor_s2" if anchor else "s2")).resolve()
-    result = run_s2_world(design=design, corpus=corpus, run_root=target_root, model=model, knobs={}, seed=seed, ticks=ticks, anchor=anchor)
+    result = run_s2_world(design=design, corpus=corpus, run_root=target_root, model=model, knobs={}, seed=seed, ticks=ticks, anchor=anchor, event_limit=event_limit)
     write_triage(target_root)
     _echo_json(result)
 
@@ -133,6 +137,7 @@ def campaign(
     with_s2: Annotated[bool, typer.Option("--with-s2")] = False,
     s2_k: Annotated[int, typer.Option("--s2-k")] = 1,
     s2_ticks: Annotated[int, typer.Option("--s2-ticks")] = 40,
+    s2_event_limit: Annotated[int | None, typer.Option("--s2-event-limit")] = None,
     root: Annotated[Path | None, typer.Option("--root")] = None,
     model: Annotated[str | None, typer.Option("--model")] = None,
 ) -> None:
@@ -153,6 +158,7 @@ def campaign(
         with_s2=with_s2,
         s2_k=s2_k,
         s2_ticks=s2_ticks,
+        s2_event_limit=s2_event_limit,
     )
     _echo_json(payload)
 
@@ -167,13 +173,14 @@ def triage(run_root: Annotated[Path, typer.Argument()]) -> None:
 @app.command("acceptance")
 def acceptance(
     campaign_root: Annotated[Path, typer.Option("--campaign-root")],
+    scope: Annotated[str, typer.Option("--scope")] = "full_world",
     root: Annotated[Path | None, typer.Option("--root")] = None,
 ) -> None:
     """Run the unfakeable acceptance gates (A-01..A-09) over a campaign root."""
     base = _root(root)
     design = load_design(base)
     corpus = Corpus.from_design(design)
-    payload = run_acceptance(campaign_root=campaign_root.resolve(), design=design, corpus=corpus)
+    payload = run_acceptance(campaign_root=campaign_root.resolve(), design=design, corpus=corpus, scope=scope)
     _echo_json(payload)
     if not payload["passed"]:
         raise typer.Exit(code=1)

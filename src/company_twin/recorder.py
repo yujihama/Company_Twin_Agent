@@ -64,6 +64,7 @@ class RunRecorder:
         self._origin = "system"
         self._tick_budgets: dict[str, int] = {}
         self._tick_usage: dict[tuple[int, str], int] = {}
+        self._private_store: dict[str, list[dict[str, Any]]] = {}
         run_root.mkdir(parents=True, exist_ok=True)
         self.write_json("meta.json", {"run_id": run_id, "created_at": utc_now(), **(meta or {})})
         for name in ("attempts.jsonl", "basis_records.jsonl", "chat_channel.jsonl", "world_ledger.jsonl", "store_events.jsonl"):
@@ -169,9 +170,31 @@ class RunRecorder:
         self.append_ledger("inbox_delivered", payload)
 
     def remember_private(self, *, seat_id: str, key: str, value: str) -> None:
-        payload = {"ts": utc_now(), "run_id": self.run_id, "tick": self.tick, "seat_id": seat_id, "key": key, "value": value, "origin": self._origin}
+        payload = {"ts": utc_now(), "run_id": self.run_id, "tick": self.tick, "seat_id": seat_id, "key": key, "value": value, "origin": self._origin, "op": "write"}
+        self._private_store.setdefault(seat_id, []).append(payload)
         self.append_jsonl("store_events.jsonl", payload)
         self.append_ledger("private_store_write", {"seat_id": seat_id, "key": key})
+
+    def recall_private(self, *, seat_id: str, query: str = "", limit: int = 5) -> list[dict[str, Any]]:
+        query_lower = query.lower()
+        notes = list(self._private_store.get(seat_id, []))
+        if query_lower:
+            notes = [note for note in notes if query_lower in str(note.get("key", "")).lower() or query_lower in str(note.get("value", "")).lower()]
+        selected = notes[-max(int(limit), 0) :]
+        payload = {
+            "ts": utc_now(),
+            "run_id": self.run_id,
+            "tick": self.tick,
+            "seat_id": seat_id,
+            "query": query,
+            "limit": limit,
+            "returned": len(selected),
+            "origin": self._origin,
+            "op": "read",
+        }
+        self.append_jsonl("store_events.jsonl", payload)
+        self.append_ledger("private_store_read", {"seat_id": seat_id, "query": query, "returned": len(selected)})
+        return [{"tick": note.get("tick"), "key": note.get("key"), "value": note.get("value")} for note in selected]
 
     def append_ledger(self, event_type: str, payload: dict[str, Any]) -> str:
         base = {"ts": utc_now(), "run_id": self.run_id, "tick": self.tick, "event_type": event_type, "payload": payload, "prev_hash": self._prev_hash}
