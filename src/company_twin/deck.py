@@ -77,20 +77,6 @@ def event_for_probe(design: DesignInputs, probe_id: str) -> CustomerEvent:
     raise KeyError(f"unknown probe_id: {probe_id}")
 
 
-def customer_event_for_inbox(event: CustomerEvent) -> dict[str, Any]:
-    return {
-        "kind": "customer_event",
-        "event_id": event.event_id,
-        "probe_id": event.probe_id,
-        "customer_id": event.customer_id,
-        "application_id": event.application_id,
-        "product": event.product,
-        "deadline_tick": event.deadline_tick,
-        "world_visible": event.world_visible,
-        "required_doc_ids": list(event.required_doc_ids),
-        "span_ids": list(event.span_ids),
-    }
-
 
 def _routine_events(*, start_tick: int) -> list[CustomerEvent]:
     sales_cycle = ("emp-A", "emp-B", "emp-F", "emp-G")

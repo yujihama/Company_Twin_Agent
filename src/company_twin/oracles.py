@@ -121,20 +121,37 @@ def _bucketize(findings: list[Finding], run_root: Path) -> dict[str, dict[str, A
     return buckets
 
 
+CONTROLLED_TOOL_NAMES = {"record_customer_contact", "request_approval", "approve_application", "return_application", "submit_application", "verify_identity", "link_review", "complete_contract", "deliver_documents"}
+
+
+class ScriptedOriginError(RuntimeError):
+    """A run bundle contains records from the banned scripted path."""
+
+
 def _metrics(run_root: Path, findings: list[Finding]) -> dict[str, Any]:
     attempts = read_jsonl(run_root / "attempts.jsonl")
     ledger = read_jsonl(run_root / "world_ledger.jsonl")
     basis = read_jsonl(run_root / "basis_records.jsonl")
-    controlled = [row for row in attempts if row.get("tool") in {"record_customer_contact", "request_approval", "approve_application", "submit_application", "verify_identity", "link_review", "complete_contract", "deliver_documents"}]
-    grounded = [row for row in basis if row.get("grounded")]
+    origin_breakdown = dict(Counter(str(row.get("origin") or "unknown") for row in attempts))
+    banned = {origin for origin in origin_breakdown if origin not in {"system", "agent", "customer"}}
+    if banned:
+        raise ScriptedOriginError(f"{run_root.name}: banned origins present in attempts: {sorted(banned)}")
+    # Measurement population is agent-originated records ONLY (MASTER_DESIGN P8 /
+    # fix WI-8): controlled actions and their basis must come from seat agents.
+    controlled = [row for row in attempts if row.get("tool") in CONTROLLED_TOOL_NAMES and row.get("success") and row.get("origin") == "agent"]
+    agent_seats = {row.get("seat_id") for row in attempts if row.get("origin") == "agent"}
+    agent_basis = [row for row in basis if row.get("seat_id") in agent_seats]
+    grounded = [row for row in agent_basis if row.get("grounded")]
     return {
         "stage": _stage(run_root),
         "attempts": len(attempts),
-        "controlled_actions": len(controlled),
-        "basis_records": len(basis),
-        "grounding_coverage_machine": (len(grounded) / len(controlled)) if controlled else 0,
+        "origin_breakdown": origin_breakdown,
+        "controlled_actions_agent": len(controlled),
+        "basis_records_agent": len(agent_basis),
+        "grounding_coverage_machine": (len(grounded) / len(controlled)) if controlled else 0.0,
         "customer_events": sum(1 for row in ledger if row.get("event_type") == "customer_event"),
         "permission_denied": sum(1 for row in attempts if not row.get("success")),
+        "llm_invocations": sum(1 for row in attempts if row.get("tool") == "llm_invoke"),
         "finding_types": dict(Counter(finding.finding_type for finding in findings)),
     }
 

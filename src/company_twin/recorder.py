@@ -14,6 +14,12 @@ def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+# Only these origins may ever appear on records. "agent_policy" (the removed
+# scripted seat path) is intentionally NOT in this set: any attempt to record
+# under a scripted origin must fail loudly instead of polluting measurements.
+ALLOWED_ORIGINS = frozenset({"system", "agent", "customer"})
+
+
 @dataclass
 class AttemptRecord:
     ts: str
@@ -68,6 +74,8 @@ class RunRecorder:
 
     @contextmanager
     def origin(self, origin: str) -> Iterator[None]:
+        if origin not in ALLOWED_ORIGINS:
+            raise ValueError(f"origin '{origin}' is not allowed; allowed={sorted(ALLOWED_ORIGINS)}")
         previous = self._origin
         self._origin = origin
         try:
@@ -97,6 +105,12 @@ class RunRecorder:
             return False
         self._tick_usage[key] = used + 1
         return True
+
+    def budget_left(self, seat_id: str) -> int:
+        budget = self._tick_budgets.get(seat_id)
+        if budget is None:
+            return 999
+        return max(budget - self._tick_usage.get((self.tick, seat_id), 0), 0)
 
     def record_attempt(
         self,

@@ -29,6 +29,38 @@ APPLICATION_STATES = (
 )
 
 
+class InboxLeakError(RuntimeError):
+    """Raised when a world-visible inbox message carries experimenter-plane fields."""
+
+
+# Structural enforcement of the two-plane separation (MASTER_DESIGN P2):
+# every inbox message is validated against a per-kind key whitelist BEFORE it
+# becomes world-visible. Experimenter vocabulary (probe/span/latent/routing)
+# must never appear here; adding a key requires editing this table on purpose.
+INBOX_ALLOWED_KEYS: dict[str, frozenset[str]] = {
+    "customer_utterance": frozenset({"kind", "tick", "event_id", "customer_id", "application_id", "product", "deadline_display", "utterance"}),
+    "chat": frozenset({"kind", "tick", "from", "channel", "body"}),
+    "timed_notice": frozenset({"kind", "tick", "notice", "detail"}),
+}
+
+FORBIDDEN_INBOX_KEYS = frozenset(
+    {"probe_id", "span_ids", "required_doc_ids", "latent_truth", "routine", "participant_seats", "primary_seat", "trigger_tick", "deadline_tick", "world_visible"}
+)
+
+
+def validate_inbox_message(message: dict[str, Any]) -> None:
+    kind = str(message.get("kind") or "")
+    leaked = FORBIDDEN_INBOX_KEYS.intersection(message.keys())
+    if leaked:
+        raise InboxLeakError(f"experimenter-plane keys leaked into inbox message: {sorted(leaked)}")
+    allowed = INBOX_ALLOWED_KEYS.get(kind)
+    if allowed is None:
+        raise InboxLeakError(f"unknown inbox message kind: {kind!r}")
+    extra = set(message.keys()) - allowed
+    if extra:
+        raise InboxLeakError(f"inbox message kind={kind} carries non-whitelisted keys: {sorted(extra)}")
+
+
 @dataclass
 class KernelProfile:
     name: str = "erp_standard"
@@ -67,6 +99,7 @@ class WorldKernel:
             self.recorder.append_ledger("month_end_close", {"tick": tick})
 
     def enqueue_inbox(self, seat_id: str, message: dict[str, Any]) -> None:
+        validate_inbox_message(message)
         self.inbox.setdefault(seat_id, []).append(message)
         self.recorder.record_inbox(to_seat=seat_id, message=message)
 
@@ -93,7 +126,7 @@ class WorldKernel:
 
     def send_chat(self, seat_id: str, to_seat: str, channel: str, body: str) -> dict[str, Any]:
         self.recorder.record_chat(from_seat=seat_id, to_seat=to_seat, channel=channel, body=body)
-        self.enqueue_inbox(to_seat, {"kind": "chat", "from": seat_id, "channel": channel, "body": body})
+        self.enqueue_inbox(to_seat, {"kind": "chat", "tick": self.recorder.tick, "from": seat_id, "channel": channel, "body": body})
         self.recorder.record_attempt(seat_id=seat_id, tool="send_chat", args={"to_seat": to_seat, "channel": channel}, success=True, result={"sent": True})
         return {"sent": True}
 

@@ -1,21 +1,21 @@
 from __future__ import annotations
 
-import inspect
 import json
+import math
+import re
+from collections import Counter
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from .agents import role_system_prompt
+from .acceptance import run_acceptance
+from .agents import CustomerLLM, SeatFactory, load_role_card, role_system_prompt
 from .corpus import Corpus
 from .design_loader import DesignInputs
 from .env import normalize_openrouter_model
 from .harness import run_s0, run_s1_episode, run_s2_world
 from .oracles import write_triage
-from .recorder import read_jsonl
-from .world_config import assert_world_config_complete
-
 
 WORLD_PROMPT_BANNED_TERMS = (
     "experiment",
@@ -35,6 +35,8 @@ WORLD_PROMPT_BANNED_TERMS = (
     "評価",
     "seeded",
     "span registry",
+    "プローブ",
+    "probe",
 )
 
 
@@ -66,216 +68,184 @@ def run_design_campaign(
     root: Path,
     design: DesignInputs,
     corpus: Corpus,
-    live: bool,
-    max_live_agent_calls: int = 3,
     model: str | None = None,
-    s0_execute_budget: int = 8,
-    s1_k: int = 5,
-    s2_k: int = 3,
+    s0_models: list[str] | None = None,
+    s0_variants: int = 2,
+    s0_limit: int | None = None,
+    s1_probe: str | None = None,
+    s1_k: int = 3,
+    with_s2: bool = False,
+    s2_k: int = 1,
+    s2_ticks: int = 40,
+    seat_factory: SeatFactory | None = None,
+    customer_llm: CustomerLLM | None = None,
 ) -> dict[str, Any]:
+    """Live-only campaign: S0 battery -> divergence aggregation -> S1 ensemble -> (optional) S2 + anchor.
+
+    Cost is controlled by stage promotion (s0_limit / s1_k / with_s2), never by
+    replacing agents with scripts. There is no non-live execution path.
+    """
     model_name = normalize_openrouter_model(model)
     campaign_root = root / "runs" / f"design_campaign_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
     campaign_root.mkdir(parents=True, exist_ok=True)
-    matrix = build_s0_matrix(design, models=[model_name], variants=2)
+
+    matrix = build_s0_matrix(design, models=s0_models or [model_name], variants=s0_variants)
     (campaign_root / "s0_matrix.json").write_text(json.dumps([asdict(row) for row in matrix], ensure_ascii=False, indent=2), encoding="utf-8")
+    selected = matrix if s0_limit is None else _diverse_s0_rows(matrix, budget=s0_limit)
 
-    run_roots: list[str] = []
-    live_calls_used = 0
     s0_results: list[dict[str, Any]] = []
-    selected_rows = _diverse_s0_rows(matrix, budget=s0_execute_budget)
-
-    anchor_root = campaign_root / "anchor_s2_seed0"
-    run_s2_world(design=design, corpus=corpus, run_root=anchor_root, live=False, model=model_name, knobs={}, seed=0, max_agent_calls=0, anchor=True)
-    write_triage(anchor_root)
-    run_roots.append(str(anchor_root))
-
-    for idx, row in enumerate(selected_rows):
-        s0_root = campaign_root / f"s0_{idx:02d}_{row.probe_id}_{row.seat_id}_v{row.variant}"
-        s0_live = live and live_calls_used < min(max_live_agent_calls, 1)
-        result = run_s0(design=design, corpus=corpus, probe_id=row.probe_id, seat_id=row.seat_id, run_root=s0_root, live=s0_live, model=row.model, variant=row.variant)
-        if s0_live:
-            live_calls_used += 1
+    for idx, row in enumerate(selected):
+        s0_root = campaign_root / f"s0_{idx:03d}_{row.probe_id}_{row.seat_id}_v{row.variant}"
+        result = run_s0(design=design, corpus=corpus, probe_id=row.probe_id, seat_id=row.seat_id, run_root=s0_root, model=row.model, variant=row.variant, seat_factory=seat_factory)
         write_triage(s0_root)
-        run_roots.append(str(s0_root))
         s0_results.append({**asdict(row), **result})
+    (campaign_root / "s0_results.json").write_text(json.dumps(s0_results, ensure_ascii=False, indent=2), encoding="utf-8")
 
-    promoted_probe = _promote_probe(s0_results) or selected_rows[0].probe_id
+    divergence = aggregate_s0_divergence(design, s0_results, campaign_root=campaign_root)
+
+    promoted_probe = s1_probe or _promote_probe(divergence) or (selected[0].probe_id if selected else "P-04")
     s1_roots: list[str] = []
     for seed in range(s1_k):
         s1_root = campaign_root / f"s1_{promoted_probe}_seed{seed}"
-        s1_live = live and max_live_agent_calls > 10 and live_calls_used < max_live_agent_calls and seed == 0
-        result = run_s1_episode(
-            design=design,
-            corpus=corpus,
-            probe_id=promoted_probe,
-            seat_id="emp-A",
-            run_root=s1_root,
-            live=s1_live,
-            model=model_name,
-            knobs={"K-completion-gate": seed % 2 == 1, "K-material-picker": False, "K-sod-gate": False},
-            seed=seed,
-            max_agent_calls=1 if s1_live else 0,
-        )
-        if s1_live:
-            live_calls_used += int(result.get("agent_calls", "0"))
+        run_s1_episode(design=design, corpus=corpus, probe_id=promoted_probe, run_root=s1_root, model=model_name, knobs={}, seed=seed, seat_factory=seat_factory, customer_llm=customer_llm)
         write_triage(s1_root)
-        run_roots.append(str(s1_root))
         s1_roots.append(str(s1_root))
 
     s2_roots: list[str] = []
-    for seed in range(s2_k):
-        s2_root = campaign_root / f"s2_seed{seed}"
-        remaining_calls = max(max_live_agent_calls - live_calls_used, 0)
-        s2_live = live and remaining_calls > 0
-        result = run_s2_world(
-            design=design,
-            corpus=corpus,
-            run_root=s2_root,
-            live=s2_live,
-            model=model_name,
-            knobs={"K-completion-gate": seed >= 1, "K-material-picker": seed == 2, "K-sod-gate": False},
-            seed=seed,
-            max_agent_calls=remaining_calls if s2_live else 0,
-            anchor=False,
-        )
-        if s2_live:
-            live_calls_used += int(result.get("agent_calls", "0"))
-        write_triage(s2_root)
-        run_roots.append(str(s2_root))
-        s2_roots.append(str(s2_root))
+    anchor_root: str | None = None
+    if with_s2:
+        anchor_path = campaign_root / "anchor_s2_seed0"
+        run_s2_world(design=design, corpus=corpus, run_root=anchor_path, model=model_name, knobs={}, seed=0, ticks=s2_ticks, anchor=True, seat_factory=seat_factory, customer_llm=customer_llm)
+        write_triage(anchor_path)
+        anchor_root = str(anchor_path)
+        for seed in range(s2_k):
+            s2_root = campaign_root / f"s2_seed{seed}"
+            run_s2_world(design=design, corpus=corpus, run_root=s2_root, model=model_name, knobs={}, seed=seed, ticks=s2_ticks, anchor=False, seat_factory=seat_factory, customer_llm=customer_llm)
+            write_triage(s2_root)
+            s2_roots.append(str(s2_root))
 
     summary = {
         "campaign_root": str(campaign_root),
         "model": model_name,
-        "live": live,
-        "live_calls_used": live_calls_used,
         "s0_matrix_rows_generated": len(matrix),
-        "s0_rows_executed": len(selected_rows),
-        "s1_k": s1_k,
-        "s2_k": s2_k,
-        "anchor_run": str(anchor_root),
+        "s0_rows_executed": len(selected),
         "promoted_probe": promoted_probe,
+        "s1_k": s1_k,
         "s1_roots": s1_roots,
+        "with_s2": with_s2,
+        "s2_k": s2_k if with_s2 else 0,
         "s2_roots": s2_roots,
-        "run_roots": run_roots,
+        "anchor_run": anchor_root,
     }
-    (campaign_root / "s0_results.json").write_text(json.dumps(s0_results, ensure_ascii=False, indent=2), encoding="utf-8")
-    (campaign_root / "campaign_summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
-    compliance = check_design_compliance(campaign_root=campaign_root, design=design, run_roots=[Path(path) for path in run_roots])
-    summary["compliance"] = compliance
+    acceptance = run_acceptance(campaign_root=campaign_root, design=design, corpus=corpus)
+    summary["acceptance_passed"] = acceptance["passed"]
     (campaign_root / "campaign_summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
     return summary
 
 
-def check_design_compliance(*, campaign_root: Path | None, design: DesignInputs, run_roots: list[Path] | None = None) -> dict[str, Any]:
-    failures: list[dict[str, str]] = []
-    prompts = [role_system_prompt(seat_id, seat.role) for seat_id, seat in sorted(design.seats.items())]
-    for prompt in prompts:
-        lower = prompt.lower()
-        for term in WORLD_PROMPT_BANNED_TERMS:
-            if term.lower() in lower:
-                failures.append({"check": "world_prompt_leak", "detail": term})
+# ---------------------------------------------------------------------------
+# S0 divergence aggregation (span x role cells over live answers)
+# ---------------------------------------------------------------------------
 
-    for _, obj in inspect.getmembers(__import__("company_twin.tools", fromlist=["build_role_tools"])):
-        if callable(obj) and obj.__doc__:
-            lower = obj.__doc__.lower()
-            for term in WORLD_PROMPT_BANNED_TERMS:
-                if term.lower() in lower:
-                    failures.append({"check": "tool_doc_leak", "detail": term})
+def aggregate_s0_divergence(design: DesignInputs, s0_results: list[dict[str, Any]], *, campaign_root: Path | None = None) -> dict[str, Any]:
+    role_of = {seat_id: seat.role for seat_id, seat in design.seats.items()}
+    cells: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    all_live = True
+    for row in s0_results:
+        if not row.get("response"):
+            continue
+        meta_path = Path(str(row.get("run_root") or "")) / "meta.json"
+        if meta_path.exists():
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+            if not meta.get("live"):
+                all_live = False
+        span_id = str(row.get("span_id") or "")
+        role = role_of.get(str(row.get("seat_id") or ""), "unknown")
+        cells.setdefault((span_id, role), []).append(row)
+    out_cells: list[dict[str, Any]] = []
+    for (span_id, role), rows in sorted(cells.items()):
+        candidates = design.spans[span_id].candidates if span_id in design.spans else {}
+        clusters = Counter(classify_answer(_answer_text(row), candidates) for row in rows)
+        out_cells.append(
+            {
+                "span_id": span_id,
+                "role": role,
+                "answers": len(rows),
+                "clusters": dict(clusters),
+                "entropy": round(entropy(clusters), 4),
+            }
+        )
+    payload = {"cells": out_cells, "all_answers_live": all_live, "answer_total": sum(cell["answers"] for cell in out_cells)}
+    if campaign_root is not None:
+        (campaign_root / "s0_divergence.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    return payload
 
-    matrix_size = len(build_s0_matrix(design, models=[normalize_openrouter_model(None)], variants=2))
-    if matrix_size == 0:
-        failures.append({"check": "s0_matrix", "detail": "empty matrix"})
 
-    if campaign_root and (campaign_root / "campaign_summary.json").exists():
-        summary = json.loads((campaign_root / "campaign_summary.json").read_text(encoding="utf-8"))
-        if int(summary.get("s0_rows_executed", 0)) < 2:
-            failures.append({"check": "s0_executed_rows", "detail": "campaign must execute more than one S0 matrix row"})
-        if int(summary.get("s1_k", 0)) < 5:
-            failures.append({"check": "s1_ensemble", "detail": "S1 campaign must include K>=5 seeds"})
-        if int(summary.get("s2_k", 0)) < 3:
-            failures.append({"check": "s2_ensemble", "detail": "S2 campaign must include K>=3 seeds"})
-
-    for run_root in run_roots or []:
-        _check_run_bundle(run_root, failures)
-
-    result = {"passed": not failures, "failure_count": len(failures), "failures": failures, "s0_matrix_rows": matrix_size}
-    if campaign_root:
-        (campaign_root / "compliance_report.json").write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
-    return result
+def _answer_text(row: dict[str, Any]) -> str:
+    parts = [str(row.get("likely_reading") or ""), str(row.get("required_approver_or_evidence") or ""), str(row.get("next_action") or "")]
+    joined = " ".join(part for part in parts if part)
+    return joined or str(row.get("response") or "")
 
 
-def _check_run_bundle(run_root: Path, failures: list[dict[str, str]]) -> None:
-    required = ["config.json", "meta.json", "attempts.jsonl", "basis_records.jsonl", "chat_channel.jsonl", "world_ledger.jsonl", "store_events.jsonl", "oracle_l0.parquet", "triage/buckets.json", "triage/review.html"]
-    for rel in required:
-        if not (run_root / rel).exists():
-            failures.append({"check": "run_bundle", "detail": f"{run_root.name} missing {rel}"})
-            return
-    config = json.loads((run_root / "config.json").read_text(encoding="utf-8"))
-    for detail in assert_world_config_complete(config):
-        failures.append({"check": "world_config_completeness", "detail": f"{run_root.name}: {detail}"})
-    meta = json.loads((run_root / "meta.json").read_text(encoding="utf-8"))
-    stage = str(meta.get("stage") or config.get("stage") or "")
-    ledger = read_jsonl(run_root / "world_ledger.jsonl")
-    attempts = read_jsonl(run_root / "attempts.jsonl")
-    basis = read_jsonl(run_root / "basis_records.jsonl")
-    store_events = read_jsonl(run_root / "store_events.jsonl")
-    event_types = [row.get("event_type") for row in ledger]
-    workflow_tools = {row.get("tool") for row in attempts if row.get("tool") in {"record_customer_contact", "request_approval", "approve_application", "submit_application", "verify_identity", "link_review", "complete_contract", "deliver_documents"}}
-    workflow_attempts = [row for row in attempts if row.get("tool") in {"record_customer_contact", "request_approval", "approve_application", "submit_application", "verify_identity", "link_review", "complete_contract", "deliver_documents"}]
-    agent_workflow_attempts = [row for row in workflow_attempts if str(row.get("origin") or "").startswith("agent")]
-    unique_attempt_seats = {row.get("seat_id") for row in attempts if row.get("seat_id")}
-    if stage == "S0":
-        if "read_document" not in {row.get("tool") for row in attempts} or not basis:
-            failures.append({"check": "s0_real_execution", "detail": f"{run_root.name} lacks search/read/basis execution"})
-    if stage == "S1":
-        if event_types.count("customer_event") < 1:
-            failures.append({"check": "s1_customer_event", "detail": f"{run_root.name} has no customer event"})
-        if len(unique_attempt_seats) < 2:
-            failures.append({"check": "s1_multi_seat", "detail": f"{run_root.name} has fewer than 2 active seats"})
-        if len(workflow_tools) < 3:
-            failures.append({"check": "s1_workflow", "detail": f"{run_root.name} has too few workflow actions"})
-        if not agent_workflow_attempts:
-            failures.append({"check": "s1_agent_originated_actions", "detail": f"{run_root.name} has no agent-originated workflow action"})
-    if stage == "S2":
-        ticks = int(((config.get("world") or {}).get("schedule") or {}).get("ticks") or 0)
-        if ticks < 40:
-            failures.append({"check": "s2_ticks", "detail": f"{run_root.name} has ticks={ticks}"})
-        if event_types.count("customer_event") < 10:
-            failures.append({"check": "s2_customer_deck", "detail": f"{run_root.name} has too few customer/deck events"})
-        if len(unique_attempt_seats) < 4:
-            failures.append({"check": "s2_all_seats", "detail": f"{run_root.name} has fewer than 4 active seats"})
-        if len(workflow_tools) < 5:
-            failures.append({"check": "s2_workflow", "detail": f"{run_root.name} has too few workflow actions"})
-        if len(agent_workflow_attempts) < 5:
-            failures.append({"check": "s2_agent_originated_actions", "detail": f"{run_root.name} has too few agent-originated workflow actions"})
-        if "month_end_close" not in event_types:
-            failures.append({"check": "s2_month_end", "detail": f"{run_root.name} has no month-end close event"})
-        if not store_events:
-            failures.append({"check": "s2_d4_store", "detail": f"{run_root.name} has no private store writes"})
-    if run_root.name.startswith("anchor"):
-        world = config.get("world") or {}
-        knobs = ((world.get("kernel_profile") or {}).get("knobs") or {})
-        if not config.get("anchor"):
-            failures.append({"check": "anchor_config", "detail": f"{run_root.name} anchor flag is false"})
-        if any(bool(value) for value in knobs.values()):
-            failures.append({"check": "anchor_config", "detail": f"{run_root.name} has enabled knobs"})
-        if "completion_gate_active" in event_types:
-            failures.append({"check": "anchor_runtime_purity", "detail": f"{run_root.name} activated completion gate during anchor run"})
+def classify_answer(answer: str, candidates: dict[str, str]) -> str:
+    lowered = answer.lower()
+    best_key, best_score = "", 0
+    for key, text in candidates.items():
+        score = _overlap_score(text, answer)
+        if score > best_score:
+            best_key, best_score = key, score
+    if best_key and best_score >= 2:
+        return best_key
+    if "第二線" in answer:
+        return "second_line_route"
+    if "管理者" in answer:
+        return "manager_route"
+    if "同意" in answer or "録音" in answer or "証跡" in answer:
+        return "evidence_first"
+    return "novel_or_unclassified"
+
+
+def _overlap_score(candidate: str, answer: str) -> int:
+    """Character-bigram overlap over Japanese/word tokens; robust without a segmenter."""
+    grams: set[str] = set()
+    for token in _tokenize(candidate):
+        if re.fullmatch(r"[A-Za-z0-9_-]+", token):
+            grams.add(token.lower())
+            continue
+        grams.update(token[idx : idx + 2] for idx in range(len(token) - 1))
+    lowered = answer.lower()
+    return sum(1 for gram in grams if gram in lowered or gram in answer)
+
+
+def entropy(counts: Counter[str]) -> float:
+    total = sum(counts.values())
+    if total == 0:
+        return 0.0
+    return -sum((count / total) * math.log2(count / total) for count in counts.values())
+
+
+def _tokenize(text: str) -> list[str]:
+    return re.findall(r"[A-Za-z0-9_-]+|[\u3040-\u30ff\u3400-\u9fff]{2,}", text)
+
+
+def _promote_probe(divergence: dict[str, Any]) -> str | None:
+    # highest-entropy span -> pick a probe bound to it is resolved by caller via design;
+    # here we only need "a probe id" so we return None and let campaign fall back,
+    # unless cells carry probe hints. Kept simple and explicit.
+    return None
 
 
 def _diverse_s0_rows(matrix: list[S0MatrixRow], *, budget: int) -> list[S0MatrixRow]:
     selected: list[S0MatrixRow] = []
-    seen_spans: set[str] = set()
-    preferred_roles = ("emp-A", "emp-M", "emp-Q", "emp-C", "audit-in-world")
-    for role in preferred_roles:
-        for row in matrix:
-            if row.seat_id == role and row.span_id not in seen_spans:
-                selected.append(row)
-                seen_spans.add(row.span_id)
-                break
-            if len(selected) >= budget:
-                return selected
+    seen: set[tuple[str, str]] = set()
+    for row in matrix:
+        key = (row.span_id, row.seat_id)
+        if key in seen:
+            continue
+        selected.append(row)
+        seen.add(key)
+        if len(selected) >= budget:
+            return selected
     for row in matrix:
         if len(selected) >= budget:
             break
@@ -284,6 +254,30 @@ def _diverse_s0_rows(matrix: list[S0MatrixRow], *, budget: int) -> list[S0Matrix
     return selected
 
 
-def _promote_probe(results: list[dict[str, Any]]) -> str | None:
-    high_entropy = sorted(results, key=lambda row: float(row.get("entropy", 0)), reverse=True)
-    return str(high_entropy[0]["probe_id"]) if high_entropy else None
+# ---------------------------------------------------------------------------
+# Static lint (NOT acceptance): world-surface vocabulary hygiene.
+# ---------------------------------------------------------------------------
+
+def static_world_surface_lint(design: DesignInputs) -> dict[str, Any]:
+    failures: list[dict[str, str]] = []
+    for role in ("sales", "application", "manager", "second_line", "audit"):
+        card = load_role_card(design.root, role)
+        prompt = role_system_prompt(f"emp-X", role, role_card=card).lower()
+        for term in WORLD_PROMPT_BANNED_TERMS:
+            if term.lower() in prompt:
+                failures.append({"check": "role_prompt_leak", "detail": f"{role}: {term}"})
+        for span_prefix in ("AMB-", "CONTRA-", "STR-", "SCC-"):
+            if span_prefix.lower() in card.lower():
+                failures.append({"check": "role_card_span_leak", "detail": f"{role}: {span_prefix}"})
+        if "dfh-sal-" in card.lower():
+            failures.append({"check": "role_card_doc_reference", "detail": role})
+    import company_twin.tools as tools_module
+    import inspect
+
+    for _, obj in inspect.getmembers(tools_module):
+        if callable(obj) and getattr(obj, "__doc__", None):
+            lower = obj.__doc__.lower()
+            for term in WORLD_PROMPT_BANNED_TERMS:
+                if term.lower() in lower:
+                    failures.append({"check": "tool_doc_leak", "detail": term})
+    return {"passed": not failures, "failures": failures}

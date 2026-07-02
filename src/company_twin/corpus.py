@@ -48,6 +48,12 @@ class Corpus:
                 text = extract_text(meta.path)
             docs[doc_id] = CorpusDocument(meta=meta, text=text)
             if doc_id in {"DFH-SAL-021", "DFH-SAL-045"}:
+                v10_path = _find_v1_0_path(design.root, doc_id)
+                if v10_path is None:
+                    raise FileNotFoundError(
+                        f"stale v1.0 source for {doc_id} not found under data/raw_data_v1_0; "
+                        "version-skew requires the real v1.0 document body"
+                    )
                 stale_meta = DocumentMeta(
                     doc_id=f"{doc_id}@v1.0",
                     kind=meta.kind,
@@ -55,9 +61,9 @@ class Corpus:
                     owner=meta.owner,
                     scope=meta.scope,
                     version="1.0",
-                    path=meta.path,
+                    path=v10_path,
                 )
-                docs[stale_meta.doc_id] = CorpusDocument(meta=stale_meta, text=f"旧版 v1.0 stale index copy\n{text}")
+                docs[stale_meta.doc_id] = CorpusDocument(meta=stale_meta, text=extract_text(v10_path))
         return cls(docs, default_retrieval_profiles())
 
     def get(self, doc_id: str) -> CorpusDocument:
@@ -104,6 +110,16 @@ class Corpus:
             "second_line_stale_ids": [hit.doc_id for hit in self.search("旧版021 高齢者 追加確認", seat_role="second_line", top_k=5) if "@v1.0" in hit.doc_id],
             "passed": bool(sales_hits and "DFH-SAL-021" in [hit.doc_id for hit in sales_hits]) and bool(second_line_hits),
         }
+
+
+def _find_v1_0_path(root: Path, doc_id: str) -> Path | None:
+    base = root / "data" / "raw_data_v1_0"
+    if not base.exists():
+        return None
+    for path in sorted(base.glob(f"{doc_id}_*")):
+        if path.is_file():
+            return path
+    return None
 
 
 def extract_text(path: Path) -> str:

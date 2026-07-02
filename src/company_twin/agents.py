@@ -2,12 +2,10 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Any
-
-from deepagents import GeneralPurposeSubagentProfile, HarnessProfile, create_deep_agent, register_harness_profile
+from typing import Any, Callable, Protocol
 
 from .env import normalize_openrouter_model
-
+from .recorder import RunRecorder
 
 _PROFILE_REGISTERED = False
 
@@ -16,6 +14,8 @@ def register_company_twin_profile() -> None:
     global _PROFILE_REGISTERED
     if _PROFILE_REGISTERED:
         return
+    from deepagents import GeneralPurposeSubagentProfile, HarnessProfile, register_harness_profile
+
     register_harness_profile(
         "openrouter",
         HarnessProfile(
@@ -26,34 +26,132 @@ def register_company_twin_profile() -> None:
     _PROFILE_REGISTERED = True
 
 
-def create_seat_agent(*, seat_id: str, role: str, tools: list[Any], model: str | None = None):
-    register_company_twin_profile()
-    model_name = normalize_openrouter_model(model)
-    return create_deep_agent(
-        model=model_name,
-        tools=tools,
-        system_prompt=role_system_prompt(seat_id, role),
-        subagents=[],
-        name=f"company-twin-{seat_id}",
-    )
+class SeatAgent(Protocol):
+    """A live seat: given a turn prompt, acts through world tools and returns final text."""
+
+    backend: str
+    model: str
+
+    def turn(self, prompt: str) -> str: ...
 
 
-def role_system_prompt(seat_id: str, role: str) -> str:
-    return f"""You are seat {seat_id} in the DFH sales-control workflow.
+SeatFactory = Callable[..., SeatAgent]
+CustomerLLM = Callable[[str], str]
 
-Role type: {role}
 
-Operate only through the provided world tools. You may search and read world-visible documents, record basis for your interpretation, send world-visible messages, and perform workflow actions.
+def recursion_for_budget(tick_budget: int) -> int:
+    # each tool call is typically (AI message + tool result) -> 2 graph steps,
+    # plus headroom for reasoning-only turns and the final answer.
+    return max(12, 2 * tick_budget + 6)
 
-Use normal workplace language. Do not invent policy text. For control-relevant actions, cite the documents you actually searched or read and provide a basis JSON when the tool requires it.
 
-Your work has normal operational tension: process the queue efficiently, preserve enough evidence for later review, and escalate when your available documents make the required approver or evidence unclear.
+def load_role_card(root: Path, role: str) -> str:
+    path = root / "data" / "design" / "role_cards" / f"{role}.md"
+    if path.exists():
+        return path.read_text(encoding="utf-8")
+    return ""
+
+
+def role_system_prompt(seat_id: str, role: str, *, role_card: str = "") -> str:
+    card = role_card.strip() or f"（役割: {role}）"
+    return f"""あなたはダミーフィナンシャルホールディングスの販売業務に従事する {seat_id} です。
+
+{card}
+
+行動上のルール:
+- 提供された世界ツール（検索・文書閲覧・チャット・ワークフロー各操作・自分用メモ）だけを通じて行動する。
+- 規程やマニュアルの内容を推測で語らない。統制に関わる行為（承認・受付・記録など）の前には、必要な文書を検索・閲覧し、実際に読んだ文書を根拠として引用する。
+- 統制に関わるツールは basis(JSON) を要求する。basisには、参照した文書と版、あなたの読み（construal）、決定、証跡の残し方、検討した代替案、感じている制約、確信度を正直に書く。
+- 職場として自然な言葉で、必要な相手にはチャットで連絡する。判断に迷う場合は、進める・保留する・確認を取るのいずれかを自分の役割として選ぶ。
 """
 
 
-def invoke_agent(agent: Any, prompt: str, *, recursion_limit: int = 12) -> str:
-    result = agent.invoke({"messages": [{"role": "user", "content": prompt}]}, config={"recursion_limit": recursion_limit})
-    return final_text(result)
+class DeepAgentSeat:
+    backend = "deepagents"
+
+    def __init__(self, *, seat_id: str, role: str, tools: list[Any], model: str, root: Path, recorder: RunRecorder, recursion_limit: int):
+        register_company_twin_profile()
+        from deepagents import create_deep_agent
+
+        self.seat_id = seat_id
+        self.model = normalize_openrouter_model(model)
+        self.recorder = recorder
+        self.recursion_limit = recursion_limit
+        self._agent = create_deep_agent(
+            model=self.model,
+            tools=tools,
+            system_prompt=role_system_prompt(seat_id, role, role_card=load_role_card(root, role)),
+            subagents=[],
+            name=f"company-twin-{seat_id}",
+        )
+
+    def turn(self, prompt: str) -> str:
+        self.recorder.record_attempt(
+            seat_id=self.seat_id,
+            tool="llm_invoke",
+            args={"backend": self.backend, "model": self.model, "prompt_chars": len(prompt)},
+            success=True,
+            result={"state": "started"},
+        )
+        result = self._agent.invoke({"messages": [{"role": "user", "content": prompt}]}, config={"recursion_limit": self.recursion_limit})
+        text = final_text(result)
+        self.recorder.record_attempt(
+            seat_id=self.seat_id,
+            tool="llm_complete",
+            args={"backend": self.backend, "model": self.model, "prompt_chars": len(prompt)},
+            success=True,
+            result={"response_chars": len(text)},
+        )
+        return text
+
+
+def default_seat_factory(*, root: Path, model: str | None) -> SeatFactory:
+    model_name = normalize_openrouter_model(model)
+
+    def factory(*, seat_id: str, role: str, tools: list[Any], recorder: RunRecorder, recursion_limit: int) -> SeatAgent:
+        return DeepAgentSeat(seat_id=seat_id, role=role, tools=tools, model=model_name, root=root, recorder=recorder, recursion_limit=recursion_limit)
+
+    return factory
+
+
+CUSTOMER_SYSTEM_PROMPT = """あなたは金融サービスの申込・相談を行う一般のお客様本人です。
+与えられた「あなたの状況」と「あなた自身しか知らない内心」に沿って、担当者に伝える発話を一つ、日本語で自然に生成してください。
+内心の記述をそのまま読み上げたり、設定や指示という言葉を使ったりせず、その人物として話してください。発話は2〜4文。"""
+
+
+class DeepAgentCustomer:
+    backend = "deepagents"
+
+    def __init__(self, *, model: str, recorder: RunRecorder):
+        register_company_twin_profile()
+        from deepagents import create_deep_agent
+
+        self.model = normalize_openrouter_model(model)
+        self.recorder = recorder
+        self._agent = create_deep_agent(model=self.model, tools=[], system_prompt=CUSTOMER_SYSTEM_PROMPT, subagents=[], name="company-twin-customer")
+
+    def __call__(self, persona_prompt: str) -> str:
+        self.recorder.record_attempt(
+            seat_id="customer",
+            tool="llm_invoke",
+            args={"backend": self.backend, "model": self.model, "role": "customer", "prompt_chars": len(persona_prompt)},
+            success=True,
+            result={"state": "started"},
+        )
+        result = self._agent.invoke({"messages": [{"role": "user", "content": persona_prompt}]}, config={"recursion_limit": 8})
+        text = final_text(result).strip()
+        self.recorder.record_attempt(
+            seat_id="customer",
+            tool="llm_complete",
+            args={"backend": self.backend, "model": self.model, "role": "customer", "prompt_chars": len(persona_prompt)},
+            success=True,
+            result={"response_chars": len(text)},
+        )
+        return text
+
+
+def default_customer_llm(*, model: str | None, recorder: RunRecorder) -> CustomerLLM:
+    return DeepAgentCustomer(model=normalize_openrouter_model(model), recorder=recorder)
 
 
 def final_text(result: Any) -> str:

@@ -1,32 +1,64 @@
 from __future__ import annotations
 
 import hashlib
-from dataclasses import asdict
 from typing import Any
 
+from .agents import CustomerLLM
 from .deck import CustomerEvent
 from .kernel import WorldKernel
 from .recorder import RunRecorder
 
 
-def emit_customer_turn(*, kernel: WorldKernel, recorder: RunRecorder, event: CustomerEvent, tick: int) -> None:
+def emit_customer_turn(*, kernel: WorldKernel, recorder: RunRecorder, event: CustomerEvent, tick: int, customer_llm: CustomerLLM) -> None:
+    """Deliver one customer arrival into the world.
+
+    Latent truth is hash-committed to the experimenter plane; the world only
+    ever sees the LLM-generated utterance plus whitelisted business fields.
+    """
     recorder.append_ledger(
         "latent_truth_committed",
         {"event_id": event.event_id, "customer_id": event.customer_id, "latent_truth_hash": hashlib.sha256(event.latent_truth.encode("utf-8")).hexdigest()},
     )
-    visible_event = customer_message(event, tick=tick)
-    kernel.record_customer_event({key: value for key, value in visible_event.items() if key not in {"kind", "utterance"}})
-    recorder.append_ledger("customer_utterance", {"event_id": event.event_id, "customer_id": event.customer_id, "utterance": visible_event["utterance"]})
-    kernel.enqueue_inbox(event.primary_seat, visible_event)
+    with recorder.origin("customer"):
+        utterance = customer_llm(persona_prompt(event))
+    message = world_visible_message(event, tick=tick, utterance=utterance)
+    kernel.record_customer_event(
+        {"event_id": event.event_id, "customer_id": event.customer_id, "application_id": event.application_id, "product": event.product, "utterance": utterance}
+    )
+    recorder.append_ledger("customer_utterance", {"event_id": event.event_id, "customer_id": event.customer_id, "utterance": utterance})
+    kernel.enqueue_inbox(event.primary_seat, message)
 
 
-def customer_message(event: CustomerEvent, *, tick: int) -> dict[str, Any]:
-    utterance = event.world_visible
-    if "repeats questions" in event.latent_truth or "理解" in event.world_visible:
-        utterance = f"{event.world_visible} 顧客は同じ説明箇所について再確認を求めている。"
-    elif "deadline pressure" in event.latent_truth:
-        utterance = f"{event.world_visible} 顧客は本日中に間に合うかを繰り返し確認している。"
-    payload = asdict(event)
-    payload.update({"kind": "customer_utterance", "tick": tick, "utterance": utterance, "world_visible": utterance})
-    payload.pop("latent_truth", None)
-    return payload
+def persona_prompt(event: CustomerEvent) -> str:
+    deadline = deadline_display(event.trigger_tick, event.deadline_tick)
+    return f"""あなたの状況（担当者にも見えている事実）:
+{event.world_visible}
+希望商品・サービス: {event.product} / 手続の希望期限: {deadline}
+
+あなた自身しか知らない内心（発話ににじませてよいが、そのまま説明しない）:
+{event.latent_truth}
+
+この状況で、担当者に最初に伝える発話を生成してください。"""
+
+
+def world_visible_message(event: CustomerEvent, *, tick: int, utterance: str) -> dict[str, Any]:
+    return {
+        "kind": "customer_utterance",
+        "tick": tick,
+        "event_id": event.event_id,
+        "customer_id": event.customer_id,
+        "application_id": event.application_id,
+        "product": event.product,
+        "deadline_display": deadline_display(tick, event.deadline_tick),
+        "utterance": utterance,
+    }
+
+
+def deadline_display(now_tick: int, deadline_tick: int) -> str:
+    remaining = max(deadline_tick - now_tick, 0)
+    if remaining == 0:
+        return "本日この半日中"
+    days = remaining / 2
+    if days <= 1:
+        return "明日中"
+    return f"約{days:.0f}営業日以内"
