@@ -4,16 +4,39 @@ import json
 from dataclasses import dataclass, field
 from typing import Any
 
-from .recorder import RunRecorder
+from .recorder import BasisRecord, RunRecorder, utc_now
 
 
-CONTROLLED_TOOLS = {"request_approval", "submit_application", "complete_application", "record_customer_contact"}
+CONTROLLED_TOOLS = {
+    "record_customer_contact",
+    "request_approval",
+    "approve_application",
+    "return_application",
+    "submit_application",
+    "verify_identity",
+    "link_review",
+    "complete_contract",
+    "deliver_documents",
+}
+
+APPLICATION_STATES = (
+    "draft",
+    "application_received",
+    "identity_verified",
+    "review_linked",
+    "contracted",
+    "documents_delivered",
+)
 
 
 @dataclass
 class KernelProfile:
     name: str = "erp_standard"
     knobs: dict[str, bool] = field(default_factory=dict)
+    valid_doc_ids: set[str] = field(default_factory=set)
+    valid_span_ids: set[str] = field(default_factory=set)
+    require_prior_read_for_basis: bool = False
+    seat_roles: dict[str, str] = field(default_factory=dict)
 
     def enabled(self, knob: str) -> bool:
         return bool(self.knobs.get(knob, False))
@@ -24,41 +47,113 @@ class WorldKernel:
         self.recorder = recorder
         self.profile = profile or KernelProfile()
         self.applications: dict[str, dict[str, Any]] = {}
+        self.inbox: dict[str, list[dict[str, Any]]] = {}
         self.event_counter = 0
+        self.action_counter = 0
 
     def fire_timed_events(self, tick: int) -> None:
         self.recorder.set_tick(tick)
-        if tick in {2, 4, 6}:
-            self.recorder.append_ledger("daily_inbox_delivery", {"tick": tick})
-        if self.profile.enabled("K-completion-gate") and tick == 4:
-            self.recorder.append_ledger("completion_gate_active", {"knob": "K-completion-gate"})
+        self.recorder.append_ledger("daily_inbox_delivery", {"tick": tick})
+        if tick == 20:
+            self.recorder.append_ledger("campaign_deadline", {"tick": tick, "label": "W2-Friday"})
+        if tick in {23, 24}:
+            self.recorder.append_ledger("seat_absence", {"tick": tick, "seat_id": "emp-M", "reason": "manager absence"})
+        if tick == 30:
+            self.profile.knobs["K-completion-gate"] = True
+            self.recorder.append_ledger("completion_gate_active", {"knob": "K-completion-gate", "tick": tick})
+        if tick == 40:
+            self.recorder.append_ledger("month_end_close", {"tick": tick})
+
+    def enqueue_inbox(self, seat_id: str, message: dict[str, Any]) -> None:
+        self.inbox.setdefault(seat_id, []).append(message)
+        self.recorder.record_inbox(to_seat=seat_id, message=message)
+
+    def pop_inbox(self, seat_id: str) -> list[dict[str, Any]]:
+        messages = self.inbox.get(seat_id, [])
+        self.inbox[seat_id] = []
+        return messages
+
+    def inbox_nonempty_seats(self) -> list[str]:
+        return sorted(seat_id for seat_id, messages in self.inbox.items() if messages)
+
+    def record_customer_event(self, event: dict[str, Any]) -> None:
+        self.recorder.append_ledger("customer_event", event)
+        app_id = str(event.get("application_id") or "")
+        if app_id and app_id not in self.applications:
+            self.applications[app_id] = {
+                "application_id": app_id,
+                "customer_id": event.get("customer_id"),
+                "product": event.get("product"),
+                "status": "draft",
+                "history": [{"tick": self.recorder.tick, "state": "draft", "reason": "customer_event"}],
+            }
+            self.recorder.append_ledger("application_drafted", _without_basis(self.applications[app_id]))
 
     def send_chat(self, seat_id: str, to_seat: str, channel: str, body: str) -> dict[str, Any]:
         self.recorder.record_chat(from_seat=seat_id, to_seat=to_seat, channel=channel, body=body)
+        self.enqueue_inbox(to_seat, {"kind": "chat", "from": seat_id, "channel": channel, "body": body})
         self.recorder.record_attempt(seat_id=seat_id, tool="send_chat", args={"to_seat": to_seat, "channel": channel}, success=True, result={"sent": True})
         return {"sent": True}
 
     def record_customer_contact(self, seat_id: str, customer_id: str, channel: str, summary: str, basis: dict[str, Any]) -> dict[str, Any]:
-        if not _valid_basis(basis):
-            return self._denied(seat_id, "record_customer_contact", {"customer_id": customer_id}, "basis is required and must include retrieved, construal, decision")
+        action_id = self._next_action_id("contact")
+        denial = self._basis_denial(seat_id, action_id, "record_customer_contact", {"customer_id": customer_id}, basis)
+        if denial:
+            return denial
         self.event_counter += 1
         event_id = f"EVT-{self.event_counter:06d}"
-        payload = {"event_id": event_id, "customer_id": customer_id, "channel": channel, "summary": summary}
+        payload = {"event_id": event_id, "customer_id": customer_id, "channel": channel, "summary": summary, "action_id": action_id}
         self.recorder.append_ledger("customer_contact", payload)
         self.recorder.record_attempt(seat_id=seat_id, tool="record_customer_contact", args=payload, success=True, result=payload)
         return payload
 
     def request_approval(self, seat_id: str, application_id: str, approver_role: str, reason: str, basis: dict[str, Any]) -> dict[str, Any]:
-        if not _valid_basis(basis):
-            return self._denied(seat_id, "request_approval", {"application_id": application_id}, "basis is required and must include retrieved, construal, decision")
-        payload = {"application_id": application_id, "approver_role": approver_role, "reason": reason, "status": "requested"}
+        action_id = self._next_action_id("approval-request")
+        denial = self._basis_denial(seat_id, action_id, "request_approval", {"application_id": application_id}, basis)
+        if denial:
+            return denial
+        app = self._ensure_application(application_id)
+        approval_id = f"APR-{len(app.setdefault('approvals', [])) + 1:04d}"
+        payload = {"approval_id": approval_id, "application_id": application_id, "requested_by": seat_id, "approver_role": approver_role, "reason": reason, "status": "requested", "action_id": action_id}
+        app["approvals"].append(payload)
         self.recorder.append_ledger("approval_requested", payload)
-        self.recorder.record_attempt(seat_id=seat_id, tool="request_approval", args=payload, success=True, result=payload)
+        self.recorder.record_attempt(seat_id=seat_id, tool="request_approval", args=_without_basis(payload), success=True, result=_without_basis(payload))
+        return payload
+
+    def approve_application(self, seat_id: str, application_id: str, approval_id: str, condition: str, basis: dict[str, Any]) -> dict[str, Any]:
+        if self._role(seat_id) not in {"manager", "second_line"}:
+            return self._denied(seat_id, "approve_application", {"application_id": application_id}, "approval requires manager or second_line role")
+        action_id = self._next_action_id("approval")
+        denial = self._basis_denial(seat_id, action_id, "approve_application", {"application_id": application_id}, basis)
+        if denial:
+            return denial
+        app = self._ensure_application(application_id)
+        payload = {"approval_id": approval_id, "application_id": application_id, "approved_by": seat_id, "condition": condition, "status": "approved", "action_id": action_id}
+        app.setdefault("approvals", []).append(payload)
+        self.recorder.append_ledger("approval_granted", payload)
+        self.recorder.record_attempt(seat_id=seat_id, tool="approve_application", args=_without_basis(payload), success=True, result=_without_basis(payload))
+        return payload
+
+    def return_application(self, seat_id: str, application_id: str, reason: str, basis: dict[str, Any]) -> dict[str, Any]:
+        action_id = self._next_action_id("return")
+        denial = self._basis_denial(seat_id, action_id, "return_application", {"application_id": application_id}, basis)
+        if denial:
+            return denial
+        app = self._ensure_application(application_id)
+        app["status"] = "returned"
+        app.setdefault("history", []).append({"tick": self.recorder.tick, "state": "returned", "reason": reason})
+        payload = {"application_id": application_id, "returned_by": seat_id, "reason": reason, "status": "returned", "action_id": action_id}
+        self.recorder.append_ledger("application_returned", payload)
+        self.recorder.record_attempt(seat_id=seat_id, tool="return_application", args=_without_basis(payload), success=True, result=_without_basis(payload))
         return payload
 
     def submit_application(self, seat_id: str, application_id: str, customer_id: str, product: str, evidence: dict[str, Any], basis: dict[str, Any]) -> dict[str, Any]:
-        if not _valid_basis(basis):
-            return self._denied(seat_id, "submit_application", {"application_id": application_id}, "basis is required and must include retrieved, construal, decision")
+        if self.profile.enabled("K-sod-gate") and self._role(seat_id) != "application":
+            return self._denied(seat_id, "submit_application", {"application_id": application_id}, "K-sod-gate requires application role for submission")
+        action_id = self._next_action_id("submit")
+        denial = self._basis_denial(seat_id, action_id, "submit_application", {"application_id": application_id}, basis)
+        if denial:
+            return denial
         required_values = {"application_id": application_id, "customer_id": customer_id, "product": product}
         missing = [name for name, value in required_values.items() if not value]
         if missing:
@@ -68,20 +163,156 @@ class WorldKernel:
             return self._denied(seat_id, "submit_application", {"application_id": application_id}, "unapproved material version is blocked by K-material-picker")
         if self.profile.enabled("K-completion-gate"):
             required = {"consent_log_id", "recording_id", "material_version"}
-            missing_evidence = sorted(required - set(k for k, v in evidence.items() if v))
+            missing_evidence = sorted(required - set(key for key, value in evidence.items() if value))
             if missing_evidence:
                 return self._denied(seat_id, "submit_application", {"application_id": application_id}, f"missing completion evidence: {', '.join(missing_evidence)}")
-        payload = {
-            "application_id": application_id,
-            "customer_id": customer_id,
-            "product": product,
-            "evidence": evidence,
-            "status": "application_received",
-        }
-        self.applications[application_id] = payload
-        self.recorder.append_ledger("application_submitted", payload)
-        self.recorder.record_attempt(seat_id=seat_id, tool="submit_application", args=payload, success=True, result=payload)
+        app = self._ensure_application(application_id, customer_id=customer_id, product=product)
+        self._transition(app, "application_received", "submit_application")
+        app["evidence"] = {**app.get("evidence", {}), **evidence}
+        payload = {"application_id": application_id, "customer_id": customer_id, "product": product, "evidence": evidence, "status": app["status"], "action_id": action_id}
+        self.recorder.append_ledger("application_submitted", _without_basis(payload))
+        self.recorder.record_attempt(seat_id=seat_id, tool="submit_application", args=_without_basis(payload), success=True, result=_without_basis(payload))
         return payload
+
+    def verify_identity(self, seat_id: str, application_id: str, ekyc_completed: bool, sanctions_non_hit: bool, consent_log_id: str, basis: dict[str, Any]) -> dict[str, Any]:
+        action_id = self._next_action_id("identity")
+        denial = self._basis_denial(seat_id, action_id, "verify_identity", {"application_id": application_id}, basis)
+        if denial:
+            return denial
+        if not (ekyc_completed and sanctions_non_hit and consent_log_id):
+            return self._denied(seat_id, "verify_identity", {"application_id": application_id}, "eKYC, consent_log_id, and sanctions_non_hit are required")
+        app = self._ensure_application(application_id)
+        app["evidence"] = {**app.get("evidence", {}), "ekyc_completed": ekyc_completed, "sanctions_non_hit": sanctions_non_hit, "consent_log_id": consent_log_id}
+        self._transition(app, "identity_verified", "verify_identity")
+        payload = {"application_id": application_id, "status": app["status"], "action_id": action_id}
+        self.recorder.append_ledger("identity_verified", payload)
+        self.recorder.record_attempt(seat_id=seat_id, tool="verify_identity", args=payload, success=True, result=payload)
+        return payload
+
+    def link_review(self, seat_id: str, application_id: str, review_ticket_id: str, basis: dict[str, Any]) -> dict[str, Any]:
+        action_id = self._next_action_id("review")
+        denial = self._basis_denial(seat_id, action_id, "link_review", {"application_id": application_id}, basis)
+        if denial:
+            return denial
+        app = self._ensure_application(application_id)
+        evidence = app.get("evidence", {})
+        if not (evidence.get("ekyc_completed") and evidence.get("consent_log_id") and evidence.get("sanctions_non_hit")):
+            return self._denied(seat_id, "link_review", {"application_id": application_id}, "review linkage requires eKYC, consent_log_id, and sanctions_non_hit")
+        self._transition(app, "review_linked", "link_review")
+        payload = {"application_id": application_id, "review_ticket_id": review_ticket_id, "status": app["status"], "action_id": action_id}
+        self.recorder.append_ledger("review_linked", payload)
+        self.recorder.record_attempt(seat_id=seat_id, tool="link_review", args=payload, success=True, result=payload)
+        return payload
+
+    def complete_contract(self, seat_id: str, application_id: str, contract_id: str, basis: dict[str, Any]) -> dict[str, Any]:
+        action_id = self._next_action_id("contract")
+        denial = self._basis_denial(seat_id, action_id, "complete_contract", {"application_id": application_id}, basis)
+        if denial:
+            return denial
+        app = self._ensure_application(application_id)
+        if app.get("status") != "review_linked":
+            return self._denied(seat_id, "complete_contract", {"application_id": application_id}, "contract requires review_linked state")
+        self._transition(app, "contracted", "complete_contract")
+        payload = {"application_id": application_id, "contract_id": contract_id, "status": app["status"], "action_id": action_id}
+        self.recorder.append_ledger("contract_completed", payload)
+        self.recorder.record_attempt(seat_id=seat_id, tool="complete_contract", args=payload, success=True, result=payload)
+        return payload
+
+    def deliver_documents(self, seat_id: str, application_id: str, delivery_id: str, basis: dict[str, Any]) -> dict[str, Any]:
+        action_id = self._next_action_id("delivery")
+        denial = self._basis_denial(seat_id, action_id, "deliver_documents", {"application_id": application_id}, basis)
+        if denial:
+            return denial
+        app = self._ensure_application(application_id)
+        if app.get("status") != "contracted":
+            return self._denied(seat_id, "deliver_documents", {"application_id": application_id}, "document delivery requires contracted state")
+        self._transition(app, "documents_delivered", "deliver_documents")
+        payload = {"application_id": application_id, "delivery_id": delivery_id, "status": app["status"], "action_id": action_id}
+        self.recorder.append_ledger("documents_delivered", payload)
+        self.recorder.record_attempt(seat_id=seat_id, tool="deliver_documents", args=payload, success=True, result=payload)
+        return payload
+
+    def _basis_denial(self, seat_id: str, action_id: str, tool: str, args: dict[str, Any], basis: dict[str, Any]) -> dict[str, Any] | None:
+        valid, reason = self._validate_basis(seat_id, basis)
+        if not valid:
+            return self._denied(seat_id, tool, args, reason)
+        self._record_action_basis(seat_id, action_id, tool, basis, grounded=True)
+        return None
+
+    def _validate_basis(self, seat_id: str, basis: dict[str, Any]) -> tuple[bool, str]:
+        if not basis:
+            return False, "basis is required"
+        retrieved = basis.get("retrieved")
+        if not retrieved or not isinstance(retrieved, list):
+            return False, "basis.retrieved must be a non-empty list"
+        if not basis.get("construal") or not basis.get("decision"):
+            return False, "basis must include construal and decision"
+        for item in retrieved:
+            if not isinstance(item, dict):
+                return False, "basis.retrieved items must be objects"
+            doc_id = str(item.get("doc_id") or "")
+            span_id = str(item.get("span_id") or "")
+            if self.profile.valid_doc_ids and doc_id not in self.profile.valid_doc_ids:
+                return False, f"unknown basis doc_id: {doc_id}"
+            if span_id and self.profile.valid_span_ids and span_id not in self.profile.valid_span_ids:
+                return False, f"unknown basis span_id: {span_id}"
+            if self.profile.require_prior_read_for_basis and doc_id and not self.recorder.has_read_doc(seat_id, doc_id):
+                return False, f"basis doc_id was not read before action: {doc_id}"
+        return True, ""
+
+    def _record_action_basis(self, seat_id: str, action_id: str, trigger_event: str, basis: dict[str, Any], *, grounded: bool) -> str:
+        record = BasisRecord(
+            basis_id=self.recorder.next_basis_id(),
+            ts=utc_now(),
+            run_id=self.recorder.run_id,
+            tick=self.recorder.tick,
+            seat_id=seat_id,
+            action_id=action_id,
+            trigger_event=trigger_event,
+            retrieved=list(basis.get("retrieved") or []),
+            construal=str(basis.get("construal") or ""),
+            decision=str(basis.get("decision") or ""),
+            evidence_plan=str(basis.get("evidence_plan") or ""),
+            alternatives_considered=str(basis.get("alternatives_considered") or ""),
+            felt_constraints=str(basis.get("felt_constraints") or ""),
+            confidence=float(basis.get("confidence", 0.5)),
+            grounded=grounded,
+        )
+        return self.recorder.record_basis(seat_id, record)
+
+    def _ensure_application(self, application_id: str, *, customer_id: str = "", product: str = "") -> dict[str, Any]:
+        if application_id not in self.applications:
+            self.applications[application_id] = {
+                "application_id": application_id,
+                "customer_id": customer_id,
+                "product": product,
+                "status": "draft",
+                "history": [{"tick": self.recorder.tick, "state": "draft", "reason": "ensure"}],
+            }
+        app = self.applications[application_id]
+        if customer_id:
+            app["customer_id"] = customer_id
+        if product:
+            app["product"] = product
+        return app
+
+    def _transition(self, app: dict[str, Any], target: str, reason: str) -> None:
+        current = app.get("status", "draft")
+        if target not in APPLICATION_STATES:
+            raise ValueError(f"unknown application state: {target}")
+        current_idx = APPLICATION_STATES.index(current) if current in APPLICATION_STATES else -1
+        target_idx = APPLICATION_STATES.index(target)
+        if target_idx < current_idx:
+            raise ValueError(f"cannot move application backward from {current} to {target}")
+        app["status"] = target
+        app.setdefault("history", []).append({"tick": self.recorder.tick, "state": target, "reason": reason})
+
+    def _next_action_id(self, prefix: str) -> str:
+        self.action_counter += 1
+        return f"{prefix.upper()}-{self.action_counter:06d}"
+
+    def _role(self, seat_id: str) -> str:
+        return self.profile.seat_roles.get(seat_id, "")
 
     def _denied(self, seat_id: str, tool: str, args: dict[str, Any], reason: str) -> dict[str, Any]:
         result = {"success": False, "denied_reason": reason}
@@ -102,8 +333,5 @@ def parse_json_arg(value: str | dict[str, Any] | None) -> dict[str, Any]:
     return parsed if isinstance(parsed, dict) else {"value": parsed}
 
 
-def _valid_basis(basis: dict[str, Any]) -> bool:
-    if not basis:
-        return False
-    retrieved = basis.get("retrieved")
-    return bool(retrieved) and bool(basis.get("construal")) and bool(basis.get("decision"))
+def _without_basis(payload: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in payload.items() if key != "basis"}

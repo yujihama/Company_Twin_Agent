@@ -24,9 +24,11 @@ def build_role_tools(*, corpus: Corpus, kernel: WorldKernel, recorder: RunRecord
             return f"unknown doc_id: {doc_id}"
         text = doc.text
         if query:
-            hits = corpus.search(query, seat_role=seat_role, top_k=1)
-            if hits and hits[0].doc_id == doc_id:
-                text = hits[0].snippet
+            hits = corpus.search(query, seat_role=seat_role, top_k=10)
+            for hit in hits:
+                if hit.doc_id == doc_id:
+                    text = hit.snippet
+                    break
         result = text[:max_chars]
         recorder.record_attempt(seat_id=seat_id, tool="read_document", args={"doc_id": doc_id, "query": query, "max_chars": max_chars}, success=True, result={"chars": len(result)})
         return result
@@ -44,10 +46,12 @@ def build_role_tools(*, corpus: Corpus, kernel: WorldKernel, recorder: RunRecord
         """Record structured basis for a control-relevant reading."""
         retrieved = _list_json(retrieved_json)
         basis = BasisRecord(
+            basis_id=recorder.next_basis_id(),
             ts=utc_now(),
             run_id=recorder.run_id,
             tick=recorder.tick,
             seat_id=seat_id,
+            action_id=None,
             trigger_event=trigger_event,
             retrieved=retrieved,
             construal=construal,
@@ -56,9 +60,10 @@ def build_role_tools(*, corpus: Corpus, kernel: WorldKernel, recorder: RunRecord
             alternatives_considered=alternatives_considered,
             felt_constraints=felt_constraints,
             confidence=confidence,
+            grounded=True,
         )
-        recorder.record_basis(seat_id, basis)
-        return json.dumps({"recorded": True, "decision": decision}, ensure_ascii=False)
+        basis_id = recorder.record_basis(seat_id, basis)
+        return json.dumps({"recorded": True, "basis_id": basis_id, "decision": decision}, ensure_ascii=False)
 
     def send_chat(to_seat: str, channel: str, body: str) -> str:
         """Send a world-visible chat or email message to another seat."""
@@ -79,6 +84,36 @@ def build_role_tools(*, corpus: Corpus, kernel: WorldKernel, recorder: RunRecord
         result = kernel.submit_application(seat_id, application_id, customer_id, product, parse_json_arg(evidence_json), parse_json_arg(basis_json))
         return json.dumps(result, ensure_ascii=False)
 
+    def approve_application(application_id: str, approval_id: str, condition: str, basis_json: str) -> str:
+        """Approve an application through a world-visible workflow record."""
+        result = kernel.approve_application(seat_id, application_id, approval_id, condition, parse_json_arg(basis_json))
+        return json.dumps(result, ensure_ascii=False)
+
+    def return_application(application_id: str, reason: str, basis_json: str) -> str:
+        """Return an application through the workflow when evidence or approval is insufficient."""
+        result = kernel.return_application(seat_id, application_id, reason, parse_json_arg(basis_json))
+        return json.dumps(result, ensure_ascii=False)
+
+    def verify_identity(application_id: str, ekyc_completed: bool, sanctions_non_hit: bool, consent_log_id: str, basis_json: str) -> str:
+        """Record identity, consent, and sanctions checks before review linkage."""
+        result = kernel.verify_identity(seat_id, application_id, ekyc_completed, sanctions_non_hit, consent_log_id, parse_json_arg(basis_json))
+        return json.dumps(result, ensure_ascii=False)
+
+    def link_review(application_id: str, review_ticket_id: str, basis_json: str) -> str:
+        """Link the application to review after hard-guard evidence is present."""
+        result = kernel.link_review(seat_id, application_id, review_ticket_id, parse_json_arg(basis_json))
+        return json.dumps(result, ensure_ascii=False)
+
+    def complete_contract(application_id: str, contract_id: str, basis_json: str) -> str:
+        """Complete a contract after review linkage."""
+        result = kernel.complete_contract(seat_id, application_id, contract_id, parse_json_arg(basis_json))
+        return json.dumps(result, ensure_ascii=False)
+
+    def deliver_documents(application_id: str, delivery_id: str, basis_json: str) -> str:
+        """Record required document delivery after contract completion."""
+        result = kernel.deliver_documents(seat_id, application_id, delivery_id, parse_json_arg(basis_json))
+        return json.dumps(result, ensure_ascii=False)
+
     return [
         search_corpus,
         read_document,
@@ -87,6 +122,12 @@ def build_role_tools(*, corpus: Corpus, kernel: WorldKernel, recorder: RunRecord
         record_customer_contact,
         request_approval,
         submit_application,
+        approve_application,
+        return_application,
+        verify_identity,
+        link_review,
+        complete_contract,
+        deliver_documents,
     ]
 
 

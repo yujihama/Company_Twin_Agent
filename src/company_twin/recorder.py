@@ -27,10 +27,12 @@ class AttemptRecord:
 
 @dataclass
 class BasisRecord:
+    basis_id: str
     ts: str
     run_id: str
     tick: int
     seat_id: str
+    action_id: str | None
     trigger_event: str
     retrieved: list[dict[str, Any]]
     construal: str
@@ -39,6 +41,7 @@ class BasisRecord:
     alternatives_considered: str = ""
     felt_constraints: str = ""
     confidence: float | None = None
+    grounded: bool | None = None
 
 
 class RunRecorder:
@@ -47,6 +50,8 @@ class RunRecorder:
         self.run_id = run_id
         self.tick = 0
         self._prev_hash = ""
+        self._basis_counter = 0
+        self._read_docs: dict[str, set[str]] = {}
         run_root.mkdir(parents=True, exist_ok=True)
         self.write_json("meta.json", {"run_id": run_id, "created_at": utc_now(), **(meta or {})})
         for name in ("attempts.jsonl", "basis_records.jsonl", "chat_channel.jsonl", "world_ledger.jsonl"):
@@ -77,22 +82,38 @@ class RunRecorder:
             denied_reason=denied_reason,
         )
         self.append_jsonl("attempts.jsonl", asdict(record))
+        if tool == "read_document" and success:
+            doc_id = str((args or {}).get("doc_id") or "")
+            if doc_id:
+                self._read_docs.setdefault(seat_id, set()).add(doc_id)
         return record
 
-    def record_basis(self, seat_id: str, basis: BasisRecord) -> None:
+    def next_basis_id(self) -> str:
+        self._basis_counter += 1
+        return f"BASIS-{self._basis_counter:06d}"
+
+    def has_read_doc(self, seat_id: str, doc_id: str) -> bool:
+        return doc_id in self._read_docs.get(seat_id, set())
+
+    def record_basis(self, seat_id: str, basis: BasisRecord) -> str:
         self.append_jsonl("basis_records.jsonl", asdict(basis))
         self.record_attempt(
             seat_id=seat_id,
             tool="record_interpretation_basis",
-            args={"trigger_event": basis.trigger_event},
+            args={"basis_id": basis.basis_id, "trigger_event": basis.trigger_event, "action_id": basis.action_id},
             success=True,
-            result={"decision": basis.decision, "confidence": basis.confidence},
+            result={"basis_id": basis.basis_id, "decision": basis.decision, "confidence": basis.confidence, "grounded": basis.grounded},
         )
+        return basis.basis_id
 
     def record_chat(self, *, from_seat: str, to_seat: str, channel: str, body: str) -> None:
         payload = {"ts": utc_now(), "run_id": self.run_id, "tick": self.tick, "from": from_seat, "to": to_seat, "channel": channel, "body": body}
         self.append_jsonl("chat_channel.jsonl", payload)
         self.append_ledger("chat_message", payload)
+
+    def record_inbox(self, *, to_seat: str, message: dict[str, Any]) -> None:
+        payload = {"to_seat": to_seat, "message": message}
+        self.append_ledger("inbox_delivered", payload)
 
     def append_ledger(self, event_type: str, payload: dict[str, Any]) -> str:
         base = {"ts": utc_now(), "run_id": self.run_id, "tick": self.tick, "event_type": event_type, "payload": payload, "prev_hash": self._prev_hash}

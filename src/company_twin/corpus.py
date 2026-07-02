@@ -10,6 +10,7 @@ from xml.etree import ElementTree
 from openpyxl import load_workbook
 
 from .design_loader import DesignInputs, DocumentMeta
+from .world_config import default_retrieval_profiles
 
 
 @dataclass(frozen=True)
@@ -34,8 +35,9 @@ class CorpusDocument:
 
 
 class Corpus:
-    def __init__(self, documents: dict[str, CorpusDocument]):
+    def __init__(self, documents: dict[str, CorpusDocument], retrieval_profiles: dict[str, dict] | None = None):
         self.documents = documents
+        self.retrieval_profiles = retrieval_profiles or default_retrieval_profiles()
 
     @classmethod
     def from_design(cls, design: DesignInputs) -> "Corpus":
@@ -45,20 +47,24 @@ class Corpus:
             if meta.path:
                 text = extract_text(meta.path)
             docs[doc_id] = CorpusDocument(meta=meta, text=text)
-        return cls(docs)
+        return cls(docs, default_retrieval_profiles())
 
     def get(self, doc_id: str) -> CorpusDocument:
         return self.documents[doc_id]
 
     def search(self, query: str, *, seat_role: str = "", top_k: int = 5) -> list[SearchHit]:
         terms = _terms(query)
+        profile = self.retrieval_profiles.get(seat_role) or self.retrieval_profiles.get("sales") or {}
+        top_k = min(top_k, int(profile.get("top_k") or top_k))
         hits: list[SearchHit] = []
         for doc in self.documents.values():
             if not doc.text:
                 continue
+            if not _included_for_profile(doc, profile):
+                continue
             haystack = doc.text.lower()
             score = sum(haystack.count(term.lower()) for term in terms)
-            score += _role_boost(doc, seat_role, terms)
+            score += _profile_boost(doc, profile, terms)
             if score <= 0:
                 continue
             snippet = _best_snippet(doc.text, terms)
@@ -76,6 +82,15 @@ class Corpus:
 
     def search_json(self, query: str, *, seat_role: str = "", top_k: int = 5) -> str:
         return json.dumps([hit.__dict__ for hit in self.search(query, seat_role=seat_role, top_k=top_k)], ensure_ascii=False)
+
+    def audit_retrieval(self) -> dict[str, object]:
+        sales_hits = self.search("高齢者 追加確認 現場判断事例 FAQ", seat_role="sales", top_k=3)
+        second_line_hits = self.search("統制 例外承認 第二線", seat_role="second_line", top_k=3)
+        return {
+            "sales_elderly_top_ids": [hit.doc_id for hit in sales_hits],
+            "second_line_control_top_ids": [hit.doc_id for hit in second_line_hits],
+            "passed": bool(sales_hits and "DFH-SAL-021" in [hit.doc_id for hit in sales_hits]) and bool(second_line_hits),
+        }
 
 
 def extract_text(path: Path) -> str:
@@ -121,14 +136,21 @@ def _terms(query: str) -> list[str]:
     return [term for term in terms if len(term) >= 2]
 
 
-def _role_boost(doc: CorpusDocument, seat_role: str, terms: list[str]) -> float:
+def _included_for_profile(doc: CorpusDocument, profile: dict) -> bool:
+    index_kinds = profile.get("index_kinds") or []
+    if not index_kinds:
+        return True
+    return doc.meta.kind in index_kinds
+
+
+def _profile_boost(doc: CorpusDocument, profile: dict, terms: list[str]) -> float:
     title = doc.title
     text = doc.text
     boost = 0.0
-    if seat_role == "sales" and ("現場FAQ" in text or "現場判断事例" in text):
-        boost += 2.0
-    if seat_role in {"second_line", "audit"} and doc.meta.kind == "規程":
-        boost += 1.5
+    for marker, amount in (profile.get("boost_sections") or {}).items():
+        if marker in text:
+            boost += float(amount)
+    boost += float((profile.get("authority_friction") or {}).get(doc.meta.kind, 0.0))
     if any(term in title for term in terms):
         boost += 3.0
     return boost

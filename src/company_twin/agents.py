@@ -39,7 +39,7 @@ def create_seat_agent(*, seat_id: str, role: str, tools: list[Any], model: str |
 
 
 def role_system_prompt(seat_id: str, role: str) -> str:
-    return f"""You are seat {seat_id} in a simulated sales-control workflow.
+    return f"""You are seat {seat_id} in the DFH sales-control workflow.
 
 Role type: {role}
 
