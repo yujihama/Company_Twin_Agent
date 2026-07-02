@@ -4,7 +4,9 @@ import hashlib
 import json
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
+from contextlib import contextmanager
 from pathlib import Path
+from collections.abc import Iterator
 from typing import Any
 
 
@@ -23,6 +25,7 @@ class AttemptRecord:
     success: bool
     result: Any
     denied_reason: str | None = None
+    origin: str = "system"
 
 
 @dataclass
@@ -52,13 +55,48 @@ class RunRecorder:
         self._prev_hash = ""
         self._basis_counter = 0
         self._read_docs: dict[str, set[str]] = {}
+        self._origin = "system"
+        self._tick_budgets: dict[str, int] = {}
+        self._tick_usage: dict[tuple[int, str], int] = {}
         run_root.mkdir(parents=True, exist_ok=True)
         self.write_json("meta.json", {"run_id": run_id, "created_at": utc_now(), **(meta or {})})
-        for name in ("attempts.jsonl", "basis_records.jsonl", "chat_channel.jsonl", "world_ledger.jsonl"):
+        for name in ("attempts.jsonl", "basis_records.jsonl", "chat_channel.jsonl", "world_ledger.jsonl", "store_events.jsonl"):
             (self.run_root / name).touch(exist_ok=True)
 
     def set_tick(self, tick: int) -> None:
         self.tick = tick
+
+    @contextmanager
+    def origin(self, origin: str) -> Iterator[None]:
+        previous = self._origin
+        self._origin = origin
+        try:
+            yield
+        finally:
+            self._origin = previous
+
+    def configure_tick_budgets(self, budgets: dict[str, int]) -> None:
+        self._tick_budgets = {seat_id: int(value) for seat_id, value in budgets.items()}
+
+    def consume_budget(self, seat_id: str, tool: str) -> bool:
+        budget = self._tick_budgets.get(seat_id)
+        if budget is None:
+            return True
+        key = (self.tick, seat_id)
+        used = self._tick_usage.get(key, 0)
+        if used >= budget:
+            self.record_attempt(
+                seat_id=seat_id,
+                tool=tool,
+                args={"tick_budget": budget, "used": used},
+                success=False,
+                result={"success": False, "denied_reason": "tick budget exceeded"},
+                denied_reason="tick budget exceeded",
+            )
+            self.append_ledger("permission_denied", {"seat_id": seat_id, "tool": tool, "reason": "tick budget exceeded", "budget": budget, "used": used})
+            return False
+        self._tick_usage[key] = used + 1
+        return True
 
     def record_attempt(
         self,
@@ -80,6 +118,7 @@ class RunRecorder:
             success=success,
             result=result,
             denied_reason=denied_reason,
+            origin=self._origin,
         )
         self.append_jsonl("attempts.jsonl", asdict(record))
         if tool == "read_document" and success:
@@ -114,6 +153,11 @@ class RunRecorder:
     def record_inbox(self, *, to_seat: str, message: dict[str, Any]) -> None:
         payload = {"to_seat": to_seat, "message": message}
         self.append_ledger("inbox_delivered", payload)
+
+    def remember_private(self, *, seat_id: str, key: str, value: str) -> None:
+        payload = {"ts": utc_now(), "run_id": self.run_id, "tick": self.tick, "seat_id": seat_id, "key": key, "value": value, "origin": self._origin}
+        self.append_jsonl("store_events.jsonl", payload)
+        self.append_ledger("private_store_write", {"seat_id": seat_id, "key": key})
 
     def append_ledger(self, event_type: str, payload: dict[str, Any]) -> str:
         base = {"ts": utc_now(), "run_id": self.run_id, "tick": self.tick, "event_type": event_type, "payload": payload, "prev_hash": self._prev_hash}

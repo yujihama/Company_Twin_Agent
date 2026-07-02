@@ -47,6 +47,17 @@ class Corpus:
             if meta.path:
                 text = extract_text(meta.path)
             docs[doc_id] = CorpusDocument(meta=meta, text=text)
+            if doc_id in {"DFH-SAL-021", "DFH-SAL-045"}:
+                stale_meta = DocumentMeta(
+                    doc_id=f"{doc_id}@v1.0",
+                    kind=meta.kind,
+                    authority=meta.authority,
+                    owner=meta.owner,
+                    scope=meta.scope,
+                    version="1.0",
+                    path=meta.path,
+                )
+                docs[stale_meta.doc_id] = CorpusDocument(meta=stale_meta, text=f"旧版 v1.0 stale index copy\n{text}")
         return cls(docs, default_retrieval_profiles())
 
     def get(self, doc_id: str) -> CorpusDocument:
@@ -89,6 +100,8 @@ class Corpus:
         return {
             "sales_elderly_top_ids": [hit.doc_id for hit in sales_hits],
             "second_line_control_top_ids": [hit.doc_id for hit in second_line_hits],
+            "sales_stale_ids": [hit.doc_id for hit in self.search("旧版021 高齢者 追加確認", seat_role="sales", top_k=5) if "@v1.0" in hit.doc_id],
+            "second_line_stale_ids": [hit.doc_id for hit in self.search("旧版021 高齢者 追加確認", seat_role="second_line", top_k=5) if "@v1.0" in hit.doc_id],
             "passed": bool(sales_hits and "DFH-SAL-021" in [hit.doc_id for hit in sales_hits]) and bool(second_line_hits),
         }
 
@@ -137,6 +150,8 @@ def _terms(query: str) -> list[str]:
 
 
 def _included_for_profile(doc: CorpusDocument, profile: dict) -> bool:
+    if "@v1.0" in doc.meta.doc_id:
+        return profile.get("version_visibility") == "current_plus_role_stale_021_045"
     index_kinds = profile.get("index_kinds") or []
     if not index_kinds:
         return True
@@ -150,6 +165,8 @@ def _profile_boost(doc: CorpusDocument, profile: dict, terms: list[str]) -> floa
     for marker, amount in (profile.get("boost_sections") or {}).items():
         if marker in text:
             boost += float(amount)
+    if "@v1.0" in doc.meta.doc_id:
+        boost += 12.0
     boost += float((profile.get("authority_friction") or {}).get(doc.meta.kind, 0.0))
     if any(term in title for term in terms):
         boost += 3.0

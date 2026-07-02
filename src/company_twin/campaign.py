@@ -91,7 +91,7 @@ def run_design_campaign(
 
     for idx, row in enumerate(selected_rows):
         s0_root = campaign_root / f"s0_{idx:02d}_{row.probe_id}_{row.seat_id}_v{row.variant}"
-        s0_live = live and live_calls_used < max_live_agent_calls
+        s0_live = live and live_calls_used < min(max_live_agent_calls, 1)
         result = run_s0(design=design, corpus=corpus, probe_id=row.probe_id, seat_id=row.seat_id, run_root=s0_root, live=s0_live, model=row.model, variant=row.variant)
         if s0_live:
             live_calls_used += 1
@@ -103,7 +103,7 @@ def run_design_campaign(
     s1_roots: list[str] = []
     for seed in range(s1_k):
         s1_root = campaign_root / f"s1_{promoted_probe}_seed{seed}"
-        s1_live = live and live_calls_used < max_live_agent_calls
+        s1_live = live and max_live_agent_calls > 10 and live_calls_used < max_live_agent_calls and seed == 0
         result = run_s1_episode(
             design=design,
             corpus=corpus,
@@ -206,7 +206,7 @@ def check_design_compliance(*, campaign_root: Path | None, design: DesignInputs,
 
 
 def _check_run_bundle(run_root: Path, failures: list[dict[str, str]]) -> None:
-    required = ["config.json", "meta.json", "attempts.jsonl", "basis_records.jsonl", "chat_channel.jsonl", "world_ledger.jsonl", "oracle_l0.parquet", "triage/buckets.json", "triage/review.html"]
+    required = ["config.json", "meta.json", "attempts.jsonl", "basis_records.jsonl", "chat_channel.jsonl", "world_ledger.jsonl", "store_events.jsonl", "oracle_l0.parquet", "triage/buckets.json", "triage/review.html"]
     for rel in required:
         if not (run_root / rel).exists():
             failures.append({"check": "run_bundle", "detail": f"{run_root.name} missing {rel}"})
@@ -219,8 +219,11 @@ def _check_run_bundle(run_root: Path, failures: list[dict[str, str]]) -> None:
     ledger = read_jsonl(run_root / "world_ledger.jsonl")
     attempts = read_jsonl(run_root / "attempts.jsonl")
     basis = read_jsonl(run_root / "basis_records.jsonl")
+    store_events = read_jsonl(run_root / "store_events.jsonl")
     event_types = [row.get("event_type") for row in ledger]
     workflow_tools = {row.get("tool") for row in attempts if row.get("tool") in {"record_customer_contact", "request_approval", "approve_application", "submit_application", "verify_identity", "link_review", "complete_contract", "deliver_documents"}}
+    workflow_attempts = [row for row in attempts if row.get("tool") in {"record_customer_contact", "request_approval", "approve_application", "submit_application", "verify_identity", "link_review", "complete_contract", "deliver_documents"}]
+    agent_workflow_attempts = [row for row in workflow_attempts if str(row.get("origin") or "").startswith("agent")]
     unique_attempt_seats = {row.get("seat_id") for row in attempts if row.get("seat_id")}
     if stage == "S0":
         if "read_document" not in {row.get("tool") for row in attempts} or not basis:
@@ -232,6 +235,8 @@ def _check_run_bundle(run_root: Path, failures: list[dict[str, str]]) -> None:
             failures.append({"check": "s1_multi_seat", "detail": f"{run_root.name} has fewer than 2 active seats"})
         if len(workflow_tools) < 3:
             failures.append({"check": "s1_workflow", "detail": f"{run_root.name} has too few workflow actions"})
+        if not agent_workflow_attempts:
+            failures.append({"check": "s1_agent_originated_actions", "detail": f"{run_root.name} has no agent-originated workflow action"})
     if stage == "S2":
         ticks = int(((config.get("world") or {}).get("schedule") or {}).get("ticks") or 0)
         if ticks < 40:
@@ -242,8 +247,12 @@ def _check_run_bundle(run_root: Path, failures: list[dict[str, str]]) -> None:
             failures.append({"check": "s2_all_seats", "detail": f"{run_root.name} has fewer than 4 active seats"})
         if len(workflow_tools) < 5:
             failures.append({"check": "s2_workflow", "detail": f"{run_root.name} has too few workflow actions"})
+        if len(agent_workflow_attempts) < 5:
+            failures.append({"check": "s2_agent_originated_actions", "detail": f"{run_root.name} has too few agent-originated workflow actions"})
         if "month_end_close" not in event_types:
             failures.append({"check": "s2_month_end", "detail": f"{run_root.name} has no month-end close event"})
+        if not store_events:
+            failures.append({"check": "s2_d4_store", "detail": f"{run_root.name} has no private store writes"})
     if run_root.name.startswith("anchor"):
         world = config.get("world") or {}
         knobs = ((world.get("kernel_profile") or {}).get("knobs") or {})
@@ -251,6 +260,8 @@ def _check_run_bundle(run_root: Path, failures: list[dict[str, str]]) -> None:
             failures.append({"check": "anchor_config", "detail": f"{run_root.name} anchor flag is false"})
         if any(bool(value) for value in knobs.values()):
             failures.append({"check": "anchor_config", "detail": f"{run_root.name} has enabled knobs"})
+        if "completion_gate_active" in event_types:
+            failures.append({"check": "anchor_runtime_purity", "detail": f"{run_root.name} activated completion gate during anchor run"})
 
 
 def _diverse_s0_rows(matrix: list[S0MatrixRow], *, budget: int) -> list[S0MatrixRow]:

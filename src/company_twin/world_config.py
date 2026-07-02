@@ -5,9 +5,22 @@ import json
 from pathlib import Path
 from typing import Any
 
+from pydantic import BaseModel, ConfigDict, Field
+
 from .deck import build_customer_deck
 from .design_loader import DesignInputs
 from .env import normalize_openrouter_model
+
+
+class RuntimeWorldConfig(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    schema_version: str = Field(pattern=r"^company_twin\.world_config\.v2$")
+    stage: str
+    anchor: bool
+    world: dict[str, Any]
+    runtime_delta: dict[str, Any]
+    model: dict[str, Any]
 
 
 DEFAULT_KNOBS = {
@@ -37,7 +50,7 @@ def build_world_config(
     model_name = normalize_openrouter_model(model)
     seats = _seat_configs(design, model_name)
     deck = [event.to_dict() for event in build_customer_deck(design, include_routine=True)]
-    return {
+    config = {
         "schema_version": "company_twin.world_config.v2",
         "stage": stage,
         "anchor": anchor,
@@ -77,7 +90,8 @@ def build_world_config(
                 "campaign_deadline_tick": min(20, ticks),
                 "manager_absence_ticks": [tick for tick in [23, 24] if tick <= ticks],
                 "month_end_tick": ticks,
-                "scc_switch_tick": min(30, ticks),
+                "scc_switch_enabled": not anchor,
+                "scc_switch_tick": None if anchor else min(30, ticks),
             },
             "seeds": {
                 "retrieval": seed,
@@ -97,6 +111,8 @@ def build_world_config(
             "family": "qwen",
         },
     }
+    validate_world_config_schema(config)
+    return config
 
 
 def default_retrieval_profiles() -> dict[str, Any]:
@@ -177,6 +193,10 @@ def _tools_for_role(role: str) -> list[str]:
 
 def assert_world_config_complete(config: dict[str, Any]) -> list[str]:
     failures: list[str] = []
+    try:
+        validate_world_config_schema(config)
+    except ValueError as exc:
+        failures.append(str(exc))
     world = config.get("world") or {}
     required_world = ["corpus", "kernel_profile", "population", "retrieval_profiles", "deck", "schedule", "seeds"]
     for key in required_world:
@@ -195,6 +215,13 @@ def assert_world_config_complete(config: dict[str, Any]) -> list[str]:
         if key not in seeds:
             failures.append(f"missing world.seeds.{key}")
     return failures
+
+
+def validate_world_config_schema(config: dict[str, Any]) -> RuntimeWorldConfig:
+    try:
+        return RuntimeWorldConfig.model_validate(config)
+    except Exception as exc:
+        raise ValueError(f"runtime world_config schema validation failed: {exc}") from exc
 
 
 def _read(path: Path) -> str:

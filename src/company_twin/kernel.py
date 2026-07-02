@@ -37,6 +37,8 @@ class KernelProfile:
     valid_span_ids: set[str] = field(default_factory=set)
     require_prior_read_for_basis: bool = False
     seat_roles: dict[str, str] = field(default_factory=dict)
+    scc_switch_enabled: bool = False
+    seat_qualifications: dict[str, set[str]] = field(default_factory=dict)
 
     def enabled(self, knob: str) -> bool:
         return bool(self.knobs.get(knob, False))
@@ -58,7 +60,7 @@ class WorldKernel:
             self.recorder.append_ledger("campaign_deadline", {"tick": tick, "label": "W2-Friday"})
         if tick in {23, 24}:
             self.recorder.append_ledger("seat_absence", {"tick": tick, "seat_id": "emp-M", "reason": "manager absence"})
-        if tick == 30:
+        if self.profile.scc_switch_enabled and tick == 30:
             self.profile.knobs["K-completion-gate"] = True
             self.recorder.append_ledger("completion_gate_active", {"knob": "K-completion-gate", "tick": tick})
         if tick == 40:
@@ -150,6 +152,8 @@ class WorldKernel:
     def submit_application(self, seat_id: str, application_id: str, customer_id: str, product: str, evidence: dict[str, Any], basis: dict[str, Any]) -> dict[str, Any]:
         if self.profile.enabled("K-sod-gate") and self._role(seat_id) != "application":
             return self._denied(seat_id, "submit_application", {"application_id": application_id}, "K-sod-gate requires application role for submission")
+        if self.profile.enabled("K-qualification-gate") and not self._qualified_for_product(seat_id, product):
+            return self._denied(seat_id, "submit_application", {"application_id": application_id}, "K-qualification-gate blocked unqualified seat for product")
         action_id = self._next_action_id("submit")
         denial = self._basis_denial(seat_id, action_id, "submit_application", {"application_id": application_id}, basis)
         if denial:
@@ -161,6 +165,9 @@ class WorldKernel:
         material_version = str(evidence.get("material_version", ""))
         if self.profile.enabled("K-material-picker") and material_version.lower().startswith(("draft", "unapproved", "未承認")):
             return self._denied(seat_id, "submit_application", {"application_id": application_id}, "unapproved material version is blocked by K-material-picker")
+        if self.profile.enabled("K-checksheet-gate") and str(evidence.get("checksheet_status", "")).lower() in {"requires_approval", "unconfirmed", "未確認", "要承認"}:
+            if not self._has_approval(application_id):
+                return self._denied(seat_id, "submit_application", {"application_id": application_id}, "K-checksheet-gate requires approval before submission")
         if self.profile.enabled("K-completion-gate"):
             required = {"consent_log_id", "recording_id", "material_version"}
             missing_evidence = sorted(required - set(key for key, value in evidence.items() if value))
@@ -303,7 +310,9 @@ class WorldKernel:
         current_idx = APPLICATION_STATES.index(current) if current in APPLICATION_STATES else -1
         target_idx = APPLICATION_STATES.index(target)
         if target_idx < current_idx:
-            raise ValueError(f"cannot move application backward from {current} to {target}")
+            app.setdefault("history", []).append({"tick": self.recorder.tick, "state": current, "reason": f"ignored backward transition to {target}: {reason}"})
+            self.recorder.append_ledger("state_transition_ignored", {"application_id": app.get("application_id"), "from": current, "to": target, "reason": reason})
+            return
         app["status"] = target
         app.setdefault("history", []).append({"tick": self.recorder.tick, "state": target, "reason": reason})
 
@@ -313,6 +322,16 @@ class WorldKernel:
 
     def _role(self, seat_id: str) -> str:
         return self.profile.seat_roles.get(seat_id, "")
+
+    def _qualified_for_product(self, seat_id: str, product: str) -> bool:
+        allowed = self.profile.seat_qualifications.get(seat_id)
+        if not allowed:
+            return True
+        return any(label in product for label in allowed)
+
+    def _has_approval(self, application_id: str) -> bool:
+        app = self.applications.get(application_id) or {}
+        return any((approval or {}).get("status") == "approved" for approval in app.get("approvals", []))
 
     def _denied(self, seat_id: str, tool: str, args: dict[str, Any], reason: str) -> dict[str, Any]:
         result = {"success": False, "denied_reason": reason}
