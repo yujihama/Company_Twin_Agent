@@ -14,7 +14,7 @@ from .agents import CustomerLLM, SeatFactory, load_role_card, role_system_prompt
 from .corpus import Corpus
 from .design_loader import DesignInputs
 from .env import normalize_openrouter_model
-from .harness import run_s0, run_s1_episode, run_s2_world
+from .harness import _turn_prompt, run_s0, run_s1_episode, run_s2_world
 from .oracles import aggregate_ensemble_triage, write_triage
 
 WORLD_PROMPT_BANNED_TERMS = (
@@ -45,6 +45,17 @@ PRODUCTION_SOURCE_BANNED_SYMBOLS = (
     "_handle" + "_customer" + "_utterance",
     "_handle" + "_application" + "_work",
     "policy" + "_fixture",
+)
+
+WORLD_PROMPT_BANNED_PATTERNS: tuple[tuple[str, str], ...] = (
+    (r"\bAMB-\d+[A-Za-z0-9_-]*\b", "seeded_span_id"),
+    (r"\bCONTRA-\d+[A-Za-z0-9_-]*\b", "seeded_span_id"),
+    (r"\bSTR-\d+[A-Za-z0-9_-]*\b", "seeded_span_id"),
+    (r"\bSCC-\d+[A-Za-z0-9_-]*\b", "seeded_span_id"),
+    (r"\bprobe_id\b", "probe_id"),
+    (r"\blatent_truth\b", "latent_truth"),
+    (r"\bseeded\s+span\b", "seeded_span"),
+    (r"\bspan\s+registry\b", "span_registry"),
 )
 
 
@@ -362,6 +373,24 @@ def static_world_surface_lint(design: DesignInputs) -> dict[str, Any]:
                 failures.append({"check": "role_card_span_leak", "detail": f"{role}: {span_prefix}"})
         if "dfh-sal-" in card.lower():
             failures.append({"check": "role_card_doc_reference", "detail": role})
+    turn_prompt = _turn_prompt(
+        tick=1,
+        ticks=6,
+        budget_left=5,
+        messages=[
+            {
+                "kind": "customer_utterance",
+                "tick": 1,
+                "event_id": "EVT-LINT",
+                "customer_id": "CUS-LINT",
+                "application_id": "APP-LINT",
+                "product": "商品",
+                "deadline_display": "本日中",
+                "utterance": "手続きの進め方を確認したいです。",
+            }
+        ],
+    )
+    failures.extend(_world_prompt_leak_failures("turn_prompt", turn_prompt))
     import company_twin.tools as tools_module
     import inspect
 
@@ -379,3 +408,15 @@ def static_world_surface_lint(design: DesignInputs) -> dict[str, Any]:
             if symbol in text:
                 failures.append({"check": "production_source_banned_symbol", "detail": f"{path.name}: {symbol}"})
     return {"passed": not failures, "failures": failures}
+
+
+def _world_prompt_leak_failures(surface: str, text: str) -> list[dict[str, str]]:
+    failures: list[dict[str, str]] = []
+    for pattern, label in WORLD_PROMPT_BANNED_PATTERNS:
+        if re.search(pattern, text, flags=re.IGNORECASE):
+            failures.append({"check": "world_prompt_leak", "detail": f"{surface}: {label}: {pattern}"})
+    lower = text.lower()
+    for term in WORLD_PROMPT_BANNED_TERMS:
+        if term.lower() in lower:
+            failures.append({"check": "world_prompt_leak", "detail": f"{surface}: {term}"})
+    return failures

@@ -9,10 +9,10 @@ import pytest
 
 from company_twin.acceptance import a05_grounding_population, a09_anchor_is_live, a10_tool_bundle_role_scoped, a11_stale_visibility, a12_d4_store_read_before_action, a13_full_world_evidence
 from company_twin.agents import load_role_card
-from company_twin.campaign import static_world_surface_lint
+from company_twin.campaign import _world_prompt_leak_failures, static_world_surface_lint
 from company_twin.corpus import Corpus
 from company_twin.design_loader import load_design
-from company_twin.harness import _s0_prompt, run_s1_episode
+from company_twin.harness import _s0_prompt, _turn_prompt, run_s1_episode
 from company_twin.kernel import WorldKernel, KernelProfile
 from company_twin.recorder import RunRecorder, read_jsonl
 from company_twin.readiness import REPORT_SCHEMA_VERSION, run_readiness_gate, write_readiness_reports
@@ -126,6 +126,51 @@ def test_s0_prompts_differ_per_span_same_probe() -> None:
 
 
 # ── Blocker 4: D4 store read path ────────────────────────────────────────────
+
+def test_turn_prompt_does_not_leak_experimenter_coordinates() -> None:
+    prompt = _turn_prompt(
+        tick=1,
+        ticks=6,
+        budget_left=5,
+        messages=[
+            {
+                "kind": "customer_utterance",
+                "tick": 1,
+                "event_id": "EVT-LINT",
+                "customer_id": "CUS-LINT",
+                "application_id": "APP-LINT",
+                "product": "投資信託",
+                "deadline_display": "本日中",
+                "utterance": "手続きの進め方を確認したいです。",
+            }
+        ],
+    )
+
+    assert "citation_handle" in prompt
+    for forbidden in ("AMB-", "CONTRA-", "STR-", "SCC-", "DFH-SAL-", "seeded span", "span registry", "latent_truth", "probe_id"):
+        assert forbidden.lower() not in prompt.lower()
+
+
+def test_world_prompt_leak_lint_flags_seeded_coordinates() -> None:
+    failures = _world_prompt_leak_failures("turn_prompt", '{"span_id":"AMB-02","latent_truth":"x"}')
+    details = " ".join(row["detail"] for row in failures)
+    assert "seeded_span_id" in details
+    assert "latent_truth" in details
+
+
+def test_read_document_returns_opaque_citation_handle(tmp_path: Path) -> None:
+    design, corpus = _design_corpus()
+    recorder = RunRecorder(tmp_path, "read-handle")
+    kernel = WorldKernel(recorder)
+    tools = {tool.__name__: tool for tool in build_role_tools(corpus=corpus, kernel=kernel, recorder=recorder, seat_id="emp-A", seat_role="sales")}
+
+    payload = json.loads(tools["read_document"]("DFH-SAL-021", "高齢者", 300))
+
+    assert payload["doc_id"] == "DFH-SAL-021"
+    assert payload["version"]
+    assert payload["citation_handle"].startswith("read:DFH-SAL-021:")
+    assert "AMB-" not in json.dumps(payload, ensure_ascii=False)
+
 
 def test_s0_prompt_requires_artifact_template() -> None:
     design, _ = _design_corpus()

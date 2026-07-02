@@ -57,8 +57,18 @@ def build_role_tools(*, corpus: Corpus, kernel: WorldKernel, recorder: RunRecord
                     text = hit.snippet
                     break
         result = text[:max_chars]
-        recorder.record_attempt(seat_id=seat_id, tool="read_document", args={"doc_id": doc_id, "query": query, "max_chars": max_chars}, success=True, result={"chars": len(result)})
-        return result
+        citation_handle = f"read:{doc.meta.doc_id}:v{doc.meta.version or 'unknown'}"
+        recorder.record_attempt(
+            seat_id=seat_id,
+            tool="read_document",
+            args={"doc_id": doc_id, "query": query, "max_chars": max_chars},
+            success=True,
+            result={"chars": len(result), "version": doc.meta.version, "citation_handle": citation_handle},
+        )
+        return json.dumps(
+            {"doc_id": doc.meta.doc_id, "version": doc.meta.version, "citation_handle": citation_handle, "text": result},
+            ensure_ascii=False,
+        )
 
     def record_interpretation_basis(
         trigger_event: str,

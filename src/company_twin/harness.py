@@ -356,8 +356,8 @@ def _turn_prompt(*, tick: int, ticks: int, budget_left: int, messages: list[dict
 ツール選択の注意:
 - 顧客ID（CUS-...）には send_chat しない。顧客への説明・確認・折返しは record_customer_contact を使う。
 - 社内の座席（emp-...）への相談、承認依頼の補足、申込担当への引継ぎだけ send_chat を使う。
-- 統制に関わる行為（顧客接触、承認依頼、承認、差戻し、申込受付、本人確認、審査連携、契約、書面交付）の前には search_corpus と read_document を行い、実際に読んだ doc_id/version/span_id を basis_json に含める。
-- basis_json の最小形は {{"retrieved":[{{"doc_id":"DFH-SAL-036","version":"1.1","span_id":"AMB-02"}}],"construal":"読んだ文書からの解釈","decision":"選んだ行為","evidence_plan":"残す証跡","confidence":0.6}} です。doc_id/version/span_id は実際に読んだ文書に合わせて変える。
+- 統制に関わる行為（顧客接触、承認依頼、承認、差戻し、申込受付、本人確認、審査連携、契約、書面交付）の前には search_corpus と read_document を行い、実際に読んだ doc_id/version/citation_handle を basis_json に含める。
+- basis_json の最小形は {{"retrieved":[{{"doc_id":"実際に読んだdoc_id","version":"実際に読んだversion","citation_handle":"read_documentが返したhandle"}}],"construal":"読んだ文書からの解釈","decision":"選んだ行為","evidence_plan":"残す証跡","confidence":0.6}} です。値は実際に読んだ文書とhandleに合わせて変える。
 - customer_utterance を受けた販売担当は、読んだ文書に基づき record_customer_contact を残し、必要なら request_approval または emp-M/emp-C への send_chat を選ぶ。
 - chat を受けた管理者・第二線は、読んだ文書に基づき approve_application または return_application を選ぶ。
 - chat を受けた申込担当は、証跡が足りる場合だけ submit_application 以降の自分の役割の手続を進め、不足する場合は return_application または照会を選ぶ。
