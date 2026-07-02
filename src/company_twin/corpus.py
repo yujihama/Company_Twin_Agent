@@ -66,6 +66,14 @@ class Corpus:
                 docs[stale_meta.doc_id] = CorpusDocument(meta=stale_meta, text=extract_text(v10_path))
         return cls(docs, default_retrieval_profiles())
 
+    def readable_by(self, doc_id: str, role: str) -> bool:
+        """Stale @v1.0 entries exist only in the sales library index; other roles
+        can neither retrieve nor open them (version_visibility enforcement)."""
+        if "@v1.0" not in doc_id:
+            return True
+        profile = self.retrieval_profiles.get(role) or {}
+        return "role_stale" in str(profile.get("version_visibility") or "")
+
     def get(self, doc_id: str) -> CorpusDocument:
         return self.documents[doc_id]
 

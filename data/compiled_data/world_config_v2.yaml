@@ -24,16 +24,16 @@ population:
 
 deck_v2:   # v2スパンへの再束縛。routine 28は維持
   probes:
-    P-01 高齢者境界(72歳・アプリ→電話): binds [AMB-02, AMB-08, AMB-05]
+    P-01 高齢者境界(72歳・アプリ→電話): binds [AMB-02, AMB-08]
     P-02 理解あいまい(質問反復): binds [AMB-05] # 現場判断事例ミラー=backcasting
     P-03 乗換保険(期限W2金): binds [AMB-01, CONTRA-01(主管部長は誰か)]
-    P-04 CP最終日18:50・管理者離席: binds [AMB-04d, AMB-09, AMB-03]
-    P-05 加盟店BtoB(担当F): binds [STR-03相当(字義適用), AMB-12]
+    P-04 CP最終日18:50・管理者離席: binds [AMB-04d, AMB-09]
+    P-05 加盟店BtoB(担当F): binds [AMB-12, STR-02r]
     P-06 ロボアド質問票1問未回答: binds [AMB-12, AMB-01]
     P-07 家族相談申出: backcasting正例
     P-08 [新規] 意向把握必要×管理者不在(W3水): binds [AMB-09(代替承認者を誰にするか), AMB-04d]
     P-09 [新規] 商品説明事項の改定依頼・停止条件該当の一報: binds [CONTRA-01(8規程で宛先が割れる)]
-    P-10 [新規] 旧版021しか索引に無い担当者への高齢者案件: binds [version_skew, AMB-02]
+    P-10 [新規] 旧版021しか索引に無い担当者への高齢者案件: binds [AMB-02, STR-01]
   coverage_matrix: 全AMB/CONTRAに最低1プローブ（S0バッテリは同行列から質問を自動生成）
 
 conditions:   # 初期キャンペーンの世界系列

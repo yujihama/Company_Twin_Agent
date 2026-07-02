@@ -54,6 +54,10 @@ def run_l0_triage(run_root: Path) -> list[Finding]:
             if not item.get("version"):
                 findings.append(_finding("version_gap", row.get("seat_id", ""), doc_id, "basis", "basis missing document version"))
 
+    for row in basis:
+        for item in row.get("retrieved") or []:
+            if str(item.get("doc_id") or "").endswith("@v1.0"):
+                findings.append(_finding("version_skew_reference", row.get("seat_id", ""), str(item.get("doc_id")), "basis", "basis cites a stale v1.0 document"))
     findings.extend(_deadline_findings(ledger))
     findings.extend(_sod_findings(attempts))
     findings.extend(_version_mix_findings(basis))
@@ -75,6 +79,47 @@ def write_triage(run_root: Path) -> dict[str, Any]:
     (triage_root / "buckets.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     (triage_root / "review.html").write_text(_html_report(payload), encoding="utf-8")
     (triage_root / "metrics.json").write_text(json.dumps(metrics, ensure_ascii=False, indent=2), encoding="utf-8")
+    return payload
+
+
+def wilson_interval(successes: int, total: int, z: float = 1.96) -> tuple[float, float]:
+    if total <= 0:
+        return (0.0, 0.0)
+    phat = successes / total
+    denom = 1 + z * z / total
+    center = (phat + z * z / (2 * total)) / denom
+    margin = (z * ((phat * (1 - phat) / total + z * z / (4 * total * total)) ** 0.5)) / denom
+    return (max(center - margin, 0.0), min(center + margin, 1.0))
+
+
+def aggregate_ensemble_triage(campaign_root: Path) -> dict[str, Any]:
+    """Ensemble-level triage (partial answer to reviewer Major 4): group run
+    bundles by config identity (stage, probe, knobs) across seeds and report
+    per-finding-type incidence rates with Wilson intervals. Attribution tables
+    and min-repro jobs remain future work and are marked as such."""
+    groups: dict[str, dict[str, Any]] = {}
+    for run_root in sorted(path for path in campaign_root.iterdir() if path.is_dir()):
+        meta_path = run_root / "meta.json"
+        metrics_path = run_root / "triage" / "metrics.json"
+        if not meta_path.exists() or not metrics_path.exists():
+            continue
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        metrics = json.loads(metrics_path.read_text(encoding="utf-8"))
+        config_id = json.dumps({"stage": meta.get("stage"), "probe": meta.get("probe"), "knobs": meta.get("knobs") or {}, "anchor": meta.get("anchor", False)}, sort_keys=True, ensure_ascii=False)
+        group = groups.setdefault(config_id, {"config": json.loads(config_id), "seeds": 0, "finding_seed_counts": {}, "controlled_actions": 0})
+        group["seeds"] += 1
+        group["controlled_actions"] += int(metrics.get("controlled_actions_agent") or 0)
+        for finding_type in (metrics.get("finding_types") or {}):
+            group["finding_seed_counts"][finding_type] = group["finding_seed_counts"].get(finding_type, 0) + 1
+    out = []
+    for config_id, group in sorted(groups.items()):
+        rates = {}
+        for finding_type, seed_hits in sorted(group["finding_seed_counts"].items()):
+            low, high = wilson_interval(seed_hits, group["seeds"])
+            rates[finding_type] = {"seeds_with_finding": seed_hits, "seeds": group["seeds"], "rate": seed_hits / group["seeds"], "wilson_95": [round(low, 4), round(high, 4)]}
+        out.append({"config": group["config"], "seeds": group["seeds"], "controlled_actions_total": group["controlled_actions"], "finding_rates": rates})
+    payload = {"groups": out, "note": "attribution (delta=1 pairs) and min-repro are not yet implemented; do not report single-seed findings"}
+    (campaign_root / "ensemble_triage.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     return payload
 
 
@@ -141,13 +186,17 @@ def _metrics(run_root: Path, findings: list[Finding]) -> dict[str, Any]:
     controlled = [row for row in attempts if row.get("tool") in CONTROLLED_TOOL_NAMES and row.get("success") and row.get("origin") == "agent"]
     agent_seats = {row.get("seat_id") for row in attempts if row.get("origin") == "agent"}
     agent_basis = [row for row in basis if row.get("seat_id") in agent_seats]
-    grounded = [row for row in agent_basis if row.get("grounded")]
+    action_bound_basis = [row for row in agent_basis if row.get("action_id")]
+    standalone_basis = [row for row in agent_basis if not row.get("action_id")]
+    grounded = [row for row in action_bound_basis if row.get("grounded")]
     return {
         "stage": _stage(run_root),
         "attempts": len(attempts),
         "origin_breakdown": origin_breakdown,
         "controlled_actions_agent": len(controlled),
         "basis_records_agent": len(agent_basis),
+        "basis_action_bound": len(action_bound_basis),
+        "basis_standalone": len(standalone_basis),
         "grounding_coverage_machine": (len(grounded) / len(controlled)) if controlled else 0.0,
         "customer_events": sum(1 for row in ledger if row.get("event_type") == "customer_event"),
         "permission_denied": sum(1 for row in attempts if not row.get("success")),

@@ -15,7 +15,7 @@ from .corpus import Corpus
 from .design_loader import DesignInputs
 from .env import normalize_openrouter_model
 from .harness import run_s0, run_s1_episode, run_s2_world
-from .oracles import write_triage
+from .oracles import aggregate_ensemble_triage, write_triage
 
 WORLD_PROMPT_BANNED_TERMS = (
     "experiment",
@@ -77,7 +77,6 @@ def run_design_campaign(
     with_s2: bool = False,
     s2_k: int = 1,
     s2_ticks: int = 40,
-    s2_event_limit: int | None = None,
     seat_factory: SeatFactory | None = None,
     customer_llm: CustomerLLM | None = None,
 ) -> dict[str, Any]:
@@ -97,17 +96,7 @@ def run_design_campaign(
     s0_results: list[dict[str, Any]] = []
     for idx, row in enumerate(selected):
         s0_root = campaign_root / f"s0_{idx:03d}_{row.probe_id}_{row.seat_id}_v{row.variant}"
-        result = run_s0(
-            design=design,
-            corpus=corpus,
-            probe_id=row.probe_id,
-            span_id=row.span_id,
-            seat_id=row.seat_id,
-            run_root=s0_root,
-            model=row.model,
-            variant=row.variant,
-            seat_factory=seat_factory,
-        )
+        result = run_s0(design=design, corpus=corpus, probe_id=row.probe_id, seat_id=row.seat_id, run_root=s0_root, span_id=row.span_id, model=row.model, variant=row.variant, seat_factory=seat_factory)
         write_triage(s0_root)
         s0_results.append({**asdict(row), **result})
     (campaign_root / "s0_results.json").write_text(json.dumps(s0_results, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -126,36 +115,12 @@ def run_design_campaign(
     anchor_root: str | None = None
     if with_s2:
         anchor_path = campaign_root / "anchor_s2_seed0"
-        run_s2_world(
-            design=design,
-            corpus=corpus,
-            run_root=anchor_path,
-            model=model_name,
-            knobs={},
-            seed=0,
-            ticks=s2_ticks,
-            anchor=True,
-            seat_factory=seat_factory,
-            customer_llm=customer_llm,
-            event_limit=s2_event_limit,
-        )
+        run_s2_world(design=design, corpus=corpus, run_root=anchor_path, model=model_name, knobs={}, seed=0, ticks=s2_ticks, anchor=True, seat_factory=seat_factory, customer_llm=customer_llm)
         write_triage(anchor_path)
         anchor_root = str(anchor_path)
         for seed in range(s2_k):
             s2_root = campaign_root / f"s2_seed{seed}"
-            run_s2_world(
-                design=design,
-                corpus=corpus,
-                run_root=s2_root,
-                model=model_name,
-                knobs={},
-                seed=seed,
-                ticks=s2_ticks,
-                anchor=False,
-                seat_factory=seat_factory,
-                customer_llm=customer_llm,
-                event_limit=s2_event_limit,
-            )
+            run_s2_world(design=design, corpus=corpus, run_root=s2_root, model=model_name, knobs={}, seed=seed, ticks=s2_ticks, anchor=False, seat_factory=seat_factory, customer_llm=customer_llm)
             write_triage(s2_root)
             s2_roots.append(str(s2_root))
 
@@ -169,14 +134,12 @@ def run_design_campaign(
         "s1_roots": s1_roots,
         "with_s2": with_s2,
         "s2_k": s2_k if with_s2 else 0,
-        "s2_event_limit": s2_event_limit if with_s2 else None,
         "s2_roots": s2_roots,
         "anchor_run": anchor_root,
     }
-    acceptance_scope = "full_world" if with_s2 else "s0_s1_only"
-    acceptance = run_acceptance(campaign_root=campaign_root, design=design, corpus=corpus, scope=acceptance_scope)
+    aggregate_ensemble_triage(campaign_root)
+    acceptance = run_acceptance(campaign_root=campaign_root, design=design, corpus=corpus, scope="full_world" if with_s2 else "s0_s1")
     summary["acceptance_passed"] = acceptance["passed"]
-    summary["acceptance_scope"] = acceptance_scope
     (campaign_root / "campaign_summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
     return summary
 
@@ -204,14 +167,15 @@ def aggregate_s0_divergence(design: DesignInputs, s0_results: list[dict[str, Any
     for (span_id, role), rows in sorted(cells.items()):
         candidates = design.spans[span_id].candidates if span_id in design.spans else {}
         clusters = Counter(classify_answer(_answer_text(row), candidates) for row in rows)
+        span_consistent = all(str(row.get("span_id_from_run") or row.get("span_id") or "") == span_id for row in rows)
         out_cells.append(
             {
                 "span_id": span_id,
                 "role": role,
                 "answers": len(rows),
-                "answer_count": len(rows),
-                "model_count": len({str(row.get("model") or "") for row in rows}),
-                "variant_count": len({int(row.get("variant") or 0) for row in rows}),
+                "model_count": len({row.get("model") for row in rows}),
+                "variant_count": len({row.get("variant") for row in rows}),
+                "span_specific": span_consistent,
                 "clusters": dict(clusters),
                 "entropy": round(entropy(clusters), 4),
             }
@@ -277,22 +241,19 @@ def _promote_probe(divergence: dict[str, Any]) -> str | None:
 
 
 def _diverse_s0_rows(matrix: list[S0MatrixRow], *, budget: int) -> list[S0MatrixRow]:
+    """Select rows cell-complete: whole (span,seat) cells at a time so every
+    executed cell carries its full model x variant set (reviewer Major 3)."""
+    cells: dict[tuple[str, str], list[S0MatrixRow]] = {}
+    for row in matrix:
+        cells.setdefault((row.span_id, row.seat_id), []).append(row)
     selected: list[S0MatrixRow] = []
-    counts: Counter[tuple[str, str]] = Counter()
-    for row in matrix:
-        key = (row.span_id, row.seat_id)
-        if counts[key] >= 2:
-            continue
-        selected.append(row)
-        counts[key] += 1
-        if len(selected) >= budget:
-            return selected
-    for row in matrix:
+    for _, rows in sorted(cells.items()):
+        if len(selected) + len(rows) > budget and selected:
+            break
+        selected.extend(rows)
         if len(selected) >= budget:
             break
-        if row not in selected:
-            selected.append(row)
-    return selected
+    return selected or matrix[:budget]
 
 
 # ---------------------------------------------------------------------------

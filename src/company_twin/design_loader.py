@@ -5,8 +5,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
-
 
 @dataclass(frozen=True)
 class DocumentMeta:
@@ -32,7 +30,6 @@ class ProbeDefinition:
     probe_id: str
     title: str
     binds: tuple[str, ...] = ()
-    conditions: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -52,56 +49,6 @@ class DesignInputs:
     world_config_text: str
 
 
-class DesignValidationError(ValueError):
-    """Raised when compiled design artifacts cannot form an executable pack."""
-
-
-class _DocumentModel(BaseModel):
-    model_config = ConfigDict(arbitrary_types_allowed=True)
-
-    doc_id: str = Field(pattern=r"^DFH-SAL-\d{3}$")
-    kind: str = ""
-    authority: int | None = None
-    owner: str = ""
-    scope: str = ""
-    version: str = ""
-    path: Path | None = None
-
-
-class _SpanModel(BaseModel):
-    span_id: str = Field(pattern=r"^(AMB|CONTRA|STR|SCC)-\d+[A-Za-z]?$")
-    raw: str
-    issue: str = ""
-    candidates: dict[str, str] = Field(default_factory=dict)
-
-
-class _ProbeModel(BaseModel):
-    probe_id: str = Field(pattern=r"^P-\d{2}$")
-    title: str
-    binds: tuple[str, ...] = ()
-    conditions: tuple[str, ...] = ()
-
-    @field_validator("binds")
-    @classmethod
-    def _binds_are_not_empty_strings(cls, value: tuple[str, ...]) -> tuple[str, ...]:
-        if any(not item.strip() for item in value):
-            raise ValueError("empty span bind")
-        return value
-
-
-class _SeatModel(BaseModel):
-    seat_id: str
-    role: str
-    description: str = ""
-
-
-class _DesignModel(BaseModel):
-    documents: dict[str, _DocumentModel]
-    spans: dict[str, _SpanModel]
-    probes: dict[str, _ProbeModel]
-    seats: dict[str, _SeatModel]
-
-
 INLINE_FIELD_RE = re.compile(r"(?P<key>[A-Za-z_]+):\s*(?P<value>'[^']*'|[^,}]+)")
 ID_RE = re.compile(r"id:\s*(DFH-SAL-\d{3})")
 SPAN_ID_RE = re.compile(r"^\s*-\s+id:\s*([A-Z]+-\d+[a-z]?)", re.MULTILINE)
@@ -116,7 +63,7 @@ def load_design(root: Path) -> DesignInputs:
     world_config = (compiled / "world_config_v2.yaml").read_text(encoding="utf-8")
     documents = _parse_manifest(manifest, root)
     spans = _parse_spans(registry)
-    probes = _parse_probes(world_config, spans)
+    probes = _parse_probes(world_config)
     seats = _parse_seats(world_config)
     design = DesignInputs(
         root=root,
@@ -126,8 +73,33 @@ def load_design(root: Path) -> DesignInputs:
         seats=seats,
         world_config_text=world_config,
     )
-    _validate_design(design)
+    validate_design(design)
     return design
+
+
+KNOWN_ROLES = {"sales", "manager", "application", "second_line", "audit", "unknown"}
+
+
+def validate_design(design: DesignInputs) -> None:
+    """Hard validation of compiled inputs (partial answer to the schema-artifact
+    reviewer blocker): undefined binds, pathless docs, and unknown roles fail
+    loudly instead of being silently dropped downstream."""
+    problems: list[str] = []
+    for probe_id, probe in design.probes.items():
+        for span_id in probe.binds:
+            if span_id not in design.spans:
+                problems.append(f"probe {probe_id} binds undefined span {span_id}")
+    missing = [doc_id for doc_id, meta in design.documents.items() if meta.path is None]
+    if missing:
+        problems.append(f"documents without raw files: {missing[:5]}")
+    for seat_id, seat in design.seats.items():
+        if seat.role not in KNOWN_ROLES:
+            problems.append(f"seat {seat_id} has unknown role {seat.role}")
+    for span_id, span in design.spans.items():
+        if not span.raw.strip():
+            problems.append(f"span {span_id} has empty registry block")
+    if problems:
+        raise ValueError("compiled design inputs failed validation: " + "; ".join(problems))
 
 
 def _parse_manifest(text: str, root: Path) -> dict[str, DocumentMeta]:
@@ -210,16 +182,14 @@ def _first_field(block: str, field_name: str) -> str:
     return match.group(1).strip() if match else ""
 
 
-def _parse_probes(text: str, spans: dict[str, SpanDefinition]) -> dict[str, ProbeDefinition]:
+def _parse_probes(text: str) -> dict[str, ProbeDefinition]:
     probes: dict[str, ProbeDefinition] = {}
     for match in PROBE_RE.finditer(text):
         probe_id = match.group(1)
         title = match.group(2).strip()
         binds_text = match.group(3) or ""
-        parsed = tuple(_normalize_bind_id(item) for item in _split_csvish(binds_text) if item.strip())
-        binds = tuple(item for item in parsed if item in spans)
-        conditions = tuple(item for item in parsed if item and item not in spans)
-        probes[probe_id] = ProbeDefinition(probe_id=probe_id, title=title, binds=binds, conditions=conditions)
+        binds = tuple(_normalize_bind_id(item) for item in _split_csvish(binds_text) if item.strip())
+        probes[probe_id] = ProbeDefinition(probe_id=probe_id, title=title, binds=binds)
     return probes
 
 
@@ -270,41 +240,3 @@ def _normalize_bind_id(value: str) -> str:
 
 def _clean_value(value: str) -> str:
     return value.strip().strip("'").strip('"').strip()
-
-
-def _validate_design(design: DesignInputs) -> None:
-    try:
-        _DesignModel.model_validate(
-            {
-                "documents": {key: vars(value) for key, value in design.documents.items()},
-                "spans": {key: vars(value) for key, value in design.spans.items()},
-                "probes": {key: vars(value) for key, value in design.probes.items()},
-                "seats": {key: vars(value) for key, value in design.seats.items()},
-            }
-        )
-    except ValidationError as exc:
-        raise DesignValidationError(str(exc)) from exc
-
-    problems: list[str] = []
-    if len(design.documents) < 50:
-        problems.append(f"documents below expected pack size: {len(design.documents)}")
-    if not design.spans:
-        problems.append("span registry is empty")
-    if not design.probes:
-        problems.append("probe deck is empty")
-    if not design.seats:
-        problems.append("population is empty")
-    for key, doc in design.documents.items():
-        if key != doc.doc_id:
-            problems.append(f"document key/id mismatch: {key} != {doc.doc_id}")
-    for key, span in design.spans.items():
-        if key != span.span_id:
-            problems.append(f"span key/id mismatch: {key} != {span.span_id}")
-    for key, probe in design.probes.items():
-        if key != probe.probe_id:
-            problems.append(f"probe key/id mismatch: {key} != {probe.probe_id}")
-        missing = [span_id for span_id in probe.binds if span_id not in design.spans]
-        if missing:
-            problems.append(f"{probe.probe_id} has unknown executable span binds: {missing}")
-    if problems:
-        raise DesignValidationError("; ".join(problems))

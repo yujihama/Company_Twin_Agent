@@ -45,10 +45,11 @@ def build_world_config(
     seat_id: str | None = None,
     mutations: list[dict[str, Any]] | None = None,
     executed_s0_rows: int | None = None,
+    d4_enabled: bool = True,
 ) -> dict[str, Any]:
     normalized_knobs = {**DEFAULT_KNOBS, **(knobs or {})}
     model_name = normalize_openrouter_model(model)
-    seats = _seat_configs(design, model_name)
+    seats = _seat_configs(design, model_name, d4_enabled=d4_enabled)
     deck = [event.to_dict() for event in build_customer_deck(design, include_routine=True)]
     config = {
         "schema_version": "company_twin.world_config.v2",
@@ -104,6 +105,7 @@ def build_world_config(
             "probe_id": probe_id,
             "seat_id": seat_id,
             "executed_s0_rows": executed_s0_rows,
+            "d4_enabled": d4_enabled,
         },
         "model": {
             "default": model_name,
@@ -155,45 +157,31 @@ def default_retrieval_profiles() -> dict[str, Any]:
     }
 
 
-def _seat_configs(design: DesignInputs, model_name: str) -> dict[str, Any]:
-    budgets = {"sales": 8, "manager": 7, "application": 8, "second_line": 7, "audit": 6}
+def _seat_configs(design: DesignInputs, model_name: str, *, d4_enabled: bool = True) -> dict[str, Any]:
+    from .tools import tools_for_role  # local import: avoids world_config<->tools<->corpus cycle
+
+    budgets = {"sales": 14, "manager": 10, "application": 12, "second_line": 10, "audit": 8}
     result: dict[str, Any] = {}
     for seat_id, seat in sorted(design.seats.items()):
+        card = _role_card_meta(design.root, seat.role)
         result[seat_id] = {
             "role": seat.role,
             "description": seat.description,
-            "role_card": _role_card_entry(design.root, seat.role),
+            "role_card_path": card["path"],
+            "role_card_sha256": card["sha256"],
             "tick_budget": budgets.get(seat.role, 8),
             "model_binding": model_name,
-            "store_enabled": seat.role in {"sales", "manager", "second_line"},
-            "tools": _tools_for_role(seat.role),
+            "store_enabled": d4_enabled,
+            "tools": list(tools_for_role(seat.role, d4_enabled=d4_enabled)),
         }
     return result
 
 
-def _tools_for_role(role: str) -> list[str]:
-    base = ["search_corpus", "read_document", "record_interpretation_basis", "note_to_self", "recall_private_memory", "send_chat"]
-    if role == "sales":
-        return base + ["record_customer_contact", "request_approval"]
-    if role == "manager":
-        return base + ["approve_application", "return_application"]
-    if role == "application":
-        return base + ["submit_application", "verify_identity", "link_review", "complete_contract", "deliver_documents"]
-    if role == "second_line":
-        return base + ["approve_application", "return_application"]
-    return base
-
-
-def _role_card_entry(root: Path, role: str) -> dict[str, str]:
+def _role_card_meta(root: Path, role: str) -> dict[str, str]:
     path = root / "data" / "design" / "role_cards" / f"{role}.md"
-    text = path.read_text(encoding="utf-8") if path.exists() else f"役割: {role}"
-    rel_path = path.relative_to(root).as_posix() if path.exists() else ""
-    return {
-        "role_card_id": role,
-        "path": rel_path,
-        "sha256": _text_hash(text),
-        "text": text,
-    }
+    if not path.exists():
+        return {"path": "", "sha256": ""}
+    return {"path": str(path.relative_to(root)), "sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
 
 
 def assert_world_config_complete(config: dict[str, Any]) -> list[str]:
