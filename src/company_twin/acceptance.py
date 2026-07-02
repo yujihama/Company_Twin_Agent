@@ -294,7 +294,7 @@ def a13_full_world_evidence(campaign_root: Path) -> GateResult:
             problems.append(f"{path.name}: controlled_actions_agent=0")
         if int(metrics.get("basis_action_bound") or 0) < 1:
             problems.append(f"{path.name}: basis_action_bound=0")
-    for filename in ("ensemble_triage.json", "attribution_table.json", "min_repro_jobs.json"):
+    for filename in ("ensemble_triage.json", "attribution_table.json", "min_repro_jobs.json", "finding_registry.json"):
         if not (campaign_root / filename).exists():
             problems.append(f"{filename} missing")
     return GateResult("A-13 full_world_evidence", not problems, "; ".join(problems[:8]))

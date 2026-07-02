@@ -120,12 +120,15 @@ def aggregate_ensemble_triage(campaign_root: Path) -> dict[str, Any]:
         out.append({"config": group["config"], "seeds": group["seeds"], "controlled_actions_total": group["controlled_actions"], "finding_rates": rates})
     attribution_table = _attribution_table(out)
     min_repro_jobs = _min_repro_jobs(out)
+    finding_registry = _finding_registry(out, min_repro_jobs)
     (campaign_root / "attribution_table.json").write_text(json.dumps({"rows": attribution_table}, ensure_ascii=False, indent=2), encoding="utf-8")
     (campaign_root / "min_repro_jobs.json").write_text(json.dumps({"jobs": min_repro_jobs}, ensure_ascii=False, indent=2), encoding="utf-8")
+    (campaign_root / "finding_registry.json").write_text(json.dumps(finding_registry, ensure_ascii=False, indent=2), encoding="utf-8")
     payload = {
         "groups": out,
         "attribution_table": attribution_table,
         "min_repro_jobs": min_repro_jobs,
+        "finding_registry": finding_registry,
         "note": "candidate-level triage only: delta=1 attribution and min-repro jobs are queued, not confirmed findings",
     }
     (campaign_root / "ensemble_triage.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -192,6 +195,30 @@ def _min_repro_jobs(groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 }
             )
     return jobs
+
+
+def _finding_registry(groups: list[dict[str, Any]], min_repro_jobs: list[dict[str, Any]]) -> dict[str, Any]:
+    reproduced = [job for job in min_repro_jobs if job.get("status") == "reproduced"]
+    exploratory = [
+        {
+            "finding_type": finding_type,
+            "config": group["config"],
+            "status": "exploratory",
+            "reason": "min_repro_not_reproduced",
+            "rate": rate["rate"],
+            "seeds_with_finding": rate["seeds_with_finding"],
+            "seeds": rate["seeds"],
+        }
+        for group in groups
+        for finding_type, rate in sorted((group.get("finding_rates") or {}).items())
+        if not any(job.get("finding_type") == finding_type and job.get("config") == group["config"] for job in reproduced)
+    ]
+    return {
+        "confirmed_findings": reproduced,
+        "exploratory_buckets": exploratory,
+        "audit_hypothesis_cards": reproduced,
+        "note": "Only reproduced min-repro jobs may become confirmed findings or audit hypothesis cards.",
+    }
 
 
 def signature_for(*, finding_type: str, anchor_id: str, seat_id: str, phase: str, artifact_skeleton: str) -> str:

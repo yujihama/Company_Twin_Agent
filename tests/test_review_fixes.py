@@ -15,7 +15,7 @@ from company_twin.design_loader import load_design
 from company_twin.harness import _s0_prompt, run_s1_episode
 from company_twin.kernel import WorldKernel, KernelProfile
 from company_twin.recorder import RunRecorder, read_jsonl
-from company_twin.readiness import run_readiness_gate
+from company_twin.readiness import REPORT_SCHEMA_VERSION, run_readiness_gate, write_readiness_reports
 from company_twin.tools import ROLE_TOOL_BUNDLES, build_role_tools
 from company_twin.world_config import build_world_config
 from conftest import fake_seat_factory
@@ -242,7 +242,7 @@ def _s2_bundle(root: Path, *, anchor: bool, month_end: bool = True) -> None:
 
 def test_a13_full_world_evidence_rejects_anchor_only_and_requires_month_end(tmp_path: Path) -> None:
     _s2_bundle(tmp_path / "anchor_s2_seed0", anchor=True)
-    for filename in ("ensemble_triage.json", "attribution_table.json", "min_repro_jobs.json"):
+    for filename in ("ensemble_triage.json", "attribution_table.json", "min_repro_jobs.json", "finding_registry.json"):
         (tmp_path / filename).write_text("{}", encoding="utf-8")
 
     result = a13_full_world_evidence(tmp_path)
@@ -264,12 +264,39 @@ def test_stage9_readiness_is_stricter_than_harness_acceptance(tmp_path: Path) ->
 
     assert payload["passed"] is False
     failed = {check["check"] for check in payload["checks"] if not check["passed"]}
-    assert "routine_smoke_present" in failed
+    assert "routine_smoke_passed" in failed
     assert "s0_divergence_sanity" in failed
     assert "leak_lint_passed" in failed
     assert "semantic_grounding_all3_threshold" in failed
-    assert "holdout_present" in failed
+    assert "holdout_passed" in failed
     assert (tmp_path / "readiness_report.json").exists()
+
+
+def test_readiness_reports_are_schema_backed_and_do_not_fake_stage9_pass(tmp_path: Path) -> None:
+    _, corpus = _design_corpus()
+
+    manifest = write_readiness_reports(tmp_path, corpus=corpus, lint_payload={"passed": True, "failures": []})
+
+    assert "retrieval_audit.json" in manifest["reports"]
+    assert "backcasting_report.json" in manifest["blocked_reports"]
+    for filename in (
+        "routine_smoke_report.json",
+        "retrieval_audit.json",
+        "leak_lint_report.json",
+        "semantic_grounding_report.json",
+        "backcasting_report.json",
+        "sme_blind_review.json",
+        "holdout_report.json",
+    ):
+        payload = json.loads((tmp_path / filename).read_text(encoding="utf-8"))
+        assert payload["schema_version"] == REPORT_SCHEMA_VERSION
+        assert "passed" in payload
+
+    readiness = run_readiness_gate(tmp_path)
+    assert readiness["passed"] is False
+    failed = {check["check"] for check in readiness["checks"] if not check["passed"]}
+    assert "backcasting_passed" in failed
+    assert "semantic_grounding_all3_threshold" in failed
 
 
 def test_ensemble_triage_groups_by_config_across_seeds(tmp_path: Path) -> None:
@@ -291,6 +318,10 @@ def test_ensemble_triage_groups_by_config_across_seeds(tmp_path: Path) -> None:
     assert wilson_interval(0, 0) == (0.0, 0.0)
     assert (tmp_path / "min_repro_jobs.json").exists()
     assert payload["min_repro_jobs"][0]["status"] == "pending"
+    assert (tmp_path / "finding_registry.json").exists()
+    assert payload["finding_registry"]["confirmed_findings"] == []
+    assert payload["finding_registry"]["audit_hypothesis_cards"] == []
+    assert payload["finding_registry"]["exploratory_buckets"]
 
 
 def test_ensemble_triage_emits_delta_one_attribution_candidates(tmp_path: Path) -> None:

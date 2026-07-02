@@ -14,7 +14,7 @@ from .design_loader import load_design
 from .env import load_local_env, normalize_openrouter_model
 from .harness import make_run_root, run_s0, run_s1_episode, run_s2_world
 from .oracles import write_triage
-from .readiness import run_readiness_gate
+from .readiness import run_readiness_gate, write_readiness_reports
 
 app = typer.Typer(no_args_is_help=True)
 
@@ -197,6 +197,28 @@ def readiness(
     _echo_json(payload)
     if not payload["passed"]:
         raise typer.Exit(code=1)
+
+
+@app.command("readiness-reports")
+def readiness_reports(
+    campaign_root: Annotated[Path, typer.Option("--campaign-root")],
+    semantic_threshold: Annotated[float, typer.Option("--semantic-threshold")] = 0.8,
+    overwrite: Annotated[bool, typer.Option("--overwrite")] = False,
+    root: Annotated[Path | None, typer.Option("--root")] = None,
+) -> None:
+    """Write Stage 9 report envelopes; missing evidence remains failed."""
+    base = _root(root)
+    design = load_design(base)
+    corpus = Corpus.from_design(design)
+    lint_payload = static_world_surface_lint(design)
+    payload = write_readiness_reports(
+        campaign_root.resolve(),
+        corpus=corpus,
+        lint_payload=lint_payload,
+        semantic_threshold=semantic_threshold,
+        overwrite=overwrite,
+    )
+    _echo_json(payload)
 
 
 @app.command("lint")
