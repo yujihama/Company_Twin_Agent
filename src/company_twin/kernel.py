@@ -344,7 +344,7 @@ class WorldKernel:
         g1_span_exists = self._basis_g1_span_exists(basis)
         g2_prior_read = self._basis_g2_prior_read(seat_id, basis) if self.profile.require_prior_read_for_basis else None
         action_grounded = grounded and g1_span_exists and (g2_prior_read is not False)
-        g3_entailment = self._basis_entailment_label(basis)
+        g3_machine_heuristic = self._basis_entailment_label(basis)
         record = BasisRecord(
             basis_id=self.recorder.next_basis_id(),
             ts=utc_now(),
@@ -363,7 +363,8 @@ class WorldKernel:
             grounded=action_grounded,
             g1_span_exists=g1_span_exists,
             g2_prior_read=g2_prior_read,
-            g3_entailment=g3_entailment,
+            g3_entailment=g3_machine_heuristic,
+            g3_machine_heuristic=g3_machine_heuristic,
         )
         return self.recorder.record_basis(seat_id, record)
 
@@ -377,11 +378,11 @@ class WorldKernel:
         return bool(doc_ids) and all(self.recorder.has_read_doc(seat_id, doc_id) for doc_id in doc_ids)
 
     def _basis_entailment_label(self, basis: dict[str, Any]) -> str:
-        """Lightweight deterministic g3 oracle.
+        """Lightweight deterministic g3 machine heuristic.
 
         This is intentionally conservative: it marks a basis supported only
         when its construal/decision shares enough content words with the cited
-        span registry text. Full L2 semantic entailment can replace this later.
+        span registry text. It is not the Stage 9 semantic entailment oracle.
         """
         cited_texts: list[str] = []
         for item in basis.get("retrieved") or []:

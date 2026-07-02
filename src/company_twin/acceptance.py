@@ -11,9 +11,12 @@ from .kernel import FORBIDDEN_INBOX_KEYS, INBOX_ALLOWED_KEYS
 from .recorder import ALLOWED_ORIGINS, read_jsonl
 
 # ---------------------------------------------------------------------------
-# Unfakeable acceptance gates (fix instruction WI-0, checks A-01..A-10).
-# These are the ONLY acceptance criteria for the harness. `compliance`-style
-# structural counting must never be used as acceptance again.
+# Unfakeable harness-safety gates (fix instruction WI-0, checks A-01..A-12).
+# These gates certify that run evidence was produced by the live world harness.
+# They are intentionally NOT the Stage 9 experiment-readiness gate; semantic
+# grounding, holdout/backcasting, SME review, and confirmation runs belong to a
+# separate readiness layer. `compliance`-style structural counting must never be
+# used as harness-safety acceptance again.
 #
 # Design properties that make these hard to game:
 #  * populations are filtered by origin, and banned origins fail the whole gate

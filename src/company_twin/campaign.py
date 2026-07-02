@@ -111,7 +111,15 @@ def run_design_campaign(
 
     divergence = aggregate_s0_divergence(design, s0_results, campaign_root=campaign_root)
 
-    promoted_probe = s1_probe or _promote_probe(divergence) or (selected[0].probe_id if selected else "P-04")
+    if s1_probe:
+        promoted_probe = s1_probe
+        promotion_reason: dict[str, Any] = {"mode": "explicit", "probe_id": s1_probe}
+    else:
+        promoted = _promote_probe(divergence)
+        if promoted is None:
+            raise RuntimeError("S0 did not produce any promotion-eligible divergence cell; refusing fixed-probe fallback")
+        promoted_probe = str(promoted["probe_id"])
+        promotion_reason = promoted
     s1_roots: list[str] = []
     for seed in range(s1_k):
         s1_root = campaign_root / f"s1_{promoted_probe}_seed{seed}"
@@ -138,6 +146,7 @@ def run_design_campaign(
         "s0_matrix_rows_generated": len(matrix),
         "s0_rows_executed": len(selected),
         "promoted_probe": promoted_probe,
+        "promotion_reason": promotion_reason,
         "s1_k": s1_k,
         "s1_roots": s1_roots,
         "with_s2": with_s2,
@@ -175,12 +184,18 @@ def aggregate_s0_divergence(design: DesignInputs, s0_results: list[dict[str, Any
     for (span_id, role), rows in sorted(cells.items()):
         candidates = design.spans[span_id].candidates if span_id in design.spans else {}
         clusters = Counter(classify_answer(_answer_text(row), candidates) for row in rows)
+        probe_counts = Counter(str(row.get("probe_id") or "") for row in rows if row.get("probe_id"))
+        primary_probe_id = probe_counts.most_common(1)[0][0] if probe_counts else ""
         span_consistent = all(str(row.get("span_id_from_run") or row.get("span_id") or "") == span_id for row in rows)
         parsed_answers = sum(1 for row in rows if row.get("parsed") is True)
+        novel_count = int(clusters.get("novel_or_unclassified", 0))
         out_cells.append(
             {
                 "span_id": span_id,
                 "role": role,
+                "probe_ids": sorted(probe_counts),
+                "probe_counts": dict(probe_counts),
+                "primary_probe_id": primary_probe_id,
                 "answers": len(rows),
                 "answer_count": len(rows),
                 "parsed_answers": parsed_answers,
@@ -189,10 +204,31 @@ def aggregate_s0_divergence(design: DesignInputs, s0_results: list[dict[str, Any
                 "variant_count": len({row.get("variant") for row in rows}),
                 "span_specific": span_consistent,
                 "clusters": dict(clusters),
+                "machine_clusters": dict(clusters),
+                "human_confirmed_class": None,
+                "novel_count": novel_count,
+                "human_review_required": novel_count > 0,
                 "entropy": round(entropy(clusters), 4),
             }
         )
-    payload = {"cells": out_cells, "all_answers_live": all_live, "answer_total": sum(cell["answers"] for cell in out_cells)}
+    human_review_queue = [
+        {
+            "span_id": cell["span_id"],
+            "role": cell["role"],
+            "primary_probe_id": cell["primary_probe_id"],
+            "novel_count": cell["novel_count"],
+            "machine_clusters": cell["machine_clusters"],
+        }
+        for cell in out_cells
+        if cell["human_review_required"]
+    ]
+    payload = {
+        "cells": out_cells,
+        "all_answers_live": all_live,
+        "answer_total": sum(cell["answers"] for cell in out_cells),
+        "human_review_queue": human_review_queue,
+        "novel_status": "machine_candidate_only_until_human_confirmed",
+    }
     if campaign_root is not None:
         (campaign_root / "s0_divergence.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     return payload
@@ -245,11 +281,52 @@ def _tokenize(text: str) -> list[str]:
     return re.findall(r"[A-Za-z0-9_-]+|[\u3040-\u30ff\u3400-\u9fff]{2,}", text)
 
 
-def _promote_probe(divergence: dict[str, Any]) -> str | None:
-    # highest-entropy span -> pick a probe bound to it is resolved by caller via design;
-    # here we only need "a probe id" so we return None and let campaign fall back,
-    # unless cells carry probe hints. Kept simple and explicit.
-    return None
+def _promote_probe(divergence: dict[str, Any]) -> dict[str, Any] | None:
+    """Choose the S1 probe from measured S0 divergence, never from row order."""
+    candidates: list[dict[str, Any]] = []
+    for cell in divergence.get("cells") or []:
+        probe_id = str(cell.get("primary_probe_id") or "")
+        if not probe_id:
+            continue
+        answers = int(cell.get("answer_count") or cell.get("answers") or 0)
+        if answers < 2:
+            continue
+        parsed_rate = float(cell.get("parsed_rate") or 0.0)
+        entropy_value = float(cell.get("entropy") or 0.0)
+        novel_count = int(cell.get("novel_count") or 0)
+        model_count = int(cell.get("model_count") or 0)
+        variant_count = int(cell.get("variant_count") or 0)
+        if parsed_rate <= 0 and entropy_value <= 0 and novel_count <= 0:
+            continue
+        candidates.append(
+            {
+                "mode": "s0_divergence",
+                "probe_id": probe_id,
+                "span_id": cell.get("span_id"),
+                "role": cell.get("role"),
+                "entropy": entropy_value,
+                "novel_count": novel_count,
+                "parsed_rate": parsed_rate,
+                "model_count": model_count,
+                "variant_count": variant_count,
+                "answer_count": answers,
+                "reason": "novel_or_unclassified" if novel_count > 0 else "max_entropy",
+            }
+        )
+    if not candidates:
+        return None
+    candidates.sort(
+        key=lambda item: (
+            item["novel_count"] > 0,
+            item["entropy"],
+            item["model_count"] >= 2 and item["variant_count"] >= 2,
+            item["parsed_rate"],
+            item["answer_count"],
+            str(item["probe_id"]),
+        ),
+        reverse=True,
+    )
+    return candidates[0]
 
 
 def _diverse_s0_rows(matrix: list[S0MatrixRow], *, budget: int) -> list[S0MatrixRow]:

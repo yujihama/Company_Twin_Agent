@@ -95,8 +95,8 @@ def wilson_interval(successes: int, total: int, z: float = 1.96) -> tuple[float,
 def aggregate_ensemble_triage(campaign_root: Path) -> dict[str, Any]:
     """Ensemble-level triage (partial answer to reviewer Major 4): group run
     bundles by config identity (stage, probe, knobs) across seeds and report
-    per-finding-type incidence rates with Wilson intervals. Attribution tables
-    and min-repro jobs remain future work and are marked as such."""
+    per-finding-type incidence rates with Wilson intervals. Attribution and
+    min-repro outputs are candidate queues; they do not mark findings confirmed."""
     groups: dict[str, dict[str, Any]] = {}
     for run_root in sorted(path for path in campaign_root.iterdir() if path.is_dir()):
         meta_path = run_root / "meta.json"
@@ -118,9 +118,80 @@ def aggregate_ensemble_triage(campaign_root: Path) -> dict[str, Any]:
             low, high = wilson_interval(seed_hits, group["seeds"])
             rates[finding_type] = {"seeds_with_finding": seed_hits, "seeds": group["seeds"], "rate": seed_hits / group["seeds"], "wilson_95": [round(low, 4), round(high, 4)]}
         out.append({"config": group["config"], "seeds": group["seeds"], "controlled_actions_total": group["controlled_actions"], "finding_rates": rates})
-    payload = {"groups": out, "note": "attribution (delta=1 pairs) and min-repro are not yet implemented; do not report single-seed findings"}
+    attribution_table = _attribution_table(out)
+    min_repro_jobs = _min_repro_jobs(out)
+    (campaign_root / "attribution_table.json").write_text(json.dumps({"rows": attribution_table}, ensure_ascii=False, indent=2), encoding="utf-8")
+    (campaign_root / "min_repro_jobs.json").write_text(json.dumps({"jobs": min_repro_jobs}, ensure_ascii=False, indent=2), encoding="utf-8")
+    payload = {
+        "groups": out,
+        "attribution_table": attribution_table,
+        "min_repro_jobs": min_repro_jobs,
+        "note": "candidate-level triage only: delta=1 attribution and min-repro jobs are queued, not confirmed findings",
+    }
     (campaign_root / "ensemble_triage.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     return payload
+
+
+def _attribution_table(groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for idx, left in enumerate(groups):
+        for right in groups[idx + 1 :]:
+            delta = _single_knob_delta(left["config"], right["config"])
+            if delta is None:
+                continue
+            finding_types = sorted(set(left.get("finding_rates", {})) | set(right.get("finding_rates", {})))
+            for finding_type in finding_types:
+                left_rate = float(((left.get("finding_rates") or {}).get(finding_type) or {}).get("rate") or 0.0)
+                right_rate = float(((right.get("finding_rates") or {}).get(finding_type) or {}).get("rate") or 0.0)
+                if left_rate == right_rate:
+                    continue
+                rows.append(
+                    {
+                        "status": "candidate",
+                        "finding_type": finding_type,
+                        "delta_knob": delta["knob"],
+                        "left_value": delta["left"],
+                        "right_value": delta["right"],
+                        "left_config": left["config"],
+                        "right_config": right["config"],
+                        "left_rate": left_rate,
+                        "right_rate": right_rate,
+                        "effect_delta": round(right_rate - left_rate, 6),
+                    }
+                )
+    return rows
+
+
+def _single_knob_delta(left: dict[str, Any], right: dict[str, Any]) -> dict[str, Any] | None:
+    comparable_keys = {"stage", "probe", "anchor"}
+    if any(left.get(key) != right.get(key) for key in comparable_keys):
+        return None
+    left_knobs = left.get("knobs") or {}
+    right_knobs = right.get("knobs") or {}
+    all_knobs = sorted(set(left_knobs) | set(right_knobs))
+    diffs = [knob for knob in all_knobs if bool(left_knobs.get(knob)) != bool(right_knobs.get(knob))]
+    if len(diffs) != 1:
+        return None
+    knob = diffs[0]
+    return {"knob": knob, "left": bool(left_knobs.get(knob)), "right": bool(right_knobs.get(knob))}
+
+
+def _min_repro_jobs(groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    jobs: list[dict[str, Any]] = []
+    for group in groups:
+        for finding_type, rate in sorted((group.get("finding_rates") or {}).items()):
+            jobs.append(
+                {
+                    "status": "pending",
+                    "finding_type": finding_type,
+                    "config": group["config"],
+                    "seeds_with_finding": rate["seeds_with_finding"],
+                    "seeds": rate["seeds"],
+                    "rate": rate["rate"],
+                    "wilson_95": rate["wilson_95"],
+                }
+            )
+    return jobs
 
 
 def signature_for(*, finding_type: str, anchor_id: str, seat_id: str, phase: str, artifact_skeleton: str) -> str:
@@ -192,11 +263,11 @@ def _metrics(run_root: Path, findings: list[Finding]) -> dict[str, Any]:
     grounded = [row for row in action_bound_basis if row.get("grounded")]
     g1 = [row for row in action_bound_basis if row.get("g1_span_exists") is True]
     g2 = [row for row in action_bound_basis if row.get("g2_prior_read") is True]
-    g3 = [row for row in action_bound_basis if row.get("g3_entailment") == "supported"]
+    g3_machine = [row for row in action_bound_basis if (row.get("g3_machine_heuristic") or row.get("g3_entailment")) == "supported"]
     all3 = [
         row
         for row in action_bound_basis
-        if row.get("g1_span_exists") is True and row.get("g2_prior_read") is True and row.get("g3_entailment") == "supported"
+        if row.get("g1_span_exists") is True and row.get("g2_prior_read") is True and (row.get("g3_machine_heuristic") or row.get("g3_entailment")) == "supported"
     ]
     store_reads = [row for row in store_events if row.get("op") == "read" and row.get("origin") == "agent"]
     store_writes = [row for row in store_events if row.get("op") == "write" and row.get("origin") == "agent"]
@@ -223,8 +294,11 @@ def _metrics(run_root: Path, findings: list[Finding]) -> dict[str, Any]:
         "grounding_coverage_machine": (len(grounded) / len(controlled)) if controlled else 0.0,
         "grounding_g1_rate": (len(g1) / len(action_bound_basis)) if action_bound_basis else 0.0,
         "grounding_g2_rate": (len(g2) / len(action_bound_basis)) if action_bound_basis else 0.0,
-        "grounding_g3_rate": (len(g3) / len(action_bound_basis)) if action_bound_basis else 0.0,
+        "grounding_g3_rate": (len(g3_machine) / len(action_bound_basis)) if action_bound_basis else 0.0,
+        "grounding_g3_machine_heuristic_rate": (len(g3_machine) / len(action_bound_basis)) if action_bound_basis else 0.0,
+        "grounding_semantic_all3_rate": None,
         "grounding_all3_rate": (len(all3) / len(action_bound_basis)) if action_bound_basis else 0.0,
+        "grounding_machine_all3_rate": (len(all3) / len(action_bound_basis)) if action_bound_basis else 0.0,
         "store_writes_agent": len(store_writes),
         "store_reads_agent": len(store_reads),
         "controlled_actions_after_store_read": len(controlled_after_store_read),

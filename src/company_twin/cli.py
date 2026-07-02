@@ -172,7 +172,7 @@ def acceptance(
     scope: Annotated[str, typer.Option("--scope", help="auto | s0_s1 | full_world")] = "auto",
     root: Annotated[Path | None, typer.Option("--root")] = None,
 ) -> None:
-    """Run the unfakeable acceptance gates (A-01..A-09) over a campaign root."""
+    """Run harness-safety acceptance gates (A-01..A-12), not Stage 9 readiness."""
     base = _root(root)
     design = load_design(base)
     corpus = Corpus.from_design(design)

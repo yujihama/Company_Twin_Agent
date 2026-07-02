@@ -227,3 +227,27 @@ def test_ensemble_triage_groups_by_config_across_seeds(tmp_path: Path) -> None:
     low, high = rate["wilson_95"]
     assert 0.0 <= low < 2 / 3 < high <= 1.0
     assert wilson_interval(0, 0) == (0.0, 0.0)
+    assert (tmp_path / "min_repro_jobs.json").exists()
+    assert payload["min_repro_jobs"][0]["status"] == "pending"
+
+
+def test_ensemble_triage_emits_delta_one_attribution_candidates(tmp_path: Path) -> None:
+    from company_twin.oracles import aggregate_ensemble_triage
+
+    configs = [
+        ("off", {}, {"evidence_gap": 1}),
+        ("on", {"K-completion-gate": True}, {}),
+    ]
+    for label, knobs, finding_types in configs:
+        root = tmp_path / f"s2_{label}_seed0"
+        (root / "triage").mkdir(parents=True)
+        (root / "meta.json").write_text(json.dumps({"stage": "S2", "probe": "", "knobs": knobs, "seed": 0}), encoding="utf-8")
+        (root / "triage" / "metrics.json").write_text(json.dumps({"controlled_actions_agent": 3, "finding_types": finding_types}), encoding="utf-8")
+
+    payload = aggregate_ensemble_triage(tmp_path)
+
+    assert (tmp_path / "attribution_table.json").exists()
+    assert payload["attribution_table"]
+    row = payload["attribution_table"][0]
+    assert row["status"] == "candidate"
+    assert row["delta_knob"] == "K-completion-gate"

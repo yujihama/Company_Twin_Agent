@@ -54,6 +54,7 @@ class BasisRecord:
     g1_span_exists: bool | None = None
     g2_prior_read: bool | None = None
     g3_entailment: str = "not_evaluated"
+    g3_machine_heuristic: str = "not_evaluated"
 
 
 class RunRecorder:

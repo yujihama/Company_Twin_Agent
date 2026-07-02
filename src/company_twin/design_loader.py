@@ -152,10 +152,30 @@ PROBE_RE = re.compile(r"^\s*(P-\d{2})\s+(.+):\s*(?:binds\s*\[([^\]]*)\]|(.+))$",
 EMP_RE = re.compile(r"(emp-[A-Z])(?:\(([^)]*)\))?")
 
 
-def load_design(root: Path) -> DesignInputs:
+def load_design(root: Path, *, allow_legacy: bool = False) -> DesignInputs:
     compiled = root / "data" / "compiled_data"
     if _schema_artifacts_available(compiled):
         return _load_schema_artifacts(root, compiled)
+    missing = _missing_schema_artifacts(compiled)
+    if not allow_legacy:
+        raise FileNotFoundError(
+            "schema JSON artifacts are required for normal execution; "
+            f"missing: {missing}. Use load_legacy_design() only for legacy import."
+        )
+    return _load_legacy_design(root, compiled)
+
+
+def load_legacy_design(root: Path) -> DesignInputs:
+    """Legacy importer for the pre-schema YAML-like compiled files.
+
+    Normal harness and campaign execution must use schema JSON artifacts. This
+    path exists only to migrate older design packs and should not be used in
+    acceptance or campaign code.
+    """
+    return _load_legacy_design(root, root / "data" / "compiled_data")
+
+
+def _load_legacy_design(root: Path, compiled: Path) -> DesignInputs:
     manifest = (compiled / "00_corpus_manifest_v2.yaml").read_text(encoding="utf-8")
     registry = (compiled / "06_seeded_span_registry_v2.yaml").read_text(encoding="utf-8")
     world_config = (compiled / "world_config_v2.yaml").read_text(encoding="utf-8")
@@ -188,6 +208,10 @@ SCHEMA_ARTIFACTS = {
 
 def _schema_artifacts_available(compiled: Path) -> bool:
     return all((compiled / filename).exists() for filename in SCHEMA_ARTIFACTS)
+
+
+def _missing_schema_artifacts(compiled: Path) -> list[str]:
+    return sorted(filename for filename in SCHEMA_ARTIFACTS if not (compiled / filename).exists())
 
 
 def _load_schema_artifacts(root: Path, compiled: Path) -> DesignInputs:

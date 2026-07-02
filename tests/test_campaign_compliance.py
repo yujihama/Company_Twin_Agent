@@ -10,6 +10,7 @@ from company_twin.campaign import (
     entropy,
     static_world_surface_lint,
     _diverse_s0_rows,
+    _promote_probe,
 )
 from company_twin.corpus import Corpus
 from company_twin.design_loader import load_design
@@ -83,8 +84,51 @@ def test_aggregate_s0_divergence_builds_span_role_cells(tmp_path: Path) -> None:
     cells = {(cell["span_id"], cell["role"]): cell for cell in payload["cells"]}
     sales_cell = cells[("AMB-01", "sales")]
     assert sales_cell["answers"] == 2
+    assert sales_cell["primary_probe_id"] == "P-03"
     assert sales_cell["entropy"] > 0  # two different readings must register as divergence
+    promoted = _promote_probe(payload)
+    assert promoted is not None
+    assert promoted["probe_id"] == "P-03"
+    assert promoted["reason"] in {"max_entropy", "novel_or_unclassified"}
     assert (tmp_path / "s0_divergence.json").exists()
+
+
+def test_s0_divergence_marks_machine_novel_for_human_review(tmp_path: Path) -> None:
+    design = load_design(Path.cwd())
+    run_root = tmp_path / "s0"
+    run_root.mkdir()
+    (run_root / "meta.json").write_text(json.dumps({"live": True}), encoding="utf-8")
+    payload = aggregate_s0_divergence(
+        design,
+        [
+            {
+                "probe_id": "P-03",
+                "span_id": "AMB-01",
+                "seat_id": "emp-A",
+                "model": "m1",
+                "variant": 0,
+                "run_root": str(run_root),
+                "response": "蜈ｨ縺丞挨縺ｮ譁ｰ縺励＞隱ｭ縺ｿ",
+                "parsed": True,
+            },
+            {
+                "probe_id": "P-03",
+                "span_id": "AMB-01",
+                "seat_id": "emp-A",
+                "model": "m2",
+                "variant": 1,
+                "run_root": str(run_root),
+                "response": "蜈ｨ縺丞挨縺ｮ譁ｰ縺励＞隱ｭ縺ｿ",
+                "parsed": True,
+            },
+        ],
+        campaign_root=tmp_path,
+    )
+
+    cell = payload["cells"][0]
+    assert cell["novel_count"] == 2
+    assert cell["human_confirmed_class"] is None
+    assert payload["human_review_queue"][0]["primary_probe_id"] == "P-03"
 
 
 def test_role_cards_do_not_copy_corpus_text() -> None:

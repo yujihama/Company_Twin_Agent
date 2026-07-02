@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from company_twin.design_loader import load_design
 
 
@@ -23,3 +25,11 @@ def test_load_design_uses_schema_validated_artifacts() -> None:
     assert design.retrieval_profiles["sales"]["version_visibility"] == "current_plus_role_stale_021_045"
     assert set(design.s0_question_templates) == set(design.spans)
     assert design.role_cards["sales"]["path"].endswith("sales.md")
+
+
+def test_load_design_requires_schema_artifacts_for_normal_execution(tmp_path: Path) -> None:
+    compiled = tmp_path / "data" / "compiled_data"
+    compiled.mkdir(parents=True)
+
+    with pytest.raises(FileNotFoundError, match="schema JSON artifacts are required"):
+        load_design(tmp_path)
