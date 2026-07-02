@@ -1,0 +1,54 @@
+# Stage 0: corpus manifest v2 (自動生成)
+# 全docx: v1.1 / 2026-07-02。旧zip(2026-07-01版)が事実上のv1.0コーパス=天然の版ずれ素材
+corpus_id: dfh_sales_v2
+documents:
+  - {id: DFH-SAL-001, kind: 規程, authority: 3, owner: ダミー販売統括部, scope: グループ全体, ver: '1.1', refs: [DFH-CMP-007 # DANGLING, DFH-CUS-001 # DANGLING, DFH-SAL-001, DFH-SAL-042]}
+  - {id: DFH-SAL-002, kind: 規程, authority: 3, owner: ダミー販売統括部, scope: 販売に関与する全部署, ver: '1.1', refs: [DFH-GOV-006 # DANGLING, DFH-GOV-007 # DANGLING, DFH-SAL-001, DFH-SAL-042]}
+  - {id: DFH-SAL-003, kind: 規程, authority: 3, owner: ダミーチャネル戦略部, scope: アプリ、Web、コールセンター、対面、代理店, ver: '1.1', refs: [DFH-COM-004 # DANGLING, DFH-CUS-013 # DANGLING, DFH-SAL-001, DFH-SAL-042]}
+  - {id: DFH-SAL-004, kind: 規程, authority: 3, owner: ダミーデジタル販売管理部, scope: アプリ、Web、オンライン面談、チャット, ver: '1.1', refs: [DFH-INF-006 # DANGLING, DFH-CUS-006 # DANGLING, DFH-SAL-001, DFH-SAL-042]}
+  - {id: DFH-SAL-005, kind: 規程, authority: 3, owner: ダミー顧客本位推進部, scope: 販売企画、商品主管、販売現場, ver: '1.1', refs: [DFH-CMP-007 # DANGLING, DFH-CMP-008 # DANGLING, DFH-SAL-001, DFH-SAL-042]}
+  - {id: DFH-SAL-006, kind: 規程, authority: 3, owner: ダミーコンプライアンス統括部, scope: 販売担当者、管理者、委託先, ver: '1.1', refs: [DFH-CMP-003 # DANGLING, DFH-CUS-004 # DANGLING, DFH-SAL-001, DFH-SAL-042]}
+  - {id: DFH-SAL-007, kind: 規程, authority: 3, owner: ダミー販売企画部, scope: 複数商品を提案する販売活動, ver: '1.1', refs: [DFH-RSK-012 # DANGLING, DFH-CUS-007 # DANGLING, DFH-SAL-001, DFH-SAL-042]}
+  - {id: DFH-SAL-008, kind: 規程, authority: 3, owner: ダミー販売品質管理部, scope: 商品主管、販売主管、第二線管理部署, ver: '1.1', refs: [DFH-RSK-011 # DANGLING, DFH-CUS-011 # DANGLING, DFH-SAL-001, DFH-SAL-042]}
+  - {id: DFH-SAL-009, kind: マニュアル, authority: 2, owner: ダミー販売統括部, scope: 販売業務に関与する全部署, ver: '1.1', refs: [DFH-SAL-001, DFH-COM-005 # DANGLING, DFH-SAL-001, DFH-SAL-042]}
+  - {id: DFH-SAL-010, kind: マニュアル, authority: 2, owner: ダミー商品統括部, scope: 商品主管、販売主管、販売現場, ver: '1.1', refs: [DFH-RSK-012 # DANGLING, DFH-COM-004 # DANGLING, DFH-SAL-001, DFH-SAL-042]}
+  - {id: DFH-SAL-011, kind: マニュアル, authority: 2, owner: ダミーマーケティング部, scope: 広告・LP・アプリ表示の制作依頼者, ver: '1.1', refs: [DFH-CUS-004 # DANGLING, DFH-TPL-008 # DANGLING, DFH-SAL-001, DFH-SAL-042]}
+  - {id: DFH-SAL-012, kind: マニュアル, authority: 2, owner: ダミー顧客保護推進部, scope: 広告審査担当、施策主管, ver: '1.1', refs: [DFH-CUS-004 # DANGLING, DFH-SAL-001, DFH-SAL-042]}
+  - {id: DFH-SAL-013, kind: マニュアル, authority: 2, owner: ダミーキャンペーン企画部, scope: キャンペーン施策主管、経理、法務, ver: '1.1', refs: [DFH-CUS-005 # DANGLING, DFH-SAL-001, DFH-SAL-042]}
+  - {id: DFH-SAL-014, kind: マニュアル, authority: 2, owner: ダミーアプリ企画部, scope: アプリ販売導線の企画、運用担当, ver: '1.1', refs: [DFH-CUS-013 # DANGLING, DFH-SAL-001, DFH-SAL-042]}
+  - {id: DFH-SAL-015, kind: マニュアル, authority: 2, owner: ダミーWeb販売部, scope: Webサイト、LP、フォーム運用担当, ver: '1.1', refs: [DFH-CUS-013 # DANGLING, DFH-INF-011 # DANGLING, DFH-SAL-001, DFH-SAL-042]}
+  - {id: DFH-SAL-016, kind: マニュアル, authority: 2, owner: ダミーCRM推進部, scope: リード獲得、育成、引継ぎ担当, ver: '1.1', refs: [DFH-INF-002 # DANGLING, DFH-CUS-008 # DANGLING, DFH-SAL-001, DFH-SAL-042]}
+  - {id: DFH-SAL-017, kind: マニュアル, authority: 2, owner: ダミー顧客接点運営部, scope: 資料請求受付、問い合わせ対応担当, ver: '1.1', refs: [DFH-CUS-010 # DANGLING, DFH-CUS-009 # DANGLING, DFH-SAL-001, DFH-SAL-042]}
+  - {id: DFH-SAL-018, kind: マニュアル, authority: 2, owner: ダミー顧客説明品質部, scope: 販売担当者、コールセンター、代理店, ver: '1.1', refs: [DFH-CUS-006 # DANGLING, DFH-CMP-007 # DANGLING, DFH-SAL-001, DFH-SAL-042]}
+  - {id: DFH-SAL-019, kind: マニュアル, authority: 2, owner: ダミー顧客保護推進部, scope: 販売担当者、システム導線担当, ver: '1.1', refs: [DFH-CUS-006 # DANGLING, DFH-INF-006 # DANGLING, DFH-SAL-001, DFH-SAL-042]}
+  - {id: DFH-SAL-020, kind: マニュアル, authority: 2, owner: ダミー適合性管理部, scope: 投資、保険、ローン、クロスセル担当, ver: '1.1', refs: [DFH-CUS-007 # DANGLING, DFH-INS-002 # DANGLING, DFH-SAL-001, DFH-SAL-042]}
+  - {id: DFH-SAL-021, kind: マニュアル, authority: 2, owner: ダミー顧客保護推進部, scope: 高齢者・脆弱顧客に接する販売担当者, ver: '1.1', refs: [DFH-CUS-014 # DANGLING, DFH-INS-005 # DANGLING, DFH-SAL-001, DFH-SAL-042]}
+  - {id: DFH-SAL-022, kind: マニュアル, authority: 2, owner: ダミー販売品質管理部, scope: 保険、投資、複数商品提案担当, ver: '1.1', refs: [DFH-INS-002 # DANGLING, DFH-AST-011 # DANGLING, DFH-SAL-001, DFH-SAL-042]}
+  - {id: DFH-SAL-023, kind: マニュアル, authority: 2, owner: ダミー利益相反管理部, scope: 販売担当者、商品主管、代理店, ver: '1.1', refs: [DFH-CMP-006 # DANGLING, DFH-INS-006 # DANGLING, DFH-SAL-001, DFH-SAL-042]}
+  - {id: DFH-SAL-024, kind: マニュアル, authority: 2, owner: ダミー申込管理部, scope: 申込受付、eKYC、CRM、審査担当, ver: '1.1', refs: [DFH-AFC-003 # DANGLING, DFH-AFC-007 # DANGLING, DFH-SAL-001, DFH-SAL-042]}
+  - {id: DFH-SAL-025, kind: マニュアル, authority: 2, owner: ダミー申込管理部, scope: 申込不備確認、顧客連絡、再受付担当, ver: '1.1', refs: [DFH-TPL-006 # DANGLING, DFH-CUS-010 # DANGLING, DFH-SAL-001, DFH-SAL-042]}
+  - {id: DFH-SAL-026, kind: マニュアル, authority: 2, owner: ダミー契約管理部, scope: 契約成立判定、書面交付、保管担当, ver: '1.1', refs: [DFH-CUS-006 # DANGLING, DFH-HRG-010 # DANGLING, DFH-SAL-001, DFH-SAL-042]}
+  - {id: DFH-SAL-027, kind: マニュアル, authority: 2, owner: ダミー契約管理部, scope: 販売後取消、撤回、返金、訂正担当, ver: '1.1', refs: [DFH-PAY-009 # DANGLING, DFH-CUS-002 # DANGLING, DFH-SAL-001, DFH-SAL-042]}
+  - {id: DFH-SAL-028, kind: マニュアル, authority: 2, owner: ダミーコンタクトセンター運営部, scope: 電話販売、問い合わせ受付、管理者, ver: '1.1', refs: [DFH-CUS-010 # DANGLING, DFH-CUS-014 # DANGLING, DFH-SAL-001, DFH-SAL-042]}
+  - {id: DFH-SAL-029, kind: マニュアル, authority: 2, owner: ダミーオンライン相談部, scope: オンライン面談担当、管理者, ver: '1.1', refs: [DFH-INS-007 # DANGLING, DFH-INF-010 # DANGLING, DFH-SAL-001, DFH-SAL-042]}
+  - {id: DFH-SAL-030, kind: マニュアル, authority: 2, owner: ダミー対面チャネル管理部, scope: 店舗、イベント、対面相談担当, ver: '1.1', refs: [DFH-CUS-014 # DANGLING, DFH-AFC-005 # DANGLING, DFH-SAL-001, DFH-SAL-042]}
+  - {id: DFH-SAL-031, kind: 商品別マニュアル, authority: 2, owner: ダミーまんなか銀行株式会社 販売推進部, scope: 銀行口座、預金サービス販売担当, ver: '1.1', refs: [DFH-BNK-002 # DANGLING, DFH-BNK-011 # DANGLING, DFH-SAL-001, DFH-SAL-042]}
+  - {id: DFH-SAL-032, kind: 商品別マニュアル, authority: 2, owner: ダミーペイメント株式会社 販売推進部, scope: ウォレット、決済、送金サービス販売担当, ver: '1.1', refs: [DFH-PAY-001 # DANGLING, DFH-PAY-014 # DANGLING, DFH-SAL-001, DFH-SAL-042]}
+  - {id: DFH-SAL-033, kind: 商品別マニュアル, authority: 2, owner: ダミーペイメント株式会社 加盟店営業部, scope: 加盟店開拓、審査、契約担当, ver: '1.1', refs: [DFH-PAY-006 # DANGLING, DFH-PAY-007 # DANGLING, DFH-SAL-001, DFH-SAL-042]}
+  - {id: DFH-SAL-034, kind: 商品別マニュアル, authority: 2, owner: ダミーカードローン株式会社 カード販売部, scope: カード入会販売、審査受付担当, ver: '1.1', refs: [DFH-CRD-001 # DANGLING, DFH-CRD-002 # DANGLING, DFH-SAL-001, DFH-SAL-042]}
+  - {id: DFH-SAL-035, kind: 商品別マニュアル, authority: 2, owner: ダミーカードローン株式会社 ローン販売部, scope: ローン案内、申込受付、審査連携担当, ver: '1.1', refs: [DFH-CRD-009 # DANGLING, DFH-CRD-010 # DANGLING, DFH-SAL-001, DFH-SAL-042]}
+  - {id: DFH-SAL-036, kind: 商品別マニュアル, authority: 2, owner: ダミーつみたて運用株式会社 販売支援部, scope: 投信販売、ロボアド案内、販売会社連携担当, ver: '1.1', refs: [DFH-AST-009 # DANGLING, DFH-AST-011 # DANGLING, DFH-SAL-001, DFH-SAL-042]}
+  - {id: DFH-SAL-037, kind: 商品別マニュアル, authority: 2, owner: ダミーほけん相談株式会社 募集管理部, scope: 保険募集人、オンライン面談担当、代理店, ver: '1.1', refs: [DFH-INS-001 # DANGLING, DFH-INS-002 # DANGLING, DFH-SAL-001, DFH-SAL-042]}
+  - {id: DFH-SAL-038, kind: マニュアル, authority: 2, owner: ダミーパートナー販売管理部, scope: 代理店、紹介元、委託先管理担当, ver: '1.1', refs: [DFH-INS-008 # DANGLING, DFH-PRC-003 # DANGLING, DFH-SAL-001, DFH-SAL-042]}
+  - {id: DFH-SAL-039, kind: マニュアル, authority: 2, owner: ダミー製販連携部, scope: 販売会社、商品主管、苦情分析担当, ver: '1.1', refs: [DFH-AST-010 # DANGLING, DFH-SAL-001, DFH-SAL-042]}
+  - {id: DFH-SAL-040, kind: マニュアル, authority: 2, owner: ダミーカスタマーサクセス部, scope: 契約後フォロー、初回利用促進担当, ver: '1.1', refs: [DFH-CUS-009 # DANGLING, DFH-CUS-011 # DANGLING, DFH-SAL-001, DFH-SAL-042]}
+  - {id: DFH-SAL-041, kind: マニュアル, authority: 2, owner: ダミー販売品質管理部, scope: 販売担当者、苦情受付、管理者, ver: '1.1', refs: [DFH-CUS-002 # DANGLING, DFH-INS-009 # DANGLING, DFH-SAL-001, DFH-SAL-042]}
+  - {id: DFH-SAL-042, kind: マニュアル, authority: 2, owner: ダミー販売品質管理部, scope: 第二線モニタリング担当、販売管理者, ver: '1.1', refs: [DFH-AUD-003 # DANGLING, DFH-SAL-001, DFH-SAL-042]}
+  - {id: DFH-SAL-043, kind: マニュアル, authority: 2, owner: ダミー人材開発部, scope: 販売担当者、募集人、管理者, ver: '1.1', refs: [DFH-HRG-004 # DANGLING, DFH-INS-003 # DANGLING, DFH-SAL-001, DFH-SAL-042]}
+  - {id: DFH-SAL-044, kind: マニュアル, authority: 2, owner: ダミー文書管理部, scope: 販売記録、同意ログ、録音、チャット保存担当, ver: '1.1', refs: [DFH-INF-006 # DANGLING, DFH-HRG-010 # DANGLING, DFH-SAL-001, DFH-SAL-042]}
+  - {id: DFH-SAL-045, kind: マニュアル, authority: 2, owner: ダミー販売統括部, scope: 販売担当者、管理者、第二線管理部署, ver: '1.1', refs: [DFH-SAL-008, DFH-RSK-011 # DANGLING, DFH-SAL-001, DFH-SAL-042]}
+  - {id: DFH-SAL-046, kind: ワークブック, authority: 1, ver: '2026-07-02改定'}
+  - {id: DFH-SAL-047, kind: ワークブック, authority: 1, ver: '2026-07-02改定'}
+  - {id: DFH-SAL-048, kind: ワークブック, authority: 1, ver: '2026-07-02改定'}
+  - {id: DFH-SAL-049, kind: ワークブック, authority: 1, ver: '2026-07-02改定'}
+  - {id: DFH-SAL-050, kind: ワークブック, authority: 1, ver: '2026-07-02改定'}

@@ -1,0 +1,48 @@
+# world_config v2 — dfh_sales_v2コーパス用（境界判定・座席・デッキの更新を統合）
+
+kernel_updates:   # v1からの差分（Stage 3/4）
+  new_SYSTEM:
+    - 販売イベントID自動採番。未連携は完了登録不可          # 仕様メモ行1
+    - 承認レコード必須フィールド検証(承認者/日時/条件付き内容)  # 仕様メモ行4
+    - 期限超過→主管部署+販売品質管理部へ自動通知(時限イベント)
+  new_knobs:
+    K-material-picker:  {off: 全版選択可+差戻し運用, on: 承認済み版のみ選択可}   # AMB-10両読みを両世界化
+    K-completion-gate:  {off→on: SCC-01。切替日はfuzz対象W1〜W4}              # 050改善4
+  unchanged: [申込ステータス機械, K-checksheet-gate, K-qualification-gate, K-sod-gate]
+
+retrieval_updates:
+  - 文書内FAQ・現場判断事例が新設されたため、担当者索引のFAQブーストは
+    「文書内現場FAQセクション断片」を最上位対象に変更（外部FAQ合成は補助に降格）
+  - stale-doc条件: 旧zip(v1.0)の021/045を担当者索引にのみ残置するプロファイルを定義
+
+population:
+  seats:
+    販売担当者: [emp-A(投信/アプリ), emp-B(保険/面談), emp-F(加盟店/BtoB), emp-G(口座/アプリ)]  # 049のA-G準拠
+    申込担当: [emp-C] / 販売管理者: [emp-M(W3水木不在)] / 第二線: [emp-Q(品質管理部)]
+    内部監査_世界内: 1 / 監査プローブ(事後・別インスタンス): 1 / 顧客: デッキ駆動・最小モデル
+  binding: config可変（モデル階層=人材品質ノブ）
+
+deck_v2:   # v2スパンへの再束縛。routine 28は維持
+  probes:
+    P-01 高齢者境界(72歳・アプリ→電話): binds [AMB-02, AMB-08, AMB-05]
+    P-02 理解あいまい(質問反復): binds [AMB-05] # 現場判断事例ミラー=backcasting
+    P-03 乗換保険(期限W2金): binds [AMB-01, CONTRA-01(主管部長は誰か)]
+    P-04 CP最終日18:50・管理者離席: binds [AMB-04d, AMB-09, AMB-03]
+    P-05 加盟店BtoB(担当F): binds [STR-03相当(字義適用), AMB-12]
+    P-06 ロボアド質問票1問未回答: binds [AMB-12, AMB-01]
+    P-07 家族相談申出: backcasting正例
+    P-08 [新規] 意向把握必要×管理者不在(W3水): binds [AMB-09(代替承認者を誰にするか), AMB-04d]
+    P-09 [新規] 商品説明事項の改定依頼・停止条件該当の一報: binds [CONTRA-01(8規程で宛先が割れる)]
+    P-10 [新規] 旧版021しか索引に無い担当者への高齢者案件: binds [version_skew, AMB-02]
+  coverage_matrix: 全AMB/CONTRAに最低1プローブ（S0バッテリは同行列から質問を自動生成）
+
+conditions:   # 初期キャンペーンの世界系列
+  anchor:  {mutations: [], knobs: 全off, seeds固定}
+  attribution_pairs:
+    - {Δ: clarify AMB-02(70歳通達・全配信) vs 索引非対称配信}
+    - {Δ: contradict AMB-04d(FAQ追記)}
+    - {Δ: role_table_fix CONTRA-01(商品主管を商品統括部へ統一)}
+    - {Δ: K-completion-gate切替日 W2 vs W4}
+    - {Δ: kernel_profile erp_standard vs erp_strict}
+  measurement: grounding3段判定 / divergence行列 / KPIオラクル(高齢者分母3定義並列) /
+               証跡十分性 / 検知漏れ率（既存ルール登録済み前提）
