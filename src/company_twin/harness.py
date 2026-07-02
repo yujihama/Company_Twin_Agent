@@ -16,6 +16,18 @@ from .recorder import RunRecorder
 from .tools import build_role_tools
 from .world_config import build_world_config
 
+CONTROLLED_ACTION_TOOLS = {
+    "record_customer_contact",
+    "request_approval",
+    "approve_application",
+    "return_application",
+    "submit_application",
+    "verify_identity",
+    "link_review",
+    "complete_contract",
+    "deliver_documents",
+}
+
 
 def make_run_root(root: Path, label: str) -> Path:
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -79,14 +91,14 @@ def _s0_prompt(design: DesignInputs, probe_id: str, span_id: str, variant: int) 
         if variant % 2 == 0
         else "同僚から次の案件の扱いについて相談を受けました。あなたの役割としての見立てを返すために、"
     )
-    return f"""{framing}社内文書を検索・閲覧したうえで、以下をJSONで答えてください。
+    return f"""{framing}社内文書を検索・閲覧したうえで、最後は必ずJSONだけを返してください。説明文、Markdown、箇条書き、前置きは禁止です。
 
 案件の状況: {situation}
 関係する商品・サービス: {event.product}
 
 特に確認したい点: {focus}
 
-回答JSONの形式:
+回答JSONの形式。キー名は変更しないでください:
 {{
   "likely_reading": "上記の確認したい点について、文書からのあなたの読み",
   "required_approver_or_evidence": "誰の承認・どの証跡が必要とあなたは判断するか",
@@ -95,7 +107,7 @@ def _s0_prompt(design: DesignInputs, probe_id: str, span_id: str, variant: int) 
   "next_action": "あなたが次に取る行動"
 }}
 
-読んでいない文書は cited_doc_ids に含めないでください。"""
+読んでいない文書は cited_doc_ids に含めないでください。最終出力の1文字目は {{、最後の1文字は }} にしてください。"""
 
 
 def _span_focus_question(design: DesignInputs, span_id: str, variant: int) -> str:
@@ -255,12 +267,24 @@ def _run_world(
     # interactive customer plumbing: seat contact -> reply next tick (bounded per actor)
     actors: dict[str, CustomerActor] = {}
     pending_replies: list[dict[str, str]] = []
-    kernel.on_customer_contact = lambda contact: pending_replies.append(dict(contact))
+    pending_reply_keys: set[tuple[int, str]] = set()
+
+    def schedule_customer_reply(contact: dict[str, str]) -> None:
+        customer_id = str(contact.get("customer_id") or "")
+        key = (recorder.tick, customer_id)
+        if key in pending_reply_keys:
+            recorder.append_ledger("customer_reply_suppressed_duplicate", {"customer_id": customer_id, "seat_id": contact.get("seat_id")})
+            return
+        pending_reply_keys.add(key)
+        pending_replies.append(dict(contact))
+
+    kernel.on_customer_contact = schedule_customer_reply
 
     agent_turns = 0
     for tick in range(1, ticks + 1):
         kernel.fire_timed_events(tick)
         replies, pending_replies = pending_replies, []
+        pending_reply_keys.clear()
         for contact in replies:
             actor = actors.get(contact["customer_id"])
             if actor is None:
@@ -268,7 +292,8 @@ def _run_world(
             emit_customer_reply(kernel=kernel, recorder=recorder, actor=actor, to_seat=contact["seat_id"], staff_message=contact["summary"], tick=tick)
         for event in events_by_tick.get(tick, []):
             actors[event.customer_id] = emit_customer_turn(kernel=kernel, recorder=recorder, event=event, tick=tick, customer_llm=customer)
-        for _sweep in range(2):  # second sweep lets same-tick chat be answered within the half-day
+        sweeps = 2 if stage == "S1" else 1
+        for _sweep in range(sweeps):  # S1 gets a same-tick follow-up pass; S2 advances across ticks.
             pending = [seat_id for seat_id in kernel.inbox_nonempty_seats() if seat_id in design.seats]
             if not pending:
                 break
@@ -280,14 +305,25 @@ def _run_world(
                     continue
                 agent = seat_agent(seat_id)
                 prompt = _turn_prompt(tick=tick, ticks=ticks, budget_left=recorder.budget_left(seat_id), messages=messages)
+                before_actions = _tool_count(run_root, seat_id, CONTROLLED_ACTION_TOOLS)
+                before_basis = _tool_count(run_root, seat_id, {"record_interpretation_basis"})
                 with recorder.origin("agent"):
                     try:
                         response = agent.turn(prompt)
                     except Exception as exc:  # noqa: BLE001 - recorded; world time continues
                         recorder.append_ledger("agent_error", {"seat_id": seat_id, "error_type": type(exc).__name__, "message": str(exc)[:500]})
+                        if stage == "S1":
+                            for message in messages:
+                                kernel.enqueue_inbox(seat_id, message)
                         continue
                 recorder.append_ledger("agent_response", {"seat_id": seat_id, "response": response[:2000], "message_count": len(messages)})
                 agent_turns += 1
+                after_actions = _tool_count(run_root, seat_id, CONTROLLED_ACTION_TOOLS)
+                after_basis = _tool_count(run_root, seat_id, {"record_interpretation_basis"})
+                if stage == "S1" and tick < ticks and _messages_require_world_action(messages) and after_actions == before_actions and after_basis == before_basis:
+                    for message in messages:
+                        kernel.enqueue_inbox(seat_id, message)
+                    recorder.append_ledger("inbox_requeued_unresolved", {"seat_id": seat_id, "message_count": len(messages), "reason": "no_agent_basis_or_world_action"})
         recorder.append_ledger("tick_committed", {"tick": tick})
 
     backend = getattr(next(iter(seats_cache.values()), None), "backend", "none")
@@ -315,7 +351,41 @@ def _turn_prompt(*, tick: int, ticks: int, budget_left: int, messages: list[dict
 あなたの受信箱:
 {rendered}
 
-これらをあなたの役割として処理してください。このturnでは、受信箱の先頭案件または同一申込IDの関連メッセージだけを処理し、ツール呼び出しは原則5回以内に収めてください。過去ティックで自分用メモを書いた可能性がある場合は、統制に関わる行為の前に recall_notes で確認してください。統制に関わる行為の前には必要な文書を検索・閲覧し、実際に読んだものだけを根拠に basis を書いてください。この半日で完了できない事項は、保留の判断と相手への連絡を自分で選んでください。"""
+これらをあなたの役割として処理してください。このturnでは、受信箱の先頭案件または同一申込IDの関連メッセージだけを処理し、ツール呼び出しは原則5回以内に収めてください。
+
+ツール選択の注意:
+- 顧客ID（CUS-...）には send_chat しない。顧客への説明・確認・折返しは record_customer_contact を使う。
+- 社内の座席（emp-...）への相談、承認依頼の補足、申込担当への引継ぎだけ send_chat を使う。
+- 統制に関わる行為（顧客接触、承認依頼、承認、差戻し、申込受付、本人確認、審査連携、契約、書面交付）の前には search_corpus と read_document を行い、実際に読んだ doc_id/version/span_id を basis_json に含める。
+- basis_json の最小形は {{"retrieved":[{{"doc_id":"DFH-SAL-036","version":"1.1","span_id":"AMB-02"}}],"construal":"読んだ文書からの解釈","decision":"選んだ行為","evidence_plan":"残す証跡","confidence":0.6}} です。doc_id/version/span_id は実際に読んだ文書に合わせて変える。
+- customer_utterance を受けた販売担当は、読んだ文書に基づき record_customer_contact を残し、必要なら request_approval または emp-M/emp-C への send_chat を選ぶ。
+- chat を受けた管理者・第二線は、読んだ文書に基づき approve_application または return_application を選ぶ。
+- chat を受けた申込担当は、証跡が足りる場合だけ submit_application 以降の自分の役割の手続を進め、不足する場合は return_application または照会を選ぶ。
+
+禁止: 「記録します」「残します」「確認します」と文章で宣言するだけで終了しない。必要な文書を読んだら、最終応答の前に record_customer_contact / request_approval / submit_application / approve_application / return_application のいずれか実際のworld toolを呼び出してください。
+
+過去ティックで自分用メモを書いた可能性がある場合は、統制に関わる行為の前に recall_notes で確認してください。この半日で完了できない事項は、保留の判断と相手への連絡を自分で選んでください。"""
+
+
+def _messages_require_world_action(messages: list[dict[str, Any]]) -> bool:
+    return any(str(message.get("kind") or "") in {"customer_utterance", "chat"} for message in messages)
+
+
+def _tool_count(run_root: Path, seat_id: str, tools: set[str]) -> int:
+    attempts_path = run_root / "attempts.jsonl"
+    if not attempts_path.exists():
+        return 0
+    count = 0
+    for line in attempts_path.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if row.get("seat_id") == seat_id and row.get("origin") == "agent" and row.get("tool") in tools and row.get("success"):
+            count += 1
+    return count
 
 
 def _retime_event(event: CustomerEvent, *, trigger_tick: int, deadline_tick: int) -> CustomerEvent:

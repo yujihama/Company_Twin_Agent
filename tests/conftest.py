@@ -52,7 +52,7 @@ class FakeSeatAgent:
             hits = json.loads(self.tools["search_corpus"]("高齢者 追加確認 承認", 3))
             doc_id = hits[0]["doc_id"] if hits else "DFH-SAL-021"
             self.tools["read_document"](doc_id, "確認", 800)
-            return json.dumps(
+            response = json.dumps(
                 {
                     "likely_reading": "追加確認と管理者への相談が必要と読む",
                     "required_approver_or_evidence": "管理者の確認と記録",
@@ -62,13 +62,26 @@ class FakeSeatAgent:
                 },
                 ensure_ascii=False,
             )
+            self._record_response(prompt, response)
+            return response
         for line in prompt.splitlines():
             line = line.strip()
             if not line.startswith("- {"):
                 continue
             message = json.loads(line[2:])
             self._handle(message)
-        return "処理しました。"
+        response = "処理しました。"
+        self._record_response(prompt, response)
+        return response
+
+    def _record_response(self, prompt: str, response: str) -> None:
+        self.recorder.record_attempt(
+            seat_id=self.seat_id,
+            tool="llm_response",
+            args={"backend": self.backend, "model": self.model, "prompt_chars": len(prompt)},
+            success=True,
+            result={"response_chars": len(response)},
+        )
 
     def _handle(self, message: dict[str, Any]) -> None:
         kind = message.get("kind")
@@ -125,7 +138,15 @@ class FakeCustomerLLM:
             success=True,
             result={"response_chars": 30},
         )
-        return "手続きをお願いしたいのですが、進め方を確認させてください。"
+        response = "手続きをお願いしたいのですが、進め方を確認させてください。"
+        self.recorder.record_attempt(
+            seat_id="customer",
+            tool="llm_response",
+            args={"backend": self.backend, "model": "fake:unit", "role": "customer", "prompt_chars": len(persona_prompt)},
+            success=True,
+            result={"response_chars": len(response)},
+        )
+        return response
 
 
 @pytest.fixture

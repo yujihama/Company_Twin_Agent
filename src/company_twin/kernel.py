@@ -147,6 +147,8 @@ class WorldKernel:
             self.recorder.append_ledger("application_drafted", _without_basis(self.applications[app_id]))
 
     def send_chat(self, seat_id: str, to_seat: str, channel: str, body: str) -> dict[str, Any]:
+        if self.profile.seat_roles and to_seat not in self.profile.seat_roles:
+            return self._denied(seat_id, "send_chat", {"to_seat": to_seat, "channel": channel}, "send_chat is seat-to-seat only; use record_customer_contact for customer communication")
         self.recorder.record_chat(from_seat=seat_id, to_seat=to_seat, channel=channel, body=body)
         self.enqueue_inbox(to_seat, {"kind": "chat", "tick": self.recorder.tick, "from": seat_id, "channel": channel, "body": body})
         self.recorder.record_attempt(seat_id=seat_id, tool="send_chat", args={"to_seat": to_seat, "channel": channel}, success=True, result={"sent": True})

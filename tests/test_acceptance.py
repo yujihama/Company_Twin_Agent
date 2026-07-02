@@ -36,36 +36,40 @@ def _bundle(tmp_path: Path, name: str, *, attempts: list[dict], basis: list[dict
     return root
 
 
-LIVE_CALL = _attempt("emp-A", "llm_invoke", args={"backend": "deepagents", "model": "openrouter:x"})
+LIVE_CALL = _attempt("emp-A", "llm_invoke", args={"backend": "deepagents", "model": "openrouter:x", "phase": "start"})
+LIVE_RESPONSE = _attempt("emp-A", "llm_response", args={"backend": "deepagents", "model": "openrouter:x"})
 
 
 def test_a01_flags_scripted_origin(tmp_path: Path) -> None:
-    good = _bundle(tmp_path, "good", attempts=[LIVE_CALL])
+    good = _bundle(tmp_path, "good", attempts=[LIVE_CALL, LIVE_RESPONSE])
     assert a01_no_scripted_origin(good).passed
 
-    bad = _bundle(tmp_path, "bad", attempts=[LIVE_CALL, _attempt("emp-A", "send_chat", origin="agent_policy")])
+    bad = _bundle(tmp_path, "bad", attempts=[LIVE_CALL, LIVE_RESPONSE, _attempt("emp-A", "send_chat", origin="agent_policy")])
     result = a01_no_scripted_origin(bad)
     assert not result.passed and "agent_policy" in result.detail
 
 
 def test_a02_requires_deepagents_llm_invoke_and_meta(tmp_path: Path) -> None:
-    good = _bundle(tmp_path, "good", attempts=[LIVE_CALL])
+    good = _bundle(tmp_path, "good", attempts=[LIVE_CALL, LIVE_RESPONSE])
     assert a02_live_required(good).passed
 
-    fake_backend = _bundle(tmp_path, "fake", attempts=[_attempt("emp-A", "llm_invoke", args={"backend": "test-fake"})])
+    fake_backend = _bundle(tmp_path, "fake", attempts=[_attempt("emp-A", "llm_response", args={"backend": "test-fake"})])
     assert not a02_live_required(fake_backend).passed
 
-    meta_false = _bundle(tmp_path, "metafalse", attempts=[LIVE_CALL], meta={"stage": "S1", "live": False})
+    start_only = _bundle(tmp_path, "startonly", attempts=[LIVE_CALL])
+    assert not a02_live_required(start_only).passed
+
+    meta_false = _bundle(tmp_path, "metafalse", attempts=[LIVE_CALL, LIVE_RESPONSE], meta={"stage": "S1", "live": False})
     assert not a02_live_required(meta_false).passed
 
 
 def test_a03_inbox_whitelist_on_recorded_ledger(tmp_path: Path) -> None:
     ok_message = {"kind": "customer_utterance", "tick": 1, "event_id": "E", "customer_id": "C", "application_id": "A", "product": "p", "deadline_display": "本日中", "utterance": "u"}
-    good = _bundle(tmp_path, "good", attempts=[LIVE_CALL], ledger=[{"event_type": "inbox_delivered", "payload": {"to_seat": "emp-A", "message": ok_message}}])
+    good = _bundle(tmp_path, "good", attempts=[LIVE_CALL, LIVE_RESPONSE], ledger=[{"event_type": "inbox_delivered", "payload": {"to_seat": "emp-A", "message": ok_message}}])
     assert a03_inbox_whitelist(good).passed
 
     leak = dict(ok_message, probe_id="P-01")
-    bad = _bundle(tmp_path, "bad", attempts=[LIVE_CALL], ledger=[{"event_type": "inbox_delivered", "payload": {"to_seat": "emp-A", "message": leak}}])
+    bad = _bundle(tmp_path, "bad", attempts=[LIVE_CALL, LIVE_RESPONSE], ledger=[{"event_type": "inbox_delivered", "payload": {"to_seat": "emp-A", "message": leak}}])
     result = a03_inbox_whitelist(bad)
     assert not result.passed and "probe_id" in result.detail
 
@@ -74,7 +78,7 @@ def test_a04_basis_requires_llm_authorship(tmp_path: Path) -> None:
     good = _bundle(
         tmp_path,
         "good",
-        attempts=[LIVE_CALL, _attempt("emp-A", "record_interpretation_basis", args={"basis_id": "BASIS-000001"})],
+        attempts=[LIVE_CALL, _attempt("emp-A", "record_interpretation_basis", args={"basis_id": "BASIS-000001"}), LIVE_RESPONSE],
         basis=[{"basis_id": "BASIS-000001", "seat_id": "emp-A"}],
     )
     assert a04_basis_authorship(good).passed
@@ -82,12 +86,20 @@ def test_a04_basis_requires_llm_authorship(tmp_path: Path) -> None:
     before_llm = _bundle(
         tmp_path,
         "before",
-        attempts=[_attempt("emp-A", "record_interpretation_basis", args={"basis_id": "BASIS-000001"}), LIVE_CALL],
+        attempts=[_attempt("emp-A", "record_interpretation_basis", args={"basis_id": "BASIS-000001"}), LIVE_CALL, LIVE_RESPONSE],
         basis=[{"basis_id": "BASIS-000001", "seat_id": "emp-A"}],
     )
     assert not a04_basis_authorship(before_llm).passed
 
-    orphan = _bundle(tmp_path, "orphan", attempts=[LIVE_CALL], basis=[{"basis_id": "BASIS-000009", "seat_id": "emp-A"}])
+    incomplete = _bundle(
+        tmp_path,
+        "incomplete",
+        attempts=[LIVE_CALL, _attempt("emp-A", "record_interpretation_basis", args={"basis_id": "BASIS-000001"})],
+        basis=[{"basis_id": "BASIS-000001", "seat_id": "emp-A"}],
+    )
+    assert not a04_basis_authorship(incomplete).passed
+
+    orphan = _bundle(tmp_path, "orphan", attempts=[LIVE_CALL, LIVE_RESPONSE], basis=[{"basis_id": "BASIS-000009", "seat_id": "emp-A"}])
     result = a04_basis_authorship(orphan)
     assert not result.passed and "fabrication" in result.detail
 
@@ -104,13 +116,14 @@ def test_a07_stale_v1_0_content_really_differs() -> None:
 
 def test_a08_customer_utterances_need_customer_llm(tmp_path: Path) -> None:
     utterance_event = {"event_type": "customer_utterance", "payload": {"event_id": "E"}}
-    customer_call = _attempt("customer", "llm_invoke", origin="customer", args={"backend": "deepagents", "role": "customer"})
-    good = _bundle(tmp_path, "good", attempts=[customer_call, LIVE_CALL], ledger=[utterance_event])
+    customer_call = _attempt("customer", "llm_invoke", origin="customer", args={"backend": "deepagents", "role": "customer", "phase": "start"})
+    customer_response = _attempt("customer", "llm_response", origin="customer", args={"backend": "deepagents", "role": "customer"})
+    good = _bundle(tmp_path, "good", attempts=[customer_call, customer_response, LIVE_CALL, LIVE_RESPONSE], ledger=[utterance_event])
     assert a08_customer_is_agent(good).passed
 
-    template_only = _bundle(tmp_path, "template", attempts=[LIVE_CALL], ledger=[utterance_event])
+    template_only = _bundle(tmp_path, "template", attempts=[LIVE_CALL, LIVE_RESPONSE], ledger=[utterance_event])
     assert not a08_customer_is_agent(template_only).passed
 
-    empty_world = _bundle(tmp_path, "empty-world", attempts=[LIVE_CALL], ledger=[], meta={"stage": "S1", "live": True})
+    empty_world = _bundle(tmp_path, "empty-world", attempts=[LIVE_CALL, LIVE_RESPONSE], ledger=[], meta={"stage": "S1", "live": True})
     result = a08_customer_is_agent(empty_world)
     assert not result.passed and "no customer utterances" in result.detail

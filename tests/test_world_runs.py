@@ -78,6 +78,9 @@ class _LateBoundCustomer:
         }
         with (self.run_root / "attempts.jsonl").open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n")
+            response = dict(record)
+            response["tool"] = "llm_response"
+            handle.write(json.dumps(response, ensure_ascii=False, sort_keys=True) + "\n")
         return "本日中に申込したいのですが、進められますか。"
 
 

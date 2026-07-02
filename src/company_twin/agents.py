@@ -85,11 +85,18 @@ class DeepAgentSeat:
         )
 
     def turn(self, prompt: str) -> str:
+        self.recorder.record_attempt(
+            seat_id=self.seat_id,
+            tool="llm_invoke",
+            args={"backend": self.backend, "model": self.model, "prompt_chars": len(prompt), "phase": "start"},
+            success=True,
+            result={"phase": "start"},
+        )
         result = self._agent.invoke({"messages": [{"role": "user", "content": prompt}]}, config={"recursion_limit": self.recursion_limit})
         text = final_text(result)
         self.recorder.record_attempt(
             seat_id=self.seat_id,
-            tool="llm_invoke",
+            tool="llm_response",
             args={"backend": self.backend, "model": self.model, "prompt_chars": len(prompt)},
             success=True,
             result={"response_chars": len(text)},
@@ -123,11 +130,18 @@ class DeepAgentCustomer:
         self._agent = create_deep_agent(model=_chat_model(self.model), tools=[], system_prompt=CUSTOMER_SYSTEM_PROMPT, subagents=[], name="company-twin-customer")
 
     def __call__(self, persona_prompt: str) -> str:
+        self.recorder.record_attempt(
+            seat_id="customer",
+            tool="llm_invoke",
+            args={"backend": self.backend, "model": self.model, "role": "customer", "prompt_chars": len(persona_prompt), "phase": "start"},
+            success=True,
+            result={"phase": "start"},
+        )
         result = self._agent.invoke({"messages": [{"role": "user", "content": persona_prompt}]}, config={"recursion_limit": 8})
         text = final_text(result).strip()
         self.recorder.record_attempt(
             seat_id="customer",
-            tool="llm_invoke",
+            tool="llm_response",
             args={"backend": self.backend, "model": self.model, "role": "customer", "prompt_chars": len(persona_prompt)},
             success=True,
             result={"response_chars": len(text)},

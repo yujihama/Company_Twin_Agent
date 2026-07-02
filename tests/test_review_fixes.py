@@ -51,6 +51,68 @@ def test_kernel_hard_role_permission_last_defense(tmp_path: Path) -> None:
     assert result["success"] is False and "requires role" in result["denied_reason"]
 
 
+def test_send_chat_is_seat_to_seat_only_customer_contact_uses_contact_tool(tmp_path: Path) -> None:
+    recorder = RunRecorder(tmp_path, "chat-boundary")
+    recorder.set_tick(1)
+    kernel = WorldKernel(recorder, KernelProfile(seat_roles={"emp-A": "sales", "emp-M": "manager"}))
+
+    denied = kernel.send_chat("emp-A", "CUS-001", "inbox", "顧客への説明")
+    allowed = kernel.send_chat("emp-A", "emp-M", "workflow", "承認相談")
+
+    assert denied["success"] is False
+    assert "record_customer_contact" in denied["denied_reason"]
+    assert allowed["sent"] is True
+    ledger = read_jsonl(tmp_path / "world_ledger.jsonl")
+    assert any(row["event_type"] == "permission_denied" for row in ledger)
+    assert any((row["payload"] or {}).get("to_seat") == "emp-M" for row in ledger if row["event_type"] == "inbox_delivered")
+
+
+class _NoActionSeat:
+    backend = "test-fake"
+    model = "fake:unit"
+
+    def __init__(self, *, seat_id: str, recorder: RunRecorder):
+        self.seat_id = seat_id
+        self.recorder = recorder
+
+    def turn(self, prompt: str) -> str:
+        self.recorder.record_attempt(
+            seat_id=self.seat_id,
+            tool="llm_invoke",
+            args={"backend": self.backend, "model": self.model, "prompt_chars": len(prompt)},
+            success=True,
+            result={"response_chars": 12},
+        )
+        return "確認中です"
+
+
+def test_unresolved_inbox_is_requeued_without_fabricating_action(tmp_path: Path) -> None:
+    design, corpus = _design_corpus()
+    run_root = tmp_path / "noaction"
+
+    def no_action_factory(**_ignored):
+        def factory(*, seat_id: str, recorder: RunRecorder, **_kwargs) -> _NoActionSeat:
+            return _NoActionSeat(seat_id=seat_id, recorder=recorder)
+
+        return factory
+
+    run_s1_episode(
+        design=design,
+        corpus=corpus,
+        probe_id="P-01",
+        run_root=run_root,
+        seed=0,
+        ticks=2,
+        seat_factory=no_action_factory(),
+        customer_llm=_LateBoundCustomer(run_root),
+    )
+
+    ledger = read_jsonl(run_root / "world_ledger.jsonl")
+    attempts = read_jsonl(run_root / "attempts.jsonl")
+    assert any(row["event_type"] == "inbox_requeued_unresolved" for row in ledger)
+    assert not [row for row in attempts if row["tool"] in {"record_customer_contact", "submit_application", "approve_application"}]
+
+
 # ── Blocker 3: span-specific S0 ──────────────────────────────────────────────
 
 def test_s0_prompts_differ_per_span_same_probe() -> None:
