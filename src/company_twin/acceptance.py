@@ -11,7 +11,7 @@ from .kernel import FORBIDDEN_INBOX_KEYS, INBOX_ALLOWED_KEYS
 from .recorder import ALLOWED_ORIGINS, read_jsonl
 
 # ---------------------------------------------------------------------------
-# Unfakeable harness-safety gates (fix instruction WI-0, checks A-01..A-12).
+# Unfakeable harness-safety gates (fix instruction WI-0, checks A-01..A-13).
 # These gates certify that run evidence was produced by the live world harness.
 # They are intentionally NOT the Stage 9 experiment-readiness gate; semantic
 # grounding, holdout/backcasting, SME review, and confirmation runs belong to a
@@ -259,6 +259,47 @@ def a12_d4_store_read_before_action(run_root: Path) -> GateResult:
     return GateResult("A-12 d4_store_read_before_action", ok, "" if ok else f"store_reads_agent={reads}, controlled_actions_after_store_read={after}")
 
 
+def a13_full_world_evidence(campaign_root: Path) -> GateResult:
+    """Full-world scope requires completed live S2 evidence, not just an anchor
+    directory or partial run bundle."""
+    problems: list[str] = []
+    anchors: list[Path] = []
+    s2_runs: list[Path] = []
+    for path in sorted(campaign_root.iterdir()):
+        if not path.is_dir() or not (path / "meta.json").exists():
+            continue
+        meta = json.loads((path / "meta.json").read_text(encoding="utf-8"))
+        if meta.get("stage") != "S2":
+            continue
+        if meta.get("anchor"):
+            anchors.append(path)
+        else:
+            s2_runs.append(path)
+    if not anchors:
+        problems.append("missing live S2 anchor bundle")
+    if not s2_runs:
+        problems.append("missing non-anchor live S2 bundle")
+    for path in anchors + s2_runs:
+        ledger_events = {row.get("event_type") for row in read_jsonl(path / "world_ledger.jsonl")}
+        if "month_end_close" not in ledger_events:
+            problems.append(f"{path.name}: month_end_close missing")
+        if "customer_utterance" not in ledger_events:
+            problems.append(f"{path.name}: customer_utterance missing")
+        metrics_path = path / "triage" / "metrics.json"
+        if not metrics_path.exists():
+            problems.append(f"{path.name}: triage/metrics.json missing")
+            continue
+        metrics = json.loads(metrics_path.read_text(encoding="utf-8"))
+        if int(metrics.get("controlled_actions_agent") or 0) < 1:
+            problems.append(f"{path.name}: controlled_actions_agent=0")
+        if int(metrics.get("basis_action_bound") or 0) < 1:
+            problems.append(f"{path.name}: basis_action_bound=0")
+    for filename in ("ensemble_triage.json", "attribution_table.json", "min_repro_jobs.json"):
+        if not (campaign_root / filename).exists():
+            problems.append(f"{filename} missing")
+    return GateResult("A-13 full_world_evidence", not problems, "; ".join(problems[:8]))
+
+
 def check_bundle(run_root: Path, seat_roles: dict[str, str] | None = None) -> BundleReport:
     report = BundleReport(run_root=run_root)
     report.results.append(a01_no_scripted_origin(run_root))
@@ -314,6 +355,8 @@ def run_acceptance(*, campaign_root: Path, design: DesignInputs, corpus: Corpus,
         if path.is_dir() and (path / "meta.json").exists():
             bundle_reports.append(check_bundle(path, seat_roles))
     gates: list[GateResult] = [a06_s0_divergence_measured(campaign_root, require_multimodel=scope == "full_world"), a07_stale_content_differs(design, corpus), a09_anchor_is_live(campaign_root, scope=scope)]
+    if scope == "full_world":
+        gates.append(a13_full_world_evidence(campaign_root))
     payload = {
         "campaign_root": str(campaign_root),
         "scope": scope,

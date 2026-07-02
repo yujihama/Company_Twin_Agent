@@ -101,7 +101,7 @@ def _s0_prompt(design: DesignInputs, probe_id: str, span_id: str, variant: int) 
 def _span_focus_question(design: DesignInputs, span_id: str, variant: int) -> str:
     variants = design.s0_question_templates.get(span_id) or ()
     if not variants:
-        return "この案件を進めるうえで必要な承認と証跡は何か" if variant % 2 == 0 else "この案件で判断に迷いうる点はどこで、文書はどう定めているか"
+        raise ValueError(f"S0 question template missing for span_id={span_id!r}; compiled artifact must be source of truth")
     return variants[variant % len(variants)]
 
 

@@ -119,7 +119,7 @@ class _PopulationArtifact(_Artifact):
 
 
 class _RetrievalProfilesArtifact(_Artifact):
-    profiles: dict[str, dict[str, Any]]
+    profiles: dict[str, dict[str, Any]] = Field(min_length=1)
 
 
 class _RoleCardItem(BaseModel):
@@ -131,7 +131,7 @@ class _RoleCardItem(BaseModel):
 
 
 class _RoleCardsArtifact(_Artifact):
-    role_cards: list[_RoleCardItem]
+    role_cards: list[_RoleCardItem] = Field(min_length=1)
 
 
 class _S0TemplateItem(BaseModel):
@@ -142,7 +142,7 @@ class _S0TemplateItem(BaseModel):
 
 
 class _S0TemplatesArtifact(_Artifact):
-    templates: list[_S0TemplateItem]
+    templates: list[_S0TemplateItem] = Field(min_length=1)
 
 
 INLINE_FIELD_RE = re.compile(r"(?P<key>[A-Za-z_]+):\s*(?P<value>'[^']*'|[^,}]+)")
@@ -294,11 +294,15 @@ def validate_design(design: DesignInputs) -> None:
     for span_id, span in design.spans.items():
         if not span.raw.strip():
             problems.append(f"span {span_id} has empty registry block")
-    if design.retrieval_profiles:
+    if not design.retrieval_profiles:
+        problems.append("retrieval profiles artifact is empty or missing")
+    else:
         missing_profiles = sorted({seat.role for seat in design.seats.values()} - set(design.retrieval_profiles))
         if missing_profiles:
             problems.append(f"retrieval profiles missing roles: {missing_profiles}")
-    if design.role_cards:
+    if not design.role_cards:
+        problems.append("role cards artifact is empty or missing")
+    else:
         missing_cards = sorted({seat.role for seat in design.seats.values()} - set(design.role_cards))
         if missing_cards:
             problems.append(f"role cards missing roles: {missing_cards}")
@@ -310,7 +314,9 @@ def validate_design(design: DesignInputs) -> None:
             actual = _file_sha256(path)
             if actual != meta.get("sha256"):
                 problems.append(f"role card hash mismatch for {role}")
-    if design.s0_question_templates:
+    if not design.s0_question_templates:
+        problems.append("s0 question templates artifact is empty or missing")
+    else:
         missing_templates = sorted(set(design.spans) - set(design.s0_question_templates))
         extra_templates = sorted(set(design.s0_question_templates) - set(design.spans))
         if missing_templates:

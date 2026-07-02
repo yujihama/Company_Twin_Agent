@@ -130,7 +130,7 @@ def test_s0_uses_agent_answer_not_harness_query(tmp_path: Path) -> None:
     corpus = Corpus.from_design(design)
     run_root = tmp_path / "s0"
 
-    result = run_s0(design=design, corpus=corpus, probe_id="P-01", seat_id="emp-A", run_root=run_root, variant=0, seat_factory=fake_seat_factory())
+    result = run_s0(design=design, corpus=corpus, probe_id="P-01", span_id="AMB-02", seat_id="emp-A", run_root=run_root, variant=0, seat_factory=fake_seat_factory())
 
     assert result["parsed"] is True
     assert result["cited_doc_ids"]

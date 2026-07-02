@@ -2,11 +2,12 @@
 interactive customer, config/prompt consistency, stale visibility, scoped acceptance)."""
 import hashlib
 import json
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
-from company_twin.acceptance import a05_grounding_population, a09_anchor_is_live, a10_tool_bundle_role_scoped, a11_stale_visibility, a12_d4_store_read_before_action
+from company_twin.acceptance import a05_grounding_population, a09_anchor_is_live, a10_tool_bundle_role_scoped, a11_stale_visibility, a12_d4_store_read_before_action, a13_full_world_evidence
 from company_twin.agents import load_role_card
 from company_twin.campaign import static_world_surface_lint
 from company_twin.corpus import Corpus
@@ -14,6 +15,7 @@ from company_twin.design_loader import load_design
 from company_twin.harness import _s0_prompt, run_s1_episode
 from company_twin.kernel import WorldKernel, KernelProfile
 from company_twin.recorder import RunRecorder, read_jsonl
+from company_twin.readiness import run_readiness_gate
 from company_twin.tools import ROLE_TOOL_BUNDLES, build_role_tools
 from company_twin.world_config import build_world_config
 from conftest import fake_seat_factory
@@ -62,6 +64,17 @@ def test_s0_prompts_differ_per_span_same_probe() -> None:
 
 
 # ── Blocker 4: D4 store read path ────────────────────────────────────────────
+
+def test_s0_prompt_requires_artifact_template() -> None:
+    design, _ = _design_corpus()
+    without_template = replace(
+        design,
+        s0_question_templates={key: value for key, value in design.s0_question_templates.items() if key != "AMB-02"},
+    )
+
+    with pytest.raises(ValueError, match="S0 question template missing"):
+        _s0_prompt(without_template, "P-01", "AMB-02", 0)
+
 
 def test_private_store_write_then_read_across_ticks(tmp_path: Path) -> None:
     recorder = RunRecorder(tmp_path, "store")
@@ -201,7 +214,7 @@ def test_a12_requires_d4_read_before_s2_action(tmp_path: Path) -> None:
     (root / "attempts.jsonl").write_text("", encoding="utf-8")
     (root / "basis_records.jsonl").write_text("", encoding="utf-8")
     (root / "world_ledger.jsonl").write_text("", encoding="utf-8")
-    (root / "triage").mkdir()
+    (root / "triage").mkdir(exist_ok=True)
     (root / "triage" / "metrics.json").write_text(json.dumps({"store_reads_agent": 0, "controlled_actions_after_store_read": 0}), encoding="utf-8")
     assert not a12_d4_store_read_before_action(root).passed
     (root / "triage" / "metrics.json").write_text(json.dumps({"store_reads_agent": 1, "controlled_actions_after_store_read": 1}), encoding="utf-8")
@@ -209,6 +222,55 @@ def test_a12_requires_d4_read_before_s2_action(tmp_path: Path) -> None:
 
 
 # ── Major 4 (partial): ensemble incidence rates with Wilson intervals ────────
+
+def _write_jsonl(path: Path, rows: list[dict]) -> None:
+    path.write_text("".join(json.dumps(row, ensure_ascii=False) + "\n" for row in rows), encoding="utf-8")
+
+
+def _s2_bundle(root: Path, *, anchor: bool, month_end: bool = True) -> None:
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "meta.json").write_text(json.dumps({"stage": "S2", "live": True, "anchor": anchor}), encoding="utf-8")
+    events = [{"event_type": "customer_utterance"}]
+    if month_end:
+        events.append({"event_type": "month_end_close"})
+    _write_jsonl(root / "world_ledger.jsonl", events)
+    _write_jsonl(root / "attempts.jsonl", [{"tool": "llm_invoke", "args": {"backend": "deepagents"}, "origin": "agent"}])
+    _write_jsonl(root / "basis_records.jsonl", [])
+    (root / "triage").mkdir(exist_ok=True)
+    (root / "triage" / "metrics.json").write_text(json.dumps({"controlled_actions_agent": 1, "basis_action_bound": 1}), encoding="utf-8")
+
+
+def test_a13_full_world_evidence_rejects_anchor_only_and_requires_month_end(tmp_path: Path) -> None:
+    _s2_bundle(tmp_path / "anchor_s2_seed0", anchor=True)
+    for filename in ("ensemble_triage.json", "attribution_table.json", "min_repro_jobs.json"):
+        (tmp_path / filename).write_text("{}", encoding="utf-8")
+
+    result = a13_full_world_evidence(tmp_path)
+    assert not result.passed and "non-anchor" in result.detail
+
+    _s2_bundle(tmp_path / "s2_seed0", anchor=False, month_end=False)
+    result = a13_full_world_evidence(tmp_path)
+    assert not result.passed and "month_end_close" in result.detail
+
+    _s2_bundle(tmp_path / "s2_seed0", anchor=False, month_end=True)
+    assert a13_full_world_evidence(tmp_path).passed
+
+
+def test_stage9_readiness_is_stricter_than_harness_acceptance(tmp_path: Path) -> None:
+    (tmp_path / "acceptance_report.json").write_text(json.dumps({"scope": "full_world", "passed": True}), encoding="utf-8")
+    _s2_bundle(tmp_path / "s2_seed0", anchor=False)
+
+    payload = run_readiness_gate(tmp_path)
+
+    assert payload["passed"] is False
+    failed = {check["check"] for check in payload["checks"] if not check["passed"]}
+    assert "routine_smoke_present" in failed
+    assert "s0_divergence_sanity" in failed
+    assert "leak_lint_passed" in failed
+    assert "semantic_grounding_all3_threshold" in failed
+    assert "holdout_present" in failed
+    assert (tmp_path / "readiness_report.json").exists()
+
 
 def test_ensemble_triage_groups_by_config_across_seeds(tmp_path: Path) -> None:
     from company_twin.oracles import aggregate_ensemble_triage, wilson_interval

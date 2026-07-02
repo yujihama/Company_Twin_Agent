@@ -14,6 +14,7 @@ from .design_loader import load_design
 from .env import load_local_env, normalize_openrouter_model
 from .harness import make_run_root, run_s0, run_s1_episode, run_s2_world
 from .oracles import write_triage
+from .readiness import run_readiness_gate
 
 app = typer.Typer(no_args_is_help=True)
 
@@ -60,6 +61,7 @@ def inspect_inputs(root: Annotated[Path | None, typer.Option("--root")] = None, 
 @app.command("s0")
 def s0(
     probe: Annotated[str, typer.Option("--probe")] = "P-01",
+    span: Annotated[str | None, typer.Option("--span", help="Span id for the S0 battery row; defaults to the first span bound to --probe")] = None,
     seat: Annotated[str, typer.Option("--seat")] = "emp-A",
     variant: Annotated[int, typer.Option("--variant")] = 0,
     root: Annotated[Path | None, typer.Option("--root")] = None,
@@ -74,9 +76,12 @@ def s0(
         raise typer.BadParameter(f"unknown probe: {probe}")
     if seat not in design.seats:
         raise typer.BadParameter(f"unknown seat: {seat}")
+    span_id = span or (design.probes[probe].binds[0] if design.probes[probe].binds else "")
+    if span_id not in design.s0_question_templates:
+        raise typer.BadParameter(f"unknown or untemplated span for S0: {span_id}")
     corpus = Corpus.from_design(design)
     target_root = (run_root or make_run_root(base, f"s0_{probe}_{seat}")).resolve()
-    result = run_s0(design=design, corpus=corpus, probe_id=probe, seat_id=seat, run_root=target_root, model=model, variant=variant)
+    result = run_s0(design=design, corpus=corpus, probe_id=probe, seat_id=seat, run_root=target_root, span_id=span_id, model=model, variant=variant)
     write_triage(target_root)
     _echo_json(result)
 
@@ -172,11 +177,23 @@ def acceptance(
     scope: Annotated[str, typer.Option("--scope", help="auto | s0_s1 | full_world")] = "auto",
     root: Annotated[Path | None, typer.Option("--root")] = None,
 ) -> None:
-    """Run harness-safety acceptance gates (A-01..A-12), not Stage 9 readiness."""
+    """Run harness-safety acceptance gates (A-01..A-13), not Stage 9 readiness."""
     base = _root(root)
     design = load_design(base)
     corpus = Corpus.from_design(design)
     payload = run_acceptance(campaign_root=campaign_root.resolve(), design=design, corpus=corpus, scope=scope)
+    _echo_json(payload)
+    if not payload["passed"]:
+        raise typer.Exit(code=1)
+
+
+@app.command("readiness")
+def readiness(
+    campaign_root: Annotated[Path, typer.Option("--campaign-root")],
+    semantic_threshold: Annotated[float, typer.Option("--semantic-threshold")] = 0.8,
+) -> None:
+    """Run Stage 9 experiment-readiness checks; stricter than harness acceptance."""
+    payload = run_readiness_gate(campaign_root.resolve(), semantic_threshold=semantic_threshold)
     _echo_json(payload)
     if not payload["passed"]:
         raise typer.Exit(code=1)
