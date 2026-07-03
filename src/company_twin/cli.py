@@ -200,10 +200,10 @@ def triage(run_root: Annotated[Path, typer.Argument()]) -> None:
 @app.command("min-repro")
 def min_repro(
     campaign_root: Annotated[Path, typer.Option("--campaign-root")],
-    min_rate: Annotated[float, typer.Option("--min-rate", help="Minimum reproduced source-bundle rate required for confirmed promotion")] = 0.5,
-    min_seeds: Annotated[int, typer.Option("--min-seeds", help="Minimum reproduced source bundles required for confirmed promotion")] = 1,
+    min_rate: Annotated[float, typer.Option("--min-rate", help="Pre-registered reproduction threshold for the later live confirmation plan")] = 0.5,
+    min_seeds: Annotated[int, typer.Option("--min-seeds", help="Minimum fresh confirmation bundles required by the later live confirmation plan")] = 3,
 ) -> None:
-    """Execute queued min-repro jobs and refresh the confirmed finding registry."""
+    """Collate queued min-repro evidence without promoting confirmed findings."""
     payload = execute_min_repro_jobs(campaign_root.resolve(), min_rate=min_rate, min_seeds=min_seeds)
     _echo_json(payload)
 
@@ -214,7 +214,7 @@ def acceptance(
     scope: Annotated[str, typer.Option("--scope", help="auto | s0_s1 | full_world")] = "auto",
     root: Annotated[Path | None, typer.Option("--root")] = None,
 ) -> None:
-    """Run harness-safety acceptance gates (A-01..A-13), not Stage 9 readiness."""
+    """Run harness-safety acceptance gates (A-01..A-14), not Stage 9 readiness."""
     base = _root(root)
     design = load_design(base)
     corpus = Corpus.from_design(design)

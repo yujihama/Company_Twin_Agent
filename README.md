@@ -17,8 +17,8 @@ readiness gate passes.
   can bind models per seat, and SCC completion-gate switch timing is
   config-driven.
 - Observability: ensemble triage writes candidate attribution, min-repro queues,
-  min-repro execution results, detection-miss rates, and a deterministic
-  behavior coverage map.
+  min-repro evidence-collation manifests, rule hit rates, detection-miss rates,
+  and a deterministic behavior coverage map.
 - Acceptance: harness-safety gates only.
 - Readiness: Stage 9 gate exists and intentionally fails until the required
   evidence reports are generated and pass.
@@ -28,8 +28,9 @@ readiness gate passes.
 - No attached live full-world S2 + anchor artifact is claimed by this branch.
 - `grounding_g3_machine_heuristic_rate` is lexical/machine grounding, not the
   Stage 9 semantic entailment oracle.
-- Candidate attribution remains candidate-level. Confirmed findings require
-  `min-repro` execution evidence with `status=reproduced`.
+- Candidate attribution and default `min-repro` output remain exploratory.
+  Confirmed findings require fresh live confirmation bundles with
+  `status=reproduced`; same-campaign evidence collation is not enough.
 - Stage 9 backcasting, SME blind review, and holdout reports are required before
   experiment-level conclusions.
 
@@ -65,7 +66,8 @@ python -m company_twin.cli readiness --campaign-root runs\design_campaign_YYYYMM
 `acceptance --scope full_world` requires a live anchor S2 bundle and a non-anchor
 S2 bundle with month-end, customer utterances, agent-originated controlled
 actions, action-bound basis, and ensemble artifacts. `ensemble_triage.json`
-links to `coverage_map.json`, and run metrics include `detection_miss_rate`
-from `data/compiled_data/detection_rules_v1.json`. `readiness` is stricter and
+links to `coverage_map.json`, and run metrics include `rule_hit_rate` plus
+`detection_miss_rate` from two-population
+`data/compiled_data/detection_rules_v2.json`. `readiness` is stricter and
 requires routine smoke, retrieval audit, leak lint, semantic grounding,
 backcasting, SME blind review, and holdout evidence.

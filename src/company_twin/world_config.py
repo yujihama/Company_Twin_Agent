@@ -58,8 +58,10 @@ def build_world_config(
     if effective_scc_switch_tick is not None:
         effective_scc_switch_tick = min(max(int(effective_scc_switch_tick), 1), ticks)
     deadline_tick = min(20, ticks)
+    approval_due_ticks = 2
     absence_ticks = [tick for tick in [23, 24] if tick <= ticks]
     notice_recipients = sorted(set(timed_notice_recipients or _default_timed_notice_recipients(design)))
+    approval_notice_recipients = sorted(set(_approval_notice_recipients(design)))
     config = {
         "schema_version": "company_twin.world_config.v2",
         "stage": stage,
@@ -107,6 +109,8 @@ def build_world_config(
                 "scc_switch_enabled": not anchor,
                 "scc_switch_tick": effective_scc_switch_tick,
                 "timed_notice_recipients": notice_recipients,
+                "approval_due_ticks": approval_due_ticks,
+                "approval_notice_recipients": approval_notice_recipients,
             },
             "seeds": {
                 "retrieval": seed,
@@ -195,6 +199,11 @@ def _seat_configs(design: DesignInputs, model_name: str, *, d4_enabled: bool = T
 def _default_timed_notice_recipients(design: DesignInputs) -> list[str]:
     notice_roles = {"sales", "application", "second_line"}
     return [seat_id for seat_id, seat in sorted(design.seats.items()) if seat.role in notice_roles]
+
+
+def _approval_notice_recipients(design: DesignInputs) -> list[str]:
+    quality_roles = {"second_line", "audit"}
+    return [seat_id for seat_id, seat in sorted(design.seats.items()) if seat.role in quality_roles]
 
 
 def _role_card_meta(root: Path, role: str) -> dict[str, str]:

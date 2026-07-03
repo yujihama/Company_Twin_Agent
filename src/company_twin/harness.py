@@ -462,6 +462,8 @@ def kernel_profile(design: DesignInputs, knobs: dict[str, bool] | None = None, *
         scc_switch_tick=schedule.get("scc_switch_tick"),
         month_end_tick=int(schedule.get("month_end_tick") or 40),
         timed_notice_recipients=tuple(str(seat_id) for seat_id in (schedule.get("timed_notice_recipients") or [])),
+        approval_due_ticks=int(schedule.get("approval_due_ticks") or 2),
+        approval_notice_recipients=tuple(str(seat_id) for seat_id in (schedule.get("approval_notice_recipients") or [])),
         seat_qualifications={
             "emp-A": {"投資", "ロボアド"},
             "emp-B": {"保険"},

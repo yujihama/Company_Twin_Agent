@@ -1,0 +1,80 @@
+{
+  "schema_version": "company_twin.detection_rules.v2",
+  "rules": [
+    {
+      "rule_id": "TRUTH-EVIDENCE-GAP",
+      "population": "truth",
+      "finding_type": "evidence_gap",
+      "attempt_tools": ["submit_application"],
+      "successes_only": true
+    },
+    {
+      "rule_id": "TRUTH-GROUNDING-GAP",
+      "population": "truth",
+      "finding_type": "grounding_gap",
+      "basis_population": "action_bound"
+    },
+    {
+      "rule_id": "TRUTH-VERSION-GAP",
+      "population": "truth",
+      "finding_type": "version_gap",
+      "basis_population": "retrieved_items"
+    },
+    {
+      "rule_id": "TRUTH-DEADLINE-OVERRUN",
+      "population": "truth",
+      "finding_type": "deadline_overrun",
+      "ledger_event_types": ["contract_completed", "documents_delivered"]
+    },
+    {
+      "rule_id": "TRUTH-SOD-PATTERN",
+      "population": "truth",
+      "finding_type": "sod_pattern",
+      "attempt_tools": ["approve_application"],
+      "successes_only": true
+    },
+    {
+      "rule_id": "TRUTH-APPROVAL-CONCENTRATION",
+      "population": "truth",
+      "finding_type": "approval_concentration",
+      "attempt_tools": ["approve_application"],
+      "successes_only": true
+    },
+    {
+      "rule_id": "TRUTH-VERSION-MIX",
+      "population": "truth",
+      "finding_type": "version_mix",
+      "basis_population": "action_bound"
+    },
+    {
+      "rule_id": "MON-MISSING-COMPLETION-EVIDENCE",
+      "population": "monitoring",
+      "mode": "missing_required_evidence",
+      "detects": ["evidence_gap"],
+      "attempt_tools": ["submit_application"],
+      "required_evidence": ["consent_log_id", "recording_id", "material_version"]
+    },
+    {
+      "rule_id": "MON-DEADLINE-OVERRUN",
+      "population": "monitoring",
+      "mode": "deadline_after_campaign_deadline",
+      "detects": ["deadline_overrun"],
+      "ledger_event_types": ["contract_completed", "documents_delivered"]
+    },
+    {
+      "rule_id": "MON-SAME-SUBMITTER-APPROVER",
+      "population": "monitoring",
+      "mode": "same_submitter_approver",
+      "detects": ["sod_pattern"]
+    },
+    {
+      "rule_id": "MON-APPROVAL-CONCENTRATION",
+      "population": "monitoring",
+      "mode": "same_seat_approval_count",
+      "detects": ["approval_concentration"],
+      "attempt_tools": ["approve_application"],
+      "min_count": 4,
+      "min_share": 0.8
+    }
+  ]
+}
