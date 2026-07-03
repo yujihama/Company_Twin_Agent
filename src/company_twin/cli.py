@@ -13,7 +13,7 @@ from .corpus import Corpus
 from .design_loader import load_design
 from .env import load_local_env, normalize_openrouter_model
 from .harness import make_run_root, run_s0, run_s1_episode, run_s2_world
-from .oracles import write_triage
+from .oracles import execute_min_repro_jobs, write_triage
 from .readiness import run_readiness_gate, write_readiness_reports
 
 app = typer.Typer(no_args_is_help=True)
@@ -194,6 +194,17 @@ def campaign(
 def triage(run_root: Annotated[Path, typer.Argument()]) -> None:
     """Run deterministic L0 triage over a run bundle."""
     payload = write_triage(run_root.resolve())
+    _echo_json(payload)
+
+
+@app.command("min-repro")
+def min_repro(
+    campaign_root: Annotated[Path, typer.Option("--campaign-root")],
+    min_rate: Annotated[float, typer.Option("--min-rate", help="Minimum reproduced source-bundle rate required for confirmed promotion")] = 0.5,
+    min_seeds: Annotated[int, typer.Option("--min-seeds", help="Minimum reproduced source bundles required for confirmed promotion")] = 1,
+) -> None:
+    """Execute queued min-repro jobs and refresh the confirmed finding registry."""
+    payload = execute_min_repro_jobs(campaign_root.resolve(), min_rate=min_rate, min_seeds=min_seeds)
     _echo_json(payload)
 
 

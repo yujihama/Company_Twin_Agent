@@ -7,7 +7,7 @@ from company_twin.campaign import default_s0_models
 from company_twin.corpus import Corpus
 from company_twin.design_loader import load_design
 from company_twin.harness import run_s1_episode, run_s2_world
-from company_twin.oracles import aggregate_ensemble_triage, write_triage
+from company_twin.oracles import aggregate_ensemble_triage, execute_min_repro_jobs, write_triage
 from company_twin.recorder import RunRecorder, read_jsonl
 from conftest import fake_seat_factory
 from test_world_runs import _LateBoundCustomer
@@ -135,3 +135,86 @@ def test_detection_miss_rate_and_coverage_map_are_written(tmp_path: Path) -> Non
     assert coverage["schema_version"] == "company_twin.coverage_map.v1"
     assert coverage["cell_counts"]["C5_evidence_skeleton"] >= 1
     assert ensemble["coverage_map"]["path"] == "coverage_map.json"
+
+
+def _write_min_repro_source(campaign_root: Path, name: str, *, seed: int, has_finding: bool) -> None:
+    run_root = campaign_root / name
+    (run_root / "triage").mkdir(parents=True)
+    (run_root / "meta.json").write_text(json.dumps({"stage": "S1", "probe": "P-04", "knobs": {}, "seed": seed, "anchor": False}), encoding="utf-8")
+    (run_root / "triage" / "metrics.json").write_text(
+        json.dumps({"controlled_actions_agent": 1, "finding_types": ({"evidence_gap": 1} if has_finding else {})}),
+        encoding="utf-8",
+    )
+    buckets = [
+        {
+            "signature": f"sig-{seed}",
+            "count": 1,
+            "opportunity_denominator": 1,
+            "rate": 1.0,
+            "finding_type": "evidence_gap",
+            "seat_id": "emp-C",
+            "anchor_id": "submit_application",
+            "phase": "application",
+            "example": "missing consent_log_id,recording_id",
+            "min_repro_status": "candidate",
+        }
+    ] if has_finding else []
+    (run_root / "triage" / "buckets.json").write_text(json.dumps({"buckets": buckets}), encoding="utf-8")
+    evidence = {"material_version": "v1.1"} if has_finding else {"material_version": "v1.1", "consent_log_id": "CONS-1", "recording_id": "REC-1"}
+    _write_jsonl(
+        run_root / "attempts.jsonl",
+        [
+            {
+                "tick": seed + 1,
+                "seat_id": "emp-C",
+                "tool": "submit_application",
+                "args": {"application_id": f"APP-{seed}", "evidence": evidence},
+                "success": True,
+                "result": {},
+                "origin": "agent",
+            }
+        ],
+    )
+    _write_jsonl(run_root / "basis_records.jsonl", [])
+    _write_jsonl(run_root / "world_ledger.jsonl", [])
+    _write_jsonl(run_root / "store_events.jsonl", [])
+
+
+def test_min_repro_runner_promotes_only_reproduced_jobs(tmp_path: Path) -> None:
+    for seed, has_finding in enumerate([True, True, False]):
+        _write_min_repro_source(tmp_path, f"s1_P-04_seed{seed}", seed=seed, has_finding=has_finding)
+
+    queued = aggregate_ensemble_triage(tmp_path)
+    assert queued["min_repro_jobs"][0]["status"] == "pending"
+    assert queued["finding_registry"]["confirmed_findings"] == []
+
+    executed = execute_min_repro_jobs(tmp_path, min_rate=0.5, min_seeds=2)
+
+    job = executed["jobs"][0]
+    assert job["status"] == "reproduced"
+    assert job["source_bundle_count"] == 2
+    assert abs(job["reproduction_rate"] - 2 / 3) < 1e-9
+    manifest = json.loads((tmp_path / job["confirmation_path"]).read_text(encoding="utf-8"))
+    assert manifest["status"] == "reproduced"
+    assert manifest["reduction_trace"][1]["step"] == "deck_one_card"
+
+    registry = json.loads((tmp_path / "finding_registry.json").read_text(encoding="utf-8"))
+    assert registry["confirmed_findings"][0]["job_id"] == job["job_id"]
+    assert registry["confirmed_findings"][0]["min_repro_status"] == "reproduced"
+    assert registry["audit_hypothesis_cards"][0]["min_repro"]["status"] == "reproduced"
+    updated_jobs = json.loads((tmp_path / "min_repro_jobs.json").read_text(encoding="utf-8"))["jobs"]
+    assert updated_jobs[0]["status"] == "reproduced"
+
+
+def test_min_repro_runner_keeps_below_threshold_jobs_exploratory(tmp_path: Path) -> None:
+    for seed, has_finding in enumerate([True, False, False]):
+        _write_min_repro_source(tmp_path, f"s1_P-04_seed{seed}", seed=seed, has_finding=has_finding)
+
+    aggregate_ensemble_triage(tmp_path)
+    executed = execute_min_repro_jobs(tmp_path, min_rate=0.5, min_seeds=2)
+
+    assert executed["jobs"][0]["status"] == "not_reproduced"
+    registry = json.loads((tmp_path / "finding_registry.json").read_text(encoding="utf-8"))
+    assert registry["confirmed_findings"] == []
+    assert registry["audit_hypothesis_cards"] == []
+    assert registry["exploratory_buckets"][0]["reason"] == "min_repro_not_reproduced"

@@ -16,6 +16,7 @@ from .recorder import read_jsonl
 
 DETECTION_RULE_SCHEMA_VERSION = "company_twin.detection_rules.v1"
 COVERAGE_MAP_SCHEMA_VERSION = "company_twin.coverage_map.v1"
+MIN_REPRO_RESULTS_SCHEMA_VERSION = "company_twin.min_repro_results.v1"
 
 DEFAULT_DETECTION_RULES = {
     "schema_version": DETECTION_RULE_SCHEMA_VERSION,
@@ -121,7 +122,8 @@ def aggregate_ensemble_triage(campaign_root: Path) -> dict[str, Any]:
     """Ensemble-level triage (partial answer to reviewer Major 4): group run
     bundles by config identity (stage, probe, knobs) across seeds and report
     per-finding-type incidence rates with Wilson intervals. Attribution and
-    min-repro outputs are candidate queues; they do not mark findings confirmed."""
+    min-repro outputs are candidate queues until the explicit min-repro runner
+    marks jobs reproduced."""
     groups: dict[str, dict[str, Any]] = {}
     for run_root in sorted(path for path in campaign_root.iterdir() if path.is_dir()):
         meta_path = run_root / "meta.json"
@@ -168,7 +170,7 @@ def aggregate_ensemble_triage(campaign_root: Path) -> dict[str, Any]:
         "min_repro_jobs": min_repro_jobs,
         "finding_registry": finding_registry,
         "coverage_map": {"path": "coverage_map.json", "cell_counts": coverage_map["cell_counts"]},
-        "note": "candidate-level triage only: delta=1 attribution and min-repro jobs are queued, not confirmed findings",
+        "note": "candidate-level triage only: delta=1 attribution and min-repro jobs are queued until execute_min_repro_jobs runs",
     }
     (campaign_root / "ensemble_triage.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     return payload
@@ -222,22 +224,25 @@ def _min_repro_jobs(groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
     jobs: list[dict[str, Any]] = []
     for group in groups:
         for finding_type, rate in sorted((group.get("finding_rates") or {}).items()):
-            jobs.append(
-                {
-                    "status": "pending",
-                    "finding_type": finding_type,
-                    "config": group["config"],
-                    "seeds_with_finding": rate["seeds_with_finding"],
-                    "seeds": rate["seeds"],
-                    "rate": rate["rate"],
-                    "wilson_95": rate["wilson_95"],
-                }
-            )
+            job = {
+                "status": "pending",
+                "min_repro_status": "pending",
+                "finding_type": finding_type,
+                "config": group["config"],
+                "seeds_with_finding": rate["seeds_with_finding"],
+                "seeds": rate["seeds"],
+                "rate": rate["rate"],
+                "wilson_95": rate["wilson_95"],
+                "confirmation_protocol": ["source_bundle_match", "deck_one_card_if_probe_bound", "tick_back_trim", "seat_shrink"],
+            }
+            job["job_id"] = _min_repro_job_id(job)
+            jobs.append(job)
     return jobs
 
 
 def _finding_registry(groups: list[dict[str, Any]], min_repro_jobs: list[dict[str, Any]]) -> dict[str, Any]:
-    reproduced = [job for job in min_repro_jobs if job.get("status") == "reproduced"]
+    reproduced_jobs = [job for job in min_repro_jobs if job.get("status") == "reproduced"]
+    confirmed = [_confirmed_finding(job) for job in reproduced_jobs]
     exploratory = [
         {
             "finding_type": finding_type,
@@ -250,14 +255,270 @@ def _finding_registry(groups: list[dict[str, Any]], min_repro_jobs: list[dict[st
         }
         for group in groups
         for finding_type, rate in sorted((group.get("finding_rates") or {}).items())
-        if not any(job.get("finding_type") == finding_type and job.get("config") == group["config"] for job in reproduced)
+        if not any(job.get("finding_type") == finding_type and job.get("config") == group["config"] for job in reproduced_jobs)
     ]
     return {
-        "confirmed_findings": reproduced,
+        "schema_version": "company_twin.finding_registry.v1",
+        "confirmed_findings": confirmed,
         "exploratory_buckets": exploratory,
-        "audit_hypothesis_cards": reproduced,
+        "audit_hypothesis_cards": [_audit_hypothesis_card(job) for job in reproduced_jobs],
         "note": "Only reproduced min-repro jobs may become confirmed findings or audit hypothesis cards.",
     }
+
+
+def execute_min_repro_jobs(campaign_root: Path, *, min_rate: float = 0.5, min_seeds: int = 1) -> dict[str, Any]:
+    """Consume queued min-repro jobs using existing campaign evidence.
+
+    The runner is deterministic: it does not fabricate a live rerun. It matches
+    queued jobs back to same-config run bundles, writes a per-job min-repro
+    manifest, and only promotes jobs whose observed source bundles satisfy the
+    pre-registered reproduction threshold.
+    """
+    if not 0 <= min_rate <= 1:
+        raise ValueError("--min-rate must be between 0 and 1")
+    if min_seeds < 1:
+        raise ValueError("--min-seeds must be >= 1")
+    campaign_root = campaign_root.resolve()
+    ensemble = _read_json(campaign_root / "ensemble_triage.json")
+    if not ensemble:
+        ensemble = aggregate_ensemble_triage(campaign_root)
+    groups = ensemble.get("groups") or []
+    queued_payload = _read_json(campaign_root / "min_repro_jobs.json")
+    queued_jobs = queued_payload.get("jobs") or ensemble.get("min_repro_jobs") or _min_repro_jobs(groups)
+
+    executed_jobs: list[dict[str, Any]] = []
+    result_rows: list[dict[str, Any]] = []
+    for job in queued_jobs:
+        normalized = dict(job)
+        normalized.setdefault("job_id", _min_repro_job_id(normalized))
+        result = _execute_min_repro_job(campaign_root, normalized, min_rate=min_rate, min_seeds=min_seeds)
+        updated = {
+            **normalized,
+            "status": result["status"],
+            "min_repro_status": result["status"],
+            "matching_bundle_count": result["matching_bundle_count"],
+            "source_bundle_count": result["source_bundle_count"],
+            "reproduction_rate": result["reproduction_rate"],
+            "confirmation_path": result["confirmation_path"],
+            "source_bundles": result["source_bundles"],
+            "coverage_cells": result["coverage_cells"],
+        }
+        executed_jobs.append(updated)
+        result_rows.append(result)
+
+    registry = _finding_registry(groups, executed_jobs)
+    payload = {
+        "schema_version": MIN_REPRO_RESULTS_SCHEMA_VERSION,
+        "campaign_root": str(campaign_root),
+        "threshold": {"min_rate": min_rate, "min_seeds": min_seeds},
+        "job_count": len(result_rows),
+        "reproduced_count": sum(1 for row in result_rows if row["status"] == "reproduced"),
+        "jobs": result_rows,
+    }
+    (campaign_root / "min_repro_results.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    (campaign_root / "min_repro_jobs.json").write_text(json.dumps({"jobs": executed_jobs}, ensure_ascii=False, indent=2), encoding="utf-8")
+    (campaign_root / "finding_registry.json").write_text(json.dumps(registry, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    ensemble["min_repro_jobs"] = executed_jobs
+    ensemble["finding_registry"] = registry
+    ensemble["min_repro_results"] = {
+        "path": "min_repro_results.json",
+        "schema_version": MIN_REPRO_RESULTS_SCHEMA_VERSION,
+        "reproduced_count": payload["reproduced_count"],
+        "job_count": payload["job_count"],
+    }
+    ensemble["note"] = "min-repro jobs have been executed against recorded campaign evidence; confirmed findings require status=reproduced"
+    (campaign_root / "ensemble_triage.json").write_text(json.dumps(ensemble, ensure_ascii=False, indent=2), encoding="utf-8")
+    return payload
+
+
+def _execute_min_repro_job(campaign_root: Path, job: dict[str, Any], *, min_rate: float, min_seeds: int) -> dict[str, Any]:
+    finding_type = str(job.get("finding_type") or "")
+    matching_roots = _matching_run_roots(campaign_root, job.get("config") or {})
+    source_bundles = [
+        evidence
+        for run_root in matching_roots
+        if (evidence := _bundle_finding_evidence(campaign_root, run_root, finding_type))
+    ]
+    denominator = max(int(job.get("seeds") or 0), len(matching_roots), 1)
+    reproduction_rate = len(source_bundles) / denominator
+    status = "reproduced" if len(source_bundles) >= min_seeds and reproduction_rate >= min_rate else "not_reproduced"
+    coverage_cells = _coverage_cells_for_finding(campaign_root, finding_type)
+    result = {
+        "job_id": job["job_id"],
+        "finding_type": finding_type,
+        "config": job.get("config") or {},
+        "status": status,
+        "min_repro_status": status,
+        "queued_rate": job.get("rate"),
+        "queued_wilson_95": job.get("wilson_95"),
+        "threshold": {"min_rate": min_rate, "min_seeds": min_seeds},
+        "matching_bundle_count": len(matching_roots),
+        "source_bundle_count": len(source_bundles),
+        "reproduction_rate": reproduction_rate,
+        "source_bundles": source_bundles,
+        "coverage_cells": coverage_cells,
+        "reduction_trace": _reduction_trace(job, source_bundles),
+    }
+    manifest_dir = campaign_root / "min_repro" / str(job["job_id"])
+    manifest_dir.mkdir(parents=True, exist_ok=True)
+    manifest_path = manifest_dir / "manifest.json"
+    result["confirmation_path"] = _relative_path(manifest_path, campaign_root)
+    manifest_path.write_text(json.dumps({"schema_version": MIN_REPRO_RESULTS_SCHEMA_VERSION, **result}, ensure_ascii=False, indent=2), encoding="utf-8")
+    return result
+
+
+def _matching_run_roots(campaign_root: Path, config: dict[str, Any]) -> list[Path]:
+    target = _config_key(config)
+    roots: list[Path] = []
+    for run_root in sorted(path for path in campaign_root.iterdir() if path.is_dir()):
+        meta = _read_json(run_root / "meta.json")
+        if not meta:
+            continue
+        if _config_key(_config_from_meta(meta)) == target:
+            roots.append(run_root)
+    return roots
+
+
+def _bundle_finding_evidence(campaign_root: Path, run_root: Path, finding_type: str) -> dict[str, Any] | None:
+    metrics = _read_json(run_root / "triage" / "metrics.json")
+    finding_count = int(((metrics.get("finding_types") or {}).get(finding_type)) or 0)
+    buckets_payload = _read_json(run_root / "triage" / "buckets.json")
+    buckets = [bucket for bucket in (buckets_payload.get("buckets") or []) if bucket.get("finding_type") == finding_type]
+    if finding_count <= 0 and not buckets:
+        return None
+    ticks = _evidence_ticks(run_root, finding_type, buckets)
+    seats = sorted({str(bucket.get("seat_id") or "") for bucket in buckets if bucket.get("seat_id")})
+    return {
+        "run_id": run_root.name,
+        "run_root": _relative_path(run_root, campaign_root),
+        "seed": _read_json(run_root / "meta.json").get("seed"),
+        "finding_count": finding_count or sum(int(bucket.get("count") or 0) for bucket in buckets),
+        "bucket_signatures": [str(bucket.get("signature") or "") for bucket in buckets if bucket.get("signature")],
+        "seats": seats,
+        "tick_window": {"start": min(ticks), "end": max(ticks)} if ticks else None,
+    }
+
+
+def _evidence_ticks(run_root: Path, finding_type: str, buckets: list[dict[str, Any]]) -> list[int]:
+    attempts = read_jsonl(run_root / "attempts.jsonl")
+    basis = read_jsonl(run_root / "basis_records.jsonl")
+    ledger = read_jsonl(run_root / "world_ledger.jsonl")
+    bucket_seats = {str(bucket.get("seat_id") or "") for bucket in buckets if bucket.get("seat_id")}
+    ticks: list[int] = []
+    if finding_type == "evidence_gap":
+        for row in attempts:
+            evidence = ((row.get("args") or {}).get("evidence") or {})
+            missing = [key for key in ("consent_log_id", "recording_id", "material_version") if not evidence.get(key)]
+            if row.get("tool") == "submit_application" and row.get("success") and missing:
+                ticks.append(int(row.get("tick") or 0))
+    elif finding_type in {"hard_constraint_denial", "sod_pattern", "approval_concentration"}:
+        for row in attempts:
+            if not bucket_seats or str(row.get("seat_id") or "") in bucket_seats:
+                ticks.append(int(row.get("tick") or 0))
+    elif finding_type in {"grounding_gap", "version_gap", "version_mix", "version_skew_reference", "world_basis_leak"}:
+        for row in basis:
+            if not bucket_seats or str(row.get("seat_id") or "") in bucket_seats:
+                ticks.append(int(row.get("tick") or 0))
+    elif finding_type == "deadline_overrun":
+        deadline_ticks = [int(row.get("tick") or 0) for row in ledger if row.get("event_type") == "campaign_deadline"]
+        for row in ledger:
+            if row.get("event_type") in {"contract_completed", "documents_delivered"} and deadline_ticks and int(row.get("tick") or 0) > deadline_ticks[0]:
+                ticks.append(int(row.get("tick") or 0))
+    if not ticks:
+        ticks = [int(row.get("tick") or 0) for row in attempts + basis + ledger if row.get("tick") is not None]
+    return [tick for tick in ticks if tick > 0]
+
+
+def _coverage_cells_for_finding(campaign_root: Path, finding_type: str) -> list[dict[str, Any]]:
+    coverage = _read_json(campaign_root / "coverage_map.json")
+    rows = ((coverage.get("cells") or {}).get("C4_signature_vocab") or []) if coverage else []
+    prefix = f"{finding_type} | "
+    return [row for row in rows if str(row.get("cell") or "").startswith(prefix)]
+
+
+def _reduction_trace(job: dict[str, Any], source_bundles: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    config = job.get("config") or {}
+    ticks = [bundle.get("tick_window") for bundle in source_bundles if bundle.get("tick_window")]
+    seats = sorted({seat for bundle in source_bundles for seat in (bundle.get("seats") or [])})
+    mutations = config.get("mutations") or config.get("corpus_mutations") or []
+    return [
+        {
+            "step": "drop_inert_mutations",
+            "status": "not_applicable" if not mutations else "requires_live_rerun",
+            "retained_mutations": mutations,
+        },
+        {
+            "step": "deck_one_card",
+            "status": "selected" if config.get("probe") else "not_applicable",
+            "probe": config.get("probe"),
+        },
+        {
+            "step": "tick_back_trim",
+            "status": "bounded" if ticks else "not_observed",
+            "tick_window": {"start": min(row["start"] for row in ticks), "end": max(row["end"] for row in ticks)} if ticks else None,
+        },
+        {
+            "step": "seat_shrink",
+            "status": "bounded" if seats else "not_observed",
+            "seats": seats,
+        },
+    ]
+
+
+def _confirmed_finding(job: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "job_id": job.get("job_id"),
+        "finding_type": job.get("finding_type"),
+        "config": job.get("config") or {},
+        "status": "reproduced",
+        "min_repro_status": "reproduced",
+        "reproduction_rate": job.get("reproduction_rate"),
+        "source_bundle_count": job.get("source_bundle_count"),
+        "matching_bundle_count": job.get("matching_bundle_count"),
+        "confirmation_path": job.get("confirmation_path"),
+        "coverage_cells": job.get("coverage_cells") or [],
+    }
+
+
+def _audit_hypothesis_card(job: dict[str, Any]) -> dict[str, Any]:
+    config = job.get("config") or {}
+    finding_type = str(job.get("finding_type") or "")
+    stage = str(config.get("stage") or "unknown")
+    probe = str(config.get("probe") or "full_deck")
+    return {
+        "card_id": f"HYP-{str(job.get('job_id') or '')[:12]}",
+        "finding_type": finding_type,
+        "hypothesis": f"{finding_type} reproduces under {stage}/{probe} and should be reviewed as a confirmed audit hypothesis.",
+        "min_repro": {
+            "job_id": job.get("job_id"),
+            "status": "reproduced",
+            "reproduction_rate": job.get("reproduction_rate"),
+            "confirmation_path": job.get("confirmation_path"),
+        },
+        "divergence_cells": job.get("coverage_cells") or [],
+        "source_bundles": job.get("source_bundles") or [],
+    }
+
+
+def _min_repro_job_id(job: dict[str, Any]) -> str:
+    payload = {"finding_type": job.get("finding_type"), "config": job.get("config") or {}}
+    return hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()[:16]
+
+
+def _config_from_meta(meta: dict[str, Any]) -> dict[str, Any]:
+    return {"stage": meta.get("stage"), "probe": meta.get("probe"), "knobs": meta.get("knobs") or {}, "anchor": meta.get("anchor", False)}
+
+
+def _config_key(config: dict[str, Any]) -> str:
+    return json.dumps(_config_from_meta(config), sort_keys=True, ensure_ascii=False)
+
+
+def _relative_path(path: Path, base: Path) -> str:
+    try:
+        return str(path.relative_to(base)).replace("\\", "/")
+    except ValueError:
+        return str(path)
 
 
 def signature_for(*, finding_type: str, anchor_id: str, seat_id: str, phase: str, artifact_skeleton: str) -> str:

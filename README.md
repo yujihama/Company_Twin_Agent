@@ -17,7 +17,8 @@ readiness gate passes.
   can bind models per seat, and SCC completion-gate switch timing is
   config-driven.
 - Observability: ensemble triage writes candidate attribution, min-repro queues,
-  detection-miss rates, and a deterministic behavior coverage map.
+  min-repro execution results, detection-miss rates, and a deterministic
+  behavior coverage map.
 - Acceptance: harness-safety gates only.
 - Readiness: Stage 9 gate exists and intentionally fails until the required
   evidence reports are generated and pass.
@@ -27,8 +28,8 @@ readiness gate passes.
 - No attached live full-world S2 + anchor artifact is claimed by this branch.
 - `grounding_g3_machine_heuristic_rate` is lexical/machine grounding, not the
   Stage 9 semantic entailment oracle.
-- Candidate attribution and min-repro queues are generated, but confirmed
-  findings require reproduction evidence.
+- Candidate attribution remains candidate-level. Confirmed findings require
+  `min-repro` execution evidence with `status=reproduced`.
 - Stage 9 backcasting, SME blind review, and holdout reports are required before
   experiment-level conclusions.
 
@@ -39,6 +40,7 @@ python -m compileall -q src tests
 pytest -q
 python -m company_twin.cli inspect
 python -m company_twin.cli lint
+python -m company_twin.cli min-repro --campaign-root runs\design_campaign_YYYYMMDD_HHMMSS
 ```
 
 The default live model is loaded from local environment settings and should
@@ -54,6 +56,7 @@ For a full-world claim, run a live campaign with S2 and then verify both gates:
 
 ```powershell
 python -m company_twin.cli campaign --with-s2 --s2-k 1 --s2-ticks 40 --s0-model openrouter:qwen/qwen3.6-flash
+python -m company_twin.cli min-repro --campaign-root runs\design_campaign_YYYYMMDD_HHMMSS
 python -m company_twin.cli acceptance --campaign-root runs\design_campaign_YYYYMMDD_HHMMSS --scope full_world
 python -m company_twin.cli readiness-reports --campaign-root runs\design_campaign_YYYYMMDD_HHMMSS --overwrite
 python -m company_twin.cli readiness --campaign-root runs\design_campaign_YYYYMMDD_HHMMSS
