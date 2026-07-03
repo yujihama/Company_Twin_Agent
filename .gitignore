@@ -3,3 +3,7 @@
 .env.*.local
 .claude/settings.local.json
 node_modules/
+runs/
+__pycache__/
+*.py[cod]
+*.egg-info/

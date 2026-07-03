@@ -1,0 +1,76 @@
+{
+  "profiles": {
+    "application": {
+      "authority_friction": {},
+      "boost_sections": {
+        "本人確認": 6.0,
+        "申込": 6.0
+      },
+      "index_kinds": [
+        "マニュアル",
+        "ワークブック"
+      ],
+      "top_k": 5,
+      "version_visibility": "current"
+    },
+    "audit": {
+      "authority_friction": {},
+      "boost_sections": {
+        "モニタリング": 6.0,
+        "証跡": 6.0
+      },
+      "index_kinds": [
+        "規程",
+        "マニュアル",
+        "ワークブック"
+      ],
+      "top_k": 8,
+      "version_visibility": "current"
+    },
+    "manager": {
+      "authority_friction": {},
+      "boost_sections": {
+        "差戻": 4.0,
+        "承認": 5.0
+      },
+      "index_kinds": [
+        "規程",
+        "マニュアル",
+        "ワークブック"
+      ],
+      "top_k": 5,
+      "version_visibility": "current"
+    },
+    "sales": {
+      "authority_friction": {
+        "規程": -1.0
+      },
+      "boost_sections": {
+        "現場FAQ": 8.0,
+        "現場判断事例": 9.0
+      },
+      "index_kinds": [
+        "マニュアル",
+        "商品別マニュアル",
+        "ワークブック"
+      ],
+      "top_k": 5,
+      "version_visibility": "current_plus_role_stale_021_045"
+    },
+    "second_line": {
+      "authority_friction": {},
+      "boost_sections": {
+        "第二線": 6.0,
+        "統制": 6.0
+      },
+      "index_kinds": [
+        "規程",
+        "マニュアル",
+        "ワークブック"
+      ],
+      "top_k": 6,
+      "version_visibility": "current"
+    }
+  },
+  "schema_version": "company_twin.retrieval_profiles.v2"
+}

@@ -1,0 +1,456 @@
+{
+  "corpus_id": "dfh_sales_v2",
+  "documents": [
+    {
+      "authority": 3,
+      "doc_id": "DFH-SAL-001",
+      "kind": "規程",
+      "owner": "ダミー販売統括部",
+      "path": "data/raw_data/01_regulations/DFH-SAL-001_グループ販売管理基本規程.docx",
+      "scope": "グループ全体",
+      "version": "1.1"
+    },
+    {
+      "authority": 3,
+      "doc_id": "DFH-SAL-002",
+      "kind": "規程",
+      "owner": "ダミー販売統括部",
+      "path": "data/raw_data/01_regulations/DFH-SAL-002_販売業務職務権限規程.docx",
+      "scope": "販売に関与する全部署",
+      "version": "1.1"
+    },
+    {
+      "authority": 3,
+      "doc_id": "DFH-SAL-003",
+      "kind": "規程",
+      "owner": "ダミーチャネル戦略部",
+      "path": "data/raw_data/01_regulations/DFH-SAL-003_販売チャネル管理規程.docx",
+      "scope": "アプリ、Web、コールセンター、対面、代理店",
+      "version": "1.1"
+    },
+    {
+      "authority": 3,
+      "doc_id": "DFH-SAL-004",
+      "kind": "規程",
+      "owner": "ダミーデジタル販売管理部",
+      "path": "data/raw_data/01_regulations/DFH-SAL-004_非対面販売管理規程.docx",
+      "scope": "アプリ、Web、オンライン面談、チャット",
+      "version": "1.1"
+    },
+    {
+      "authority": 3,
+      "doc_id": "DFH-SAL-005",
+      "kind": "規程",
+      "owner": "ダミー顧客本位推進部",
+      "path": "data/raw_data/01_regulations/DFH-SAL-005_顧客本位販売運営規程.docx",
+      "scope": "販売企画、商品主管、販売現場",
+      "version": "1.1"
+    },
+    {
+      "authority": 3,
+      "doc_id": "DFH-SAL-006",
+      "kind": "規程",
+      "owner": "ダミーコンプライアンス統括部",
+      "path": "data/raw_data/01_regulations/DFH-SAL-006_不適切販売防止規程.docx",
+      "scope": "販売担当者、管理者、委託先",
+      "version": "1.1"
+    },
+    {
+      "authority": 3,
+      "doc_id": "DFH-SAL-007",
+      "kind": "規程",
+      "owner": "ダミー販売企画部",
+      "path": "data/raw_data/01_regulations/DFH-SAL-007_クロスセル・アップセル管理規程.docx",
+      "scope": "複数商品を提案する販売活動",
+      "version": "1.1"
+    },
+    {
+      "authority": 3,
+      "doc_id": "DFH-SAL-008",
+      "kind": "規程",
+      "owner": "ダミー販売品質管理部",
+      "path": "data/raw_data/01_regulations/DFH-SAL-008_販売停止・再開判断規程.docx",
+      "scope": "商品主管、販売主管、第二線管理部署",
+      "version": "1.1"
+    },
+    {
+      "authority": 2,
+      "doc_id": "DFH-SAL-009",
+      "kind": "マニュアル",
+      "owner": "ダミー販売統括部",
+      "path": "data/raw_data/02_core_manuals/DFH-SAL-009_販売プロセス全体マニュアル.docx",
+      "scope": "販売業務に関与する全部署",
+      "version": "1.1"
+    },
+    {
+      "authority": 2,
+      "doc_id": "DFH-SAL-010",
+      "kind": "マニュアル",
+      "owner": "ダミー商品統括部",
+      "path": "data/raw_data/02_core_manuals/DFH-SAL-010_販売対象商品・サービス管理マニュアル.docx",
+      "scope": "商品主管、販売主管、販売現場",
+      "version": "1.1"
+    },
+    {
+      "authority": 2,
+      "doc_id": "DFH-SAL-011",
+      "kind": "マニュアル",
+      "owner": "ダミーマーケティング部",
+      "path": "data/raw_data/03_marketing_advertising/DFH-SAL-011_広告・表示制作依頼マニュアル.docx",
+      "scope": "広告・LP・アプリ表示の制作依頼者",
+      "version": "1.1"
+    },
+    {
+      "authority": 2,
+      "doc_id": "DFH-SAL-012",
+      "kind": "マニュアル",
+      "owner": "ダミー顧客保護推進部",
+      "path": "data/raw_data/03_marketing_advertising/DFH-SAL-012_広告審査・差戻し対応マニュアル.docx",
+      "scope": "広告審査担当、施策主管",
+      "version": "1.1"
+    },
+    {
+      "authority": 2,
+      "doc_id": "DFH-SAL-013",
+      "kind": "マニュアル",
+      "owner": "ダミーキャンペーン企画部",
+      "path": "data/raw_data/03_marketing_advertising/DFH-SAL-013_キャンペーン販売企画マニュアル.docx",
+      "scope": "キャンペーン施策主管、経理、法務",
+      "version": "1.1"
+    },
+    {
+      "authority": 2,
+      "doc_id": "DFH-SAL-014",
+      "kind": "マニュアル",
+      "owner": "ダミーアプリ企画部",
+      "path": "data/raw_data/04_digital_channels/DFH-SAL-014_アプリ内販売導線運用マニュアル.docx",
+      "scope": "アプリ販売導線の企画、運用担当",
+      "version": "1.1"
+    },
+    {
+      "authority": 2,
+      "doc_id": "DFH-SAL-015",
+      "kind": "マニュアル",
+      "owner": "ダミーWeb販売部",
+      "path": "data/raw_data/04_digital_channels/DFH-SAL-015_Web販売導線運用マニュアル.docx",
+      "scope": "Webサイト、LP、フォーム運用担当",
+      "version": "1.1"
+    },
+    {
+      "authority": 2,
+      "doc_id": "DFH-SAL-016",
+      "kind": "マニュアル",
+      "owner": "ダミーCRM推進部",
+      "path": "data/raw_data/05_lead_customer/DFH-SAL-016_見込顧客・リード管理マニュアル.docx",
+      "scope": "リード獲得、育成、引継ぎ担当",
+      "version": "1.1"
+    },
+    {
+      "authority": 2,
+      "doc_id": "DFH-SAL-017",
+      "kind": "マニュアル",
+      "owner": "ダミー顧客接点運営部",
+      "path": "data/raw_data/05_lead_customer/DFH-SAL-017_資料請求・問い合わせ対応マニュアル.docx",
+      "scope": "資料請求受付、問い合わせ対応担当",
+      "version": "1.1"
+    },
+    {
+      "authority": 2,
+      "doc_id": "DFH-SAL-018",
+      "kind": "マニュアル",
+      "owner": "ダミー顧客説明品質部",
+      "path": "data/raw_data/06_explanation_suitability/DFH-SAL-018_顧客説明標準マニュアル.docx",
+      "scope": "販売担当者、コールセンター、代理店",
+      "version": "1.1"
+    },
+    {
+      "authority": 2,
+      "doc_id": "DFH-SAL-019",
+      "kind": "マニュアル",
+      "owner": "ダミー顧客保護推進部",
+      "path": "data/raw_data/06_explanation_suitability/DFH-SAL-019_重要事項説明・同意取得マニュアル.docx",
+      "scope": "販売担当者、システム導線担当",
+      "version": "1.1"
+    },
+    {
+      "authority": 2,
+      "doc_id": "DFH-SAL-020",
+      "kind": "マニュアル",
+      "owner": "ダミー適合性管理部",
+      "path": "data/raw_data/06_explanation_suitability/DFH-SAL-020_適合性確認・意向把握マニュアル.docx",
+      "scope": "投資、保険、ローン、クロスセル担当",
+      "version": "1.1"
+    },
+    {
+      "authority": 2,
+      "doc_id": "DFH-SAL-021",
+      "kind": "マニュアル",
+      "owner": "ダミー顧客保護推進部",
+      "path": "data/raw_data/06_explanation_suitability/DFH-SAL-021_高齢者・脆弱顧客販売対応マニュアル.docx",
+      "scope": "高齢者・脆弱顧客に接する販売担当者",
+      "version": "1.1"
+    },
+    {
+      "authority": 2,
+      "doc_id": "DFH-SAL-022",
+      "kind": "マニュアル",
+      "owner": "ダミー販売品質管理部",
+      "path": "data/raw_data/06_explanation_suitability/DFH-SAL-022_比較推奨・推奨理由記録マニュアル.docx",
+      "scope": "保険、投資、複数商品提案担当",
+      "version": "1.1"
+    },
+    {
+      "authority": 2,
+      "doc_id": "DFH-SAL-023",
+      "kind": "マニュアル",
+      "owner": "ダミー利益相反管理部",
+      "path": "data/raw_data/06_explanation_suitability/DFH-SAL-023_手数料・利益相反説明マニュアル.docx",
+      "scope": "販売担当者、商品主管、代理店",
+      "version": "1.1"
+    },
+    {
+      "authority": 2,
+      "doc_id": "DFH-SAL-024",
+      "kind": "マニュアル",
+      "owner": "ダミー申込管理部",
+      "path": "data/raw_data/07_application_contract/DFH-SAL-024_申込受付・本人確認連携マニュアル.docx",
+      "scope": "申込受付、eKYC、CRM、審査担当",
+      "version": "1.1"
+    },
+    {
+      "authority": 2,
+      "doc_id": "DFH-SAL-025",
+      "kind": "マニュアル",
+      "owner": "ダミー申込管理部",
+      "path": "data/raw_data/07_application_contract/DFH-SAL-025_申込不備・差戻し対応マニュアル.docx",
+      "scope": "申込不備確認、顧客連絡、再受付担当",
+      "version": "1.1"
+    },
+    {
+      "authority": 2,
+      "doc_id": "DFH-SAL-026",
+      "kind": "マニュアル",
+      "owner": "ダミー契約管理部",
+      "path": "data/raw_data/07_application_contract/DFH-SAL-026_契約成立・書面交付管理マニュアル.docx",
+      "scope": "契約成立判定、書面交付、保管担当",
+      "version": "1.1"
+    },
+    {
+      "authority": 2,
+      "doc_id": "DFH-SAL-027",
+      "kind": "マニュアル",
+      "owner": "ダミー契約管理部",
+      "path": "data/raw_data/07_application_contract/DFH-SAL-027_キャンセル・取消・撤回対応マニュアル.docx",
+      "scope": "販売後取消、撤回、返金、訂正担当",
+      "version": "1.1"
+    },
+    {
+      "authority": 2,
+      "doc_id": "DFH-SAL-028",
+      "kind": "マニュアル",
+      "owner": "ダミーコンタクトセンター運営部",
+      "path": "data/raw_data/08_channel_operations/DFH-SAL-028_コールセンター販売応対マニュアル.docx",
+      "scope": "電話販売、問い合わせ受付、管理者",
+      "version": "1.1"
+    },
+    {
+      "authority": 2,
+      "doc_id": "DFH-SAL-029",
+      "kind": "マニュアル",
+      "owner": "ダミーオンライン相談部",
+      "path": "data/raw_data/08_channel_operations/DFH-SAL-029_オンライン面談販売マニュアル.docx",
+      "scope": "オンライン面談担当、管理者",
+      "version": "1.1"
+    },
+    {
+      "authority": 2,
+      "doc_id": "DFH-SAL-030",
+      "kind": "マニュアル",
+      "owner": "ダミー対面チャネル管理部",
+      "path": "data/raw_data/08_channel_operations/DFH-SAL-030_店舗・対面販売マニュアル.docx",
+      "scope": "店舗、イベント、対面相談担当",
+      "version": "1.1"
+    },
+    {
+      "authority": 2,
+      "doc_id": "DFH-SAL-031",
+      "kind": "商品別マニュアル",
+      "owner": "ダミーまんなか銀行株式会社 販売推進部",
+      "path": "data/raw_data/09_product_manuals/DFH-SAL-031_銀行口座・預金サービス販売マニュアル.docx",
+      "scope": "銀行口座、預金サービス販売担当",
+      "version": "1.1"
+    },
+    {
+      "authority": 2,
+      "doc_id": "DFH-SAL-032",
+      "kind": "商品別マニュアル",
+      "owner": "ダミーペイメント株式会社 販売推進部",
+      "path": "data/raw_data/09_product_manuals/DFH-SAL-032_ダミーPAY・決済サービス販売マニュアル.docx",
+      "scope": "ウォレット、決済、送金サービス販売担当",
+      "version": "1.1"
+    },
+    {
+      "authority": 2,
+      "doc_id": "DFH-SAL-033",
+      "kind": "商品別マニュアル",
+      "owner": "ダミーペイメント株式会社 加盟店営業部",
+      "path": "data/raw_data/09_product_manuals/DFH-SAL-033_加盟店開拓・加盟店契約販売マニュアル.docx",
+      "scope": "加盟店開拓、審査、契約担当",
+      "version": "1.1"
+    },
+    {
+      "authority": 2,
+      "doc_id": "DFH-SAL-034",
+      "kind": "商品別マニュアル",
+      "owner": "ダミーカードローン株式会社 カード販売部",
+      "path": "data/raw_data/09_product_manuals/DFH-SAL-034_ダミーCARD入会販売マニュアル.docx",
+      "scope": "カード入会販売、審査受付担当",
+      "version": "1.1"
+    },
+    {
+      "authority": 2,
+      "doc_id": "DFH-SAL-035",
+      "kind": "商品別マニュアル",
+      "owner": "ダミーカードローン株式会社 ローン販売部",
+      "path": "data/raw_data/09_product_manuals/DFH-SAL-035_ダミーLOAN販売・借入申込案内マニュアル.docx",
+      "scope": "ローン案内、申込受付、審査連携担当",
+      "version": "1.1"
+    },
+    {
+      "authority": 2,
+      "doc_id": "DFH-SAL-036",
+      "kind": "商品別マニュアル",
+      "owner": "ダミーつみたて運用株式会社 販売支援部",
+      "path": "data/raw_data/09_product_manuals/DFH-SAL-036_投資信託・ロボアド販売マニュアル.docx",
+      "scope": "投信販売、ロボアド案内、販売会社連携担当",
+      "version": "1.1"
+    },
+    {
+      "authority": 2,
+      "doc_id": "DFH-SAL-037",
+      "kind": "商品別マニュアル",
+      "owner": "ダミーほけん相談株式会社 募集管理部",
+      "path": "data/raw_data/09_product_manuals/DFH-SAL-037_保険募集・保険相談販売マニュアル.docx",
+      "scope": "保険募集人、オンライン面談担当、代理店",
+      "version": "1.1"
+    },
+    {
+      "authority": 2,
+      "doc_id": "DFH-SAL-038",
+      "kind": "マニュアル",
+      "owner": "ダミーパートナー販売管理部",
+      "path": "data/raw_data/10_partner_channels/DFH-SAL-038_代理店・紹介元販売管理マニュアル.docx",
+      "scope": "代理店、紹介元、委託先管理担当",
+      "version": "1.1"
+    },
+    {
+      "authority": 2,
+      "doc_id": "DFH-SAL-039",
+      "kind": "マニュアル",
+      "owner": "ダミー製販連携部",
+      "path": "data/raw_data/10_partner_channels/DFH-SAL-039_販売会社連携・製販情報交換マニュアル.docx",
+      "scope": "販売会社、商品主管、苦情分析担当",
+      "version": "1.1"
+    },
+    {
+      "authority": 2,
+      "doc_id": "DFH-SAL-040",
+      "kind": "マニュアル",
+      "owner": "ダミーカスタマーサクセス部",
+      "path": "data/raw_data/11_post_sales/DFH-SAL-040_販売後フォロー・初回利用促進マニュアル.docx",
+      "scope": "契約後フォロー、初回利用促進担当",
+      "version": "1.1"
+    },
+    {
+      "authority": 2,
+      "doc_id": "DFH-SAL-041",
+      "kind": "マニュアル",
+      "owner": "ダミー販売品質管理部",
+      "path": "data/raw_data/11_post_sales/DFH-SAL-041_販売苦情・不満申出初動対応マニュアル.docx",
+      "scope": "販売担当者、苦情受付、管理者",
+      "version": "1.1"
+    },
+    {
+      "authority": 2,
+      "doc_id": "DFH-SAL-042",
+      "kind": "マニュアル",
+      "owner": "ダミー販売品質管理部",
+      "path": "data/raw_data/12_quality_monitoring/DFH-SAL-042_販売品質モニタリングマニュアル.docx",
+      "scope": "第二線モニタリング担当、販売管理者",
+      "version": "1.1"
+    },
+    {
+      "authority": 2,
+      "doc_id": "DFH-SAL-043",
+      "kind": "マニュアル",
+      "owner": "ダミー人材開発部",
+      "path": "data/raw_data/13_training_evidence/DFH-SAL-043_販売担当者教育・資格管理マニュアル.docx",
+      "scope": "販売担当者、募集人、管理者",
+      "version": "1.1"
+    },
+    {
+      "authority": 2,
+      "doc_id": "DFH-SAL-044",
+      "kind": "マニュアル",
+      "owner": "ダミー文書管理部",
+      "path": "data/raw_data/14_records_controls/DFH-SAL-044_販売証跡保存・検索マニュアル.docx",
+      "scope": "販売記録、同意ログ、録音、チャット保存担当",
+      "version": "1.1"
+    },
+    {
+      "authority": 2,
+      "doc_id": "DFH-SAL-045",
+      "kind": "マニュアル",
+      "owner": "ダミー販売統括部",
+      "path": "data/raw_data/14_records_controls/DFH-SAL-045_販売例外承認・エスカレーションマニュアル.docx",
+      "scope": "販売担当者、管理者、第二線管理部署",
+      "version": "1.1"
+    },
+    {
+      "authority": 1,
+      "doc_id": "DFH-SAL-046",
+      "kind": "ワークブック",
+      "owner": "",
+      "path": "data/raw_data/15_workbooks/DFH-SAL-046_販売業務RACI_主管部署一覧.xlsx",
+      "scope": "",
+      "version": "2026-07-02改定"
+    },
+    {
+      "authority": 1,
+      "doc_id": "DFH-SAL-047",
+      "kind": "ワークブック",
+      "owner": "",
+      "path": "data/raw_data/15_workbooks/DFH-SAL-047_商品別販売可否_説明事項マトリクス.xlsx",
+      "scope": "",
+      "version": "2026-07-02改定"
+    },
+    {
+      "authority": 1,
+      "doc_id": "DFH-SAL-048",
+      "kind": "ワークブック",
+      "owner": "",
+      "path": "data/raw_data/15_workbooks/DFH-SAL-048_顧客説明_適合性確認チェックシート.xlsx",
+      "scope": "",
+      "version": "2026-07-02改定"
+    },
+    {
+      "authority": 1,
+      "doc_id": "DFH-SAL-049",
+      "kind": "ワークブック",
+      "owner": "",
+      "path": "data/raw_data/15_workbooks/DFH-SAL-049_販売品質サンプリング点検表.xlsx",
+      "scope": "",
+      "version": "2026-07-02改定"
+    },
+    {
+      "authority": 1,
+      "doc_id": "DFH-SAL-050",
+      "kind": "ワークブック",
+      "owner": "",
+      "path": "data/raw_data/15_workbooks/DFH-SAL-050_販売KPI_KRI月次報告テンプレート.xlsx",
+      "scope": "",
+      "version": "2026-07-02改定"
+    }
+  ],
+  "schema_version": "company_twin.manifest.v2"
+}
