@@ -384,3 +384,29 @@ signature = hash(finding_type, anchor_id(span/norm/遷移辺), role, phase, arti
 2. **S0の重みづけ**: S0分岐のS1転化率が低い場合、S0の昇格閾値・予算配分を見直す。
 3. **K値**: 初期値（S1=5, S2=3）は分散実測で調整。
 4. **解釈クラス粒度**: registry候補集合の粒度が粗すぎる/細かすぎる場合の改定手続（registry改定は実験者プレーンのみで完結し、進行中バッチには適用しない）。
+
+---
+
+## 16. WP-01 live execution evidence update (2026-07-04)
+
+This section records the live evidence acquisition outcome for the current
+implementation snapshot. It is intentionally scoped to harness-safety
+acceptance and must not be read as Stage 9 experiment readiness.
+
+- Primary run: `runs/design_campaign_20260704_012445`.
+- Command: `python -m company_twin.cli campaign --with-s2 --s2-k 1 --s2-ticks 12 --s0-limit 4 --s1-k 1 --s1-probe P-01 --s0-variants 2 --s0-model openrouter:qwen/qwen3.6-flash --s0-model openrouter:qwen/qwen3.6-plus`.
+- Result: `campaign_summary.acceptance_passed=true`.
+- Acceptance: `python -m company_twin.cli acceptance --campaign-root runs\design_campaign_20260704_012445 --scope full_world` returned `passed=true`.
+- Acceptance pytest: `COMPANY_TWIN_ACCEPT_ROOT=...\runs\design_campaign_20260704_012445 pytest tests\acceptance -q` returned `1 passed`.
+- S0 divergence: one live measured cell, `answer_total=4`, `parsed_rate=1.0`, `model_count=2`, `variant_count=2`, `all_answers_live=true`.
+- Full-world A-13 evidence: live anchor S2 and non-anchor S2 bundles exist; both include month-end close, customer utterances, agent-originated controlled actions, action-bound basis records, and ensemble artifacts.
+- Registry boundary: `confirmed_findings=0` and `audit_hypothesis_cards=0`; exploratory buckets remain exploratory until fresh confirmation runs reproduce them.
+- Readiness boundary: `readiness` still fails as expected because routine smoke, retrieval audit, leak lint, semantic grounding, backcasting, SME blind review, and holdout reports are missing. Harness acceptance is necessary but not sufficient for Stage 9.
+- Sanitized PR evidence: `docs/wp01_live_evidence/`.
+
+Model adherence finding: the default S0 pair using
+`openrouter:qwen/qwen3.6-flash` and `openrouter:qwen/qwen3.5-9b` was also
+executed at `runs/design_campaign_20260704_002346`; `qwen3.5-9b` returned empty
+S0 responses for both variants, so full-world A-06 failed with
+`multimodel_cell=false`. The accepted WP-01 run replaced that second model with
+`openrouter:qwen/qwen3.6-plus`, which parsed successfully for both variants.

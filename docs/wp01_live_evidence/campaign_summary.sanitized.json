@@ -1,0 +1,35 @@
+{
+  "campaign_root": "runs/design_campaign_20260704_012445",
+  "model": "openrouter:qwen/qwen3.6-flash",
+  "s0_models": [
+    "openrouter:qwen/qwen3.6-flash",
+    "openrouter:qwen/qwen3.6-plus"
+  ],
+  "model_bindings": {},
+  "scc_switch_tick": null,
+  "s0_matrix_rows_generated": 420,
+  "s0_rows_executed": 4,
+  "promoted_probe": "P-01",
+  "promotion_reason": {
+    "mode": "explicit",
+    "probe_id": "P-01"
+  },
+  "s1_k": 1,
+  "s1_roots": [
+    "runs/design_campaign_20260704_012445/s1_P-01_seed0"
+  ],
+  "with_s2": true,
+  "s2_k": 1,
+  "s2_roots": [
+    "runs/design_campaign_20260704_012445/s2_seed0"
+  ],
+  "anchor_run": "runs/design_campaign_20260704_012445/anchor_s2_seed0",
+  "prompt_mode": "scaffold",
+  "acceptance_passed": true,
+  "live_command": "python -m company_twin.cli campaign --with-s2 --s2-k 1 --s2-ticks 12 --s0-limit 4 --s1-k 1 --s1-probe P-01 --s0-variants 2 --s0-model openrouter:qwen/qwen3.6-flash --s0-model openrouter:qwen/qwen3.6-plus",
+  "env_overrides": {
+    "PYTHONPATH": "src",
+    "OPENROUTER_TIMEOUT_SECONDS": "90",
+    "OPENROUTER_MAX_COMPLETION_TOKENS": "800"
+  }
+}

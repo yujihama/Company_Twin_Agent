@@ -1,0 +1,160 @@
+{
+  "source": "runs/design_campaign_20260704_012445/ensemble_triage.json",
+  "note": "candidate-level triage only: delta=1 attribution and min-repro jobs are queued until execute_min_repro_jobs runs",
+  "group_count": 4,
+  "groups_by_stage": {
+    "S0": 1,
+    "S1": 1,
+    "S2": 2
+  },
+  "finding_type_group_presence": {
+    "grounding_gap": 4,
+    "version_gap": 4,
+    "hard_constraint_denial": 3,
+    "evidence_gap": 1,
+    "version_mix": 1,
+    "version_skew_reference": 1
+  },
+  "groups": [
+    {
+      "config": {
+        "anchor": false,
+        "knobs": {},
+        "probe": "P-01",
+        "stage": "S0"
+      },
+      "seeds": 4,
+      "controlled_actions_total": 0,
+      "finding_types": [
+        "grounding_gap",
+        "version_gap"
+      ],
+      "rule_hit_rates": {
+        "TRUTH-APPROVAL-CONCENTRATION": null,
+        "TRUTH-DEADLINE-OVERRUN": null,
+        "TRUTH-EVIDENCE-GAP": null,
+        "TRUTH-GROUNDING-GAP": null,
+        "TRUTH-SOD-PATTERN": null,
+        "TRUTH-VERSION-GAP": 1.0,
+        "TRUTH-VERSION-MIX": null
+      },
+      "detection_miss_rates": {
+        "grounding_gap": 1.0,
+        "version_gap": 1.0
+      }
+    },
+    {
+      "config": {
+        "anchor": false,
+        "knobs": {},
+        "probe": "P-01",
+        "stage": "S1"
+      },
+      "seeds": 1,
+      "controlled_actions_total": 4,
+      "finding_types": [
+        "grounding_gap",
+        "hard_constraint_denial",
+        "version_gap"
+      ],
+      "rule_hit_rates": {
+        "TRUTH-APPROVAL-CONCENTRATION": null,
+        "TRUTH-DEADLINE-OVERRUN": null,
+        "TRUTH-EVIDENCE-GAP": null,
+        "TRUTH-GROUNDING-GAP": 0.5,
+        "TRUTH-SOD-PATTERN": null,
+        "TRUTH-VERSION-GAP": 0.09090909090909091,
+        "TRUTH-VERSION-MIX": 0.0
+      },
+      "detection_miss_rates": {
+        "grounding_gap": 1.0,
+        "hard_constraint_denial": 1.0,
+        "version_gap": 1.0
+      }
+    },
+    {
+      "config": {
+        "anchor": false,
+        "knobs": {},
+        "probe": null,
+        "stage": "S2"
+      },
+      "seeds": 1,
+      "controlled_actions_total": 23,
+      "finding_types": [
+        "evidence_gap",
+        "grounding_gap",
+        "hard_constraint_denial",
+        "version_gap",
+        "version_mix",
+        "version_skew_reference"
+      ],
+      "rule_hit_rates": {
+        "TRUTH-APPROVAL-CONCENTRATION": null,
+        "TRUTH-DEADLINE-OVERRUN": null,
+        "TRUTH-EVIDENCE-GAP": 1.0,
+        "TRUTH-GROUNDING-GAP": 0.08695652173913043,
+        "TRUTH-SOD-PATTERN": null,
+        "TRUTH-VERSION-GAP": 0.05263157894736842,
+        "TRUTH-VERSION-MIX": 0.08695652173913043
+      },
+      "detection_miss_rates": {
+        "evidence_gap": 0.0,
+        "grounding_gap": 1.0,
+        "hard_constraint_denial": 1.0,
+        "version_gap": 1.0,
+        "version_mix": 1.0,
+        "version_skew_reference": 1.0
+      }
+    },
+    {
+      "config": {
+        "anchor": true,
+        "knobs": {},
+        "probe": null,
+        "stage": "S2"
+      },
+      "seeds": 1,
+      "controlled_actions_total": 21,
+      "finding_types": [
+        "grounding_gap",
+        "hard_constraint_denial",
+        "version_gap"
+      ],
+      "rule_hit_rates": {
+        "TRUTH-APPROVAL-CONCENTRATION": null,
+        "TRUTH-DEADLINE-OVERRUN": null,
+        "TRUTH-EVIDENCE-GAP": null,
+        "TRUTH-GROUNDING-GAP": 0.047619047619047616,
+        "TRUTH-SOD-PATTERN": null,
+        "TRUTH-VERSION-GAP": 0.02857142857142857,
+        "TRUTH-VERSION-MIX": 0.0
+      },
+      "detection_miss_rates": {
+        "grounding_gap": 1.0,
+        "hard_constraint_denial": 1.0,
+        "version_gap": 1.0
+      }
+    }
+  ],
+  "attribution_rows": 0,
+  "min_repro_jobs": 14,
+  "coverage_cell_counts": {
+    "C1_span_role_interpretation": 1,
+    "C1b_basis_docs": 35,
+    "C2_transition_edges": 83,
+    "C3_doc_contacts": 26,
+    "C4_signature_vocab": 21,
+    "C5_evidence_skeleton": 5
+  },
+  "finding_registry": {
+    "schema_version": "company_twin.finding_registry.v1",
+    "confirmed_findings": 0,
+    "exploratory_buckets": 14,
+    "audit_hypothesis_cards": 0,
+    "note": "Only fresh confirmation runs with status=reproduced may become confirmed findings or audit hypothesis cards. Evidence-collation manifests from exploration bundles are never sufficient."
+  },
+  "min_repro_status": {
+    "pending": 14
+  }
+}
