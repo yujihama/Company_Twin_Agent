@@ -63,7 +63,7 @@ def build_role_tools(*, corpus: Corpus, kernel: WorldKernel, recorder: RunRecord
             tool="read_document",
             args={"doc_id": doc_id, "query": query, "max_chars": max_chars},
             success=True,
-            result={"chars": len(result), "version": doc.meta.version, "citation_handle": citation_handle},
+            result={"chars": len(result), "version": doc.meta.version, "citation_handle": citation_handle, "text": result},
         )
         return json.dumps(
             {"doc_id": doc.meta.doc_id, "version": doc.meta.version, "citation_handle": citation_handle, "text": result},

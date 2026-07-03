@@ -67,8 +67,6 @@ class KernelProfile:
     name: str = "erp_standard"
     knobs: dict[str, bool] = field(default_factory=dict)
     valid_doc_ids: set[str] = field(default_factory=set)
-    valid_span_ids: set[str] = field(default_factory=set)
-    span_text_by_id: dict[str, str] = field(default_factory=dict)
     require_prior_read_for_basis: bool = False
     seat_roles: dict[str, str] = field(default_factory=dict)
     scc_switch_enabled: bool = False
@@ -333,20 +331,30 @@ class WorldKernel:
             if not isinstance(item, dict):
                 return False, "basis.retrieved items must be objects"
             doc_id = str(item.get("doc_id") or "")
-            span_id = str(item.get("span_id") or "")
+            citation_handle = str(item.get("citation_handle") or "")
+            if "span_id" in item:
+                return False, "basis span_id is not world-visible; use citation_handle from read_document"
+            if not doc_id:
+                return False, "basis retrieved item missing doc_id"
+            if not citation_handle:
+                return False, "basis retrieved item missing citation_handle from read_document"
             if self.profile.valid_doc_ids and doc_id not in self.profile.valid_doc_ids:
                 return False, f"unknown basis doc_id: {doc_id}"
-            if span_id and self.profile.valid_span_ids and span_id not in self.profile.valid_span_ids:
-                return False, f"unknown basis span_id: {span_id}"
-            if self.profile.require_prior_read_for_basis and doc_id and not self.recorder.has_read_doc(seat_id, doc_id):
-                return False, f"basis doc_id was not read before action: {doc_id}"
+            read = self.recorder.read_for_handle(seat_id, citation_handle)
+            if read is None:
+                return False, f"basis citation_handle was not read before action: {citation_handle}"
+            if str(read.get("doc_id") or "") != doc_id:
+                return False, f"basis citation_handle doc mismatch: {citation_handle}"
+            version = str(item.get("version") or "")
+            if version and str(read.get("version") or "") and str(read.get("version") or "") != version:
+                return False, f"basis citation_handle version mismatch: {citation_handle}"
         return True, ""
 
     def _record_action_basis(self, seat_id: str, action_id: str, trigger_event: str, basis: dict[str, Any], *, grounded: bool) -> str:
-        g1_span_exists = self._basis_g1_span_exists(basis)
-        g2_prior_read = self._basis_g2_prior_read(seat_id, basis) if self.profile.require_prior_read_for_basis else None
-        action_grounded = grounded and g1_span_exists and (g2_prior_read is not False)
-        g3_machine_heuristic = self._basis_entailment_label(basis)
+        g1_citation_handle_exists = self._basis_g1_citation_handle_exists(seat_id, basis)
+        g2_prior_read = self._basis_g2_prior_read(seat_id, basis)
+        action_grounded = grounded and g1_citation_handle_exists and g2_prior_read
+        g3_machine_heuristic = self._basis_entailment_label(seat_id, basis)
         record = BasisRecord(
             basis_id=self.recorder.next_basis_id(),
             ts=utc_now(),
@@ -363,34 +371,48 @@ class WorldKernel:
             felt_constraints=str(basis.get("felt_constraints") or ""),
             confidence=float(basis.get("confidence", 0.5)),
             grounded=action_grounded,
-            g1_span_exists=g1_span_exists,
+            # Backward-compatible alias: historical run bundles used this
+            # field for seeded span registry coordinates. New world runs set it
+            # from the opaque citation handle check instead.
+            g1_span_exists=g1_citation_handle_exists,
+            g1_citation_handle_exists=g1_citation_handle_exists,
             g2_prior_read=g2_prior_read,
             g3_entailment=g3_machine_heuristic,
             g3_machine_heuristic=g3_machine_heuristic,
         )
         return self.recorder.record_basis(seat_id, record)
 
-    def _basis_g1_span_exists(self, basis: dict[str, Any]) -> bool:
-        span_ids = [str((item or {}).get("span_id") or "") for item in basis.get("retrieved") or []]
-        span_ids = [span_id for span_id in span_ids if span_id]
-        return bool(span_ids) and all((not self.profile.valid_span_ids) or span_id in self.profile.valid_span_ids for span_id in span_ids)
+    def _basis_g1_citation_handle_exists(self, seat_id: str, basis: dict[str, Any]) -> bool:
+        handles = [str((item or {}).get("citation_handle") or "") for item in basis.get("retrieved") or []]
+        handles = [handle for handle in handles if handle]
+        return bool(handles) and all(self.recorder.has_citation_handle(seat_id, handle) for handle in handles)
 
     def _basis_g2_prior_read(self, seat_id: str, basis: dict[str, Any]) -> bool:
-        doc_ids = [str((item or {}).get("doc_id") or "") for item in basis.get("retrieved") or [] if (item or {}).get("doc_id")]
-        return bool(doc_ids) and all(self.recorder.has_read_doc(seat_id, doc_id) for doc_id in doc_ids)
+        for item in basis.get("retrieved") or []:
+            handle = str((item or {}).get("citation_handle") or "")
+            doc_id = str((item or {}).get("doc_id") or "")
+            if not handle or not doc_id:
+                return False
+            read = self.recorder.read_for_handle(seat_id, handle)
+            if read is None or str(read.get("doc_id") or "") != doc_id:
+                return False
+        return bool(basis.get("retrieved"))
 
-    def _basis_entailment_label(self, basis: dict[str, Any]) -> str:
+    def _basis_entailment_label(self, seat_id: str, basis: dict[str, Any]) -> str:
         """Lightweight deterministic g3 machine heuristic.
 
         This is intentionally conservative: it marks a basis supported only
-        when its construal/decision shares enough content words with the cited
-        span registry text. It is not the Stage 9 semantic entailment oracle.
+        when its construal/decision shares enough content words with the text
+        returned by the same seat's prior read_document call. It is not the
+        Stage 9 semantic entailment oracle.
         """
         cited_texts: list[str] = []
         for item in basis.get("retrieved") or []:
-            span_id = str((item or {}).get("span_id") or "")
-            if span_id and span_id in self.profile.span_text_by_id:
-                cited_texts.append(self.profile.span_text_by_id[span_id])
+            citation_handle = str((item or {}).get("citation_handle") or "")
+            read = self.recorder.read_for_handle(seat_id, citation_handle) if citation_handle else None
+            text = str((read or {}).get("text") or "")
+            if text:
+                cited_texts.append(text)
         if not cited_texts:
             return "not_evaluated"
         basis_text = f"{basis.get('construal') or ''} {basis.get('decision') or ''} {basis.get('evidence_plan') or ''}"
@@ -454,8 +476,16 @@ class WorldKernel:
 
 
 def _terms_for_entailment(text: str) -> list[str]:
-    tokens = re.findall(r"[A-Za-z0-9_-]+|[\u3040-\u30ff\u3400-\u9fff]{2,}", text or "")
-    return [token.lower() for token in tokens if len(token) >= 2]
+    terms: list[str] = []
+    for token in re.findall(r"[A-Za-z0-9_-]+|[\u3040-\u30ff\u3400-\u9fff]{2,}", text or ""):
+        token = token.lower()
+        if not re.search(r"[\u3040-\u30ff\u3400-\u9fff]", token):
+            if len(token) >= 2:
+                terms.append(token)
+            continue
+        terms.append(token)
+        terms.extend(token[idx : idx + 2] for idx in range(0, max(len(token) - 1, 0)))
+    return [term for term in terms if len(term) >= 2]
 
 
 def parse_json_arg(value: str | dict[str, Any] | None) -> dict[str, Any]:

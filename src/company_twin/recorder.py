@@ -52,6 +52,7 @@ class BasisRecord:
     confidence: float | None = None
     grounded: bool | None = None
     g1_span_exists: bool | None = None
+    g1_citation_handle_exists: bool | None = None
     g2_prior_read: bool | None = None
     g3_entailment: str = "not_evaluated"
     g3_machine_heuristic: str = "not_evaluated"
@@ -65,6 +66,7 @@ class RunRecorder:
         self._prev_hash = ""
         self._basis_counter = 0
         self._read_docs: dict[str, set[str]] = {}
+        self._read_handles: dict[str, dict[str, dict[str, Any]]] = {}
         self._origin = "system"
         self._tick_budgets: dict[str, int] = {}
         self._private_store: dict[str, list[dict[str, Any]]] = {}
@@ -144,6 +146,15 @@ class RunRecorder:
             doc_id = str((args or {}).get("doc_id") or "")
             if doc_id:
                 self._read_docs.setdefault(seat_id, set()).add(doc_id)
+            result_dict = result if isinstance(result, dict) else {}
+            citation_handle = str(result_dict.get("citation_handle") or "")
+            if citation_handle:
+                self._read_handles.setdefault(seat_id, {})[citation_handle] = {
+                    "doc_id": doc_id,
+                    "version": str(result_dict.get("version") or ""),
+                    "text": str(result_dict.get("text") or result_dict.get("snippet") or ""),
+                    "tick": self.tick,
+                }
         return record
 
     def next_basis_id(self) -> str:
@@ -152,6 +163,12 @@ class RunRecorder:
 
     def has_read_doc(self, seat_id: str, doc_id: str) -> bool:
         return doc_id in self._read_docs.get(seat_id, set())
+
+    def has_citation_handle(self, seat_id: str, citation_handle: str) -> bool:
+        return citation_handle in self._read_handles.get(seat_id, {})
+
+    def read_for_handle(self, seat_id: str, citation_handle: str) -> dict[str, Any] | None:
+        return self._read_handles.get(seat_id, {}).get(citation_handle)
 
     def record_basis(self, seat_id: str, basis: BasisRecord) -> str:
         self.append_jsonl("basis_records.jsonl", asdict(basis))

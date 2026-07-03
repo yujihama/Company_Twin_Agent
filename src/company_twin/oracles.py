@@ -42,6 +42,7 @@ def run_l0_triage(run_root: Path) -> list[Finding]:
                 findings.append(_finding("evidence_gap", row.get("seat_id", ""), "submit_application", "application", "missing " + ",".join(missing)))
 
     read_by_seat_tick = _read_docs_by_seat_tick(attempts)
+    read_handles_by_seat_tick = _read_handles_by_seat_tick(attempts)
     for row in basis:
         retrieved = row.get("retrieved") or []
         if not retrieved:
@@ -49,6 +50,13 @@ def run_l0_triage(run_root: Path) -> list[Finding]:
             continue
         for item in retrieved:
             doc_id = str(item.get("doc_id") or "")
+            citation_handle = str(item.get("citation_handle") or "")
+            if "span_id" in item:
+                findings.append(_finding("world_basis_leak", row.get("seat_id", ""), doc_id, "basis", "basis includes seeded span_id instead of citation_handle"))
+            if not citation_handle:
+                findings.append(_finding("grounding_gap", row.get("seat_id", ""), doc_id, "basis", "basis missing citation_handle"))
+            elif not _handle_read_before(read_handles_by_seat_tick, str(row.get("seat_id") or ""), citation_handle, int(row.get("tick") or 0)):
+                findings.append(_finding("grounding_gap", row.get("seat_id", ""), citation_handle, "basis", "basis citation_handle was not read before action"))
             if doc_id and not _read_before(read_by_seat_tick, str(row.get("seat_id") or ""), doc_id, int(row.get("tick") or 0)):
                 findings.append(_finding("grounding_gap", row.get("seat_id", ""), doc_id, "basis", "basis doc was not read before action"))
             if not item.get("version"):
@@ -288,13 +296,13 @@ def _metrics(run_root: Path, findings: list[Finding]) -> dict[str, Any]:
     action_bound_basis = [row for row in agent_basis if row.get("action_id")]
     standalone_basis = [row for row in agent_basis if not row.get("action_id")]
     grounded = [row for row in action_bound_basis if row.get("grounded")]
-    g1 = [row for row in action_bound_basis if row.get("g1_span_exists") is True]
+    g1 = [row for row in action_bound_basis if _g1_citation_value(row) is True]
     g2 = [row for row in action_bound_basis if row.get("g2_prior_read") is True]
     g3_machine = [row for row in action_bound_basis if (row.get("g3_machine_heuristic") or row.get("g3_entailment")) == "supported"]
     all3 = [
         row
         for row in action_bound_basis
-        if row.get("g1_span_exists") is True and row.get("g2_prior_read") is True and (row.get("g3_machine_heuristic") or row.get("g3_entailment")) == "supported"
+        if _g1_citation_value(row) is True and row.get("g2_prior_read") is True and (row.get("g3_machine_heuristic") or row.get("g3_entailment")) == "supported"
     ]
     store_reads = [row for row in store_events if row.get("op") == "read" and row.get("origin") == "agent"]
     store_writes = [row for row in store_events if row.get("op") == "write" and row.get("origin") == "agent"]
@@ -319,7 +327,9 @@ def _metrics(run_root: Path, findings: list[Finding]) -> dict[str, Any]:
         "basis_action_bound": len(action_bound_basis),
         "basis_standalone": len(standalone_basis),
         "grounding_coverage_machine": (len(grounded) / len(controlled)) if controlled else 0.0,
+        "grounding_g1_citation_handle_exists_rate": (len(g1) / len(action_bound_basis)) if action_bound_basis else 0.0,
         "grounding_g1_rate": (len(g1) / len(action_bound_basis)) if action_bound_basis else 0.0,
+        "grounding_g2_prior_read_rate": (len(g2) / len(action_bound_basis)) if action_bound_basis else 0.0,
         "grounding_g2_rate": (len(g2) / len(action_bound_basis)) if action_bound_basis else 0.0,
         "grounding_g3_rate": (len(g3_machine) / len(action_bound_basis)) if action_bound_basis else 0.0,
         "grounding_g3_machine_heuristic_rate": (len(g3_machine) / len(action_bound_basis)) if action_bound_basis else 0.0,
@@ -346,8 +356,36 @@ def _read_docs_by_seat_tick(attempts: list[dict[str, Any]]) -> dict[tuple[str, s
     return reads
 
 
+def _read_handles_by_seat_tick(attempts: list[dict[str, Any]]) -> dict[tuple[str, str], int]:
+    reads: dict[tuple[str, str], int] = {}
+    for row in attempts:
+        if row.get("tool") != "read_document" or not row.get("success"):
+            continue
+        result = row.get("result") if isinstance(row.get("result"), dict) else {}
+        citation_handle = str((result or {}).get("citation_handle") or "")
+        if not citation_handle:
+            continue
+        key = (str(row.get("seat_id") or ""), citation_handle)
+        reads[key] = min(int(row.get("tick") or 0), reads.get(key, 999999))
+    return reads
+
+
 def _read_before(reads: dict[tuple[str, str], int], seat_id: str, doc_id: str, tick: int) -> bool:
     return reads.get((seat_id, doc_id), 999999) <= tick
+
+
+def _handle_read_before(reads: dict[tuple[str, str], int], seat_id: str, citation_handle: str, tick: int) -> bool:
+    return reads.get((seat_id, citation_handle), 999999) <= tick
+
+
+def _g1_citation_value(row: dict[str, Any]) -> bool | None:
+    value = row.get("g1_citation_handle_exists")
+    if value is not None:
+        return bool(value)
+    legacy = row.get("g1_span_exists")
+    if legacy is not None:
+        return bool(legacy)
+    return None
 
 
 def _deadline_findings(ledger: list[dict[str, Any]]) -> list[Finding]:

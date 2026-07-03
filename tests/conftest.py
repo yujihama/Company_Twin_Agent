@@ -29,9 +29,10 @@ class FakeSeatAgent:
         self.tools = {tool.__name__: tool for tool in tools}
 
     def _basis(self, doc_id: str, decision: str) -> str:
+        version = "1.0" if doc_id.endswith("@v1.0") else "1.1"
         return json.dumps(
             {
-                "retrieved": [{"doc_id": doc_id, "version": "1.1", "span_id": ""}],
+                "retrieved": [{"doc_id": doc_id, "version": version, "citation_handle": f"read:{doc_id}:v{version}"}],
                 "construal": f"unit-fake read {doc_id}",
                 "decision": decision,
                 "evidence_plan": "keep workflow artifacts",

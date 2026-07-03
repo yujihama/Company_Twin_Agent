@@ -396,8 +396,6 @@ def kernel_profile(design: DesignInputs, knobs: dict[str, bool] | None = None, *
     return KernelProfile(
         knobs=dict(knobs or {}),
         valid_doc_ids=set(design.documents) | {f"{doc_id}@v1.0" for doc_id in ("DFH-SAL-021", "DFH-SAL-045")},
-        valid_span_ids=set(design.spans),
-        span_text_by_id={span_id: span.raw for span_id, span in design.spans.items()},
         require_prior_read_for_basis=True,
         seat_roles={seat_id: seat.role for seat_id, seat in design.seats.items()},
         scc_switch_enabled=scc_switch_enabled,
