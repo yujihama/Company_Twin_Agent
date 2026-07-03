@@ -11,7 +11,7 @@ from .kernel import FORBIDDEN_INBOX_KEYS, INBOX_ALLOWED_KEYS
 from .recorder import ALLOWED_ORIGINS, read_jsonl
 
 # ---------------------------------------------------------------------------
-# Unfakeable harness-safety gates (fix instruction WI-0, checks A-01..A-13).
+# Unfakeable harness-safety gates (fix instruction WI-0, checks A-01..A-14).
 # These gates certify that run evidence was produced by the live world harness.
 # They are intentionally NOT the Stage 9 experiment-readiness gate; semantic
 # grounding, holdout/backcasting, SME review, and confirmation runs belong to a
@@ -313,6 +313,68 @@ def a13_full_world_evidence(campaign_root: Path) -> GateResult:
     return GateResult("A-13 full_world_evidence", not problems, "; ".join(problems[:8]))
 
 
+def a14_confirmed_requires_fresh_reproduction(campaign_root: Path) -> GateResult:
+    registry_path = campaign_root / "finding_registry.json"
+    if not registry_path.exists():
+        return GateResult("A-14 confirmed_requires_fresh_reproduction", True, "finding_registry.json missing: no confirmed findings claimed")
+    registry = json.loads(registry_path.read_text(encoding="utf-8"))
+    confirmed = registry.get("confirmed_findings") or []
+    if not confirmed:
+        return GateResult("A-14 confirmed_requires_fresh_reproduction", True, "no confirmed findings claimed")
+    exploration_seeds: dict[str, set[int]] = {}
+    for path in sorted(campaign_root.iterdir()):
+        if not path.is_dir() or not (path / "meta.json").exists():
+            continue
+        meta = json.loads((path / "meta.json").read_text(encoding="utf-8"))
+        config_key = _config_key_from_meta(meta)
+        seed = meta.get("seed")
+        if seed is not None:
+            exploration_seeds.setdefault(config_key, set()).add(int(seed))
+    problems: list[str] = []
+    for finding in confirmed:
+        job_id = str(finding.get("job_id") or "")
+        if finding.get("status") != "reproduced":
+            problems.append(f"{job_id}: confirmed status is not reproduced")
+            continue
+        manifest_rel = str(finding.get("confirmation_path") or "")
+        manifest_path = campaign_root / manifest_rel
+        if not manifest_rel or not manifest_path.exists():
+            problems.append(f"{job_id}: confirmation manifest missing")
+            continue
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        if manifest.get("status") != "reproduced":
+            problems.append(f"{job_id}: manifest status is not reproduced")
+        source_bundles = manifest.get("source_bundles") or []
+        if not source_bundles:
+            problems.append(f"{job_id}: reproduced source bundles missing")
+            continue
+        config_key = _config_key_from_meta(finding.get("config") or {})
+        used_seeds: set[int] = set()
+        for bundle in source_bundles:
+            rel = str(bundle.get("run_root") or "")
+            if not rel.startswith(f"min_repro/{job_id}/runs/"):
+                problems.append(f"{job_id}: source bundle is not under min_repro/{job_id}/runs: {rel}")
+                continue
+            run_root = campaign_root / rel
+            if not run_root.exists():
+                problems.append(f"{job_id}: source bundle missing: {rel}")
+                continue
+            meta = json.loads((run_root / "meta.json").read_text(encoding="utf-8")) if (run_root / "meta.json").exists() else {}
+            if meta.get("seed") is not None:
+                used_seeds.add(int(meta["seed"]))
+            for gate in (a01_no_scripted_origin(run_root), a02_live_required(run_root)):
+                if not gate.passed:
+                    problems.append(f"{job_id}/{run_root.name}: {gate.gate}: {gate.detail}")
+        overlap = used_seeds & exploration_seeds.get(config_key, set())
+        if overlap:
+            problems.append(f"{job_id}: confirmation seeds overlap exploration seeds: {sorted(overlap)}")
+    return GateResult("A-14 confirmed_requires_fresh_reproduction", not problems, "; ".join(problems[:8]))
+
+
+def _config_key_from_meta(meta: dict[str, Any]) -> str:
+    return json.dumps({"stage": meta.get("stage"), "probe": meta.get("probe"), "knobs": meta.get("knobs") or {}, "anchor": meta.get("anchor", False)}, sort_keys=True, ensure_ascii=False)
+
+
 def check_bundle(run_root: Path, seat_roles: dict[str, str] | None = None) -> BundleReport:
     report = BundleReport(run_root=run_root)
     report.results.append(a01_no_scripted_origin(run_root))
@@ -367,7 +429,7 @@ def run_acceptance(*, campaign_root: Path, design: DesignInputs, corpus: Corpus,
     for path in sorted(campaign_root.iterdir()):
         if path.is_dir() and (path / "meta.json").exists():
             bundle_reports.append(check_bundle(path, seat_roles))
-    gates: list[GateResult] = [a06_s0_divergence_measured(campaign_root, require_multimodel=scope == "full_world"), a07_stale_content_differs(design, corpus), a09_anchor_is_live(campaign_root, scope=scope)]
+    gates: list[GateResult] = [a06_s0_divergence_measured(campaign_root, require_multimodel=scope == "full_world"), a07_stale_content_differs(design, corpus), a09_anchor_is_live(campaign_root, scope=scope), a14_confirmed_requires_fresh_reproduction(campaign_root)]
     if scope == "full_world":
         gates.append(a13_full_world_evidence(campaign_root))
     payload = {

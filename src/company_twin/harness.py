@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import inspect
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal
@@ -171,6 +172,8 @@ def run_s1_episode(
     customer_llm: CustomerLLM | None = None,
     d4_enabled: bool = True,
     prompt_mode: TurnPromptMode = "scaffold",
+    model_bindings: dict[str, str] | None = None,
+    scc_switch_tick: int | None = None,
 ) -> dict[str, Any]:
     event = _retime_event(event_for_probe(design, probe_id), trigger_tick=1, deadline_tick=ticks)
     return _run_world(
@@ -189,6 +192,8 @@ def run_s1_episode(
         customer_llm=customer_llm,
         d4_enabled=d4_enabled,
         prompt_mode=prompt_mode,
+        model_bindings=model_bindings,
+        scc_switch_tick=scc_switch_tick,
     )
 
 
@@ -207,6 +212,8 @@ def run_s2_world(
     deck: list[CustomerEvent] | None = None,
     d4_enabled: bool = True,
     prompt_mode: TurnPromptMode = "scaffold",
+    model_bindings: dict[str, str] | None = None,
+    scc_switch_tick: int | None = None,
 ) -> dict[str, Any]:
     events = deck if deck is not None else build_customer_deck(design, include_routine=True)
     return _run_world(
@@ -225,6 +232,8 @@ def run_s2_world(
         customer_llm=customer_llm,
         d4_enabled=d4_enabled,
         prompt_mode=prompt_mode,
+        model_bindings=model_bindings,
+        scc_switch_tick=scc_switch_tick,
     )
 
 
@@ -245,17 +254,32 @@ def _run_world(
     customer_llm: CustomerLLM | None,
     d4_enabled: bool = True,
     prompt_mode: TurnPromptMode = "scaffold",
+    model_bindings: dict[str, str] | None = None,
+    scc_switch_tick: int | None = None,
 ) -> dict[str, Any]:
     model_name = normalize_openrouter_model(model)
-    factory = seat_factory or default_seat_factory(root=design.root, model=model_name)
     if prompt_mode not in {"scaffold", "measurement"}:
         raise ValueError(f"unknown prompt_mode: {prompt_mode}")
     recorder = RunRecorder(run_root, run_id=run_root.name, meta={"stage": stage, "probe": probe_id, "model": model_name, "knobs": knobs, "seed": seed, "anchor": anchor, "prompt_mode": prompt_mode})
-    config = build_world_config(design, stage=stage, model=model_name, seed=seed, ticks=ticks, anchor=anchor, knobs=knobs, probe_id=probe_id, d4_enabled=d4_enabled)
+    config = build_world_config(
+        design,
+        stage=stage,
+        model=model_name,
+        seed=seed,
+        ticks=ticks,
+        anchor=anchor,
+        knobs=knobs,
+        probe_id=probe_id,
+        d4_enabled=d4_enabled,
+        model_bindings=model_bindings,
+        scc_switch_tick=scc_switch_tick,
+    )
     write_config_snapshot(run_root, config)
     budgets = config["world"]["population"]["tick_budget"]
     recorder.configure_tick_budgets(budgets)
-    kernel = WorldKernel(recorder, kernel_profile(design, knobs=knobs, scc_switch_enabled=not anchor))
+    schedule = config["world"]["schedule"]
+    bindings = config["world"]["population"]["binding"]
+    kernel = WorldKernel(recorder, kernel_profile(design, knobs=knobs, schedule=schedule, scc_switch_enabled=not anchor))
     customer = customer_llm or default_customer_llm(model=model_name, recorder=recorder)
     absence: dict[str, list[int]] = config["world"]["population"].get("absence", {})
 
@@ -266,7 +290,9 @@ def _run_world(
             seat = design.seats[seat_id]
             tools = build_role_tools(corpus=corpus, kernel=kernel, recorder=recorder, seat_id=seat_id, seat_role=seat.role, include_workflow=True, d4_enabled=d4_enabled)
             budget = int(budgets.get(seat_id, 12))
-            seats_cache[seat_id] = factory(seat_id=seat_id, role=seat.role, tools=tools, recorder=recorder, recursion_limit=recursion_for_budget(budget))
+            bound_model = normalize_openrouter_model(bindings.get(seat_id) or model_name)
+            factory = seat_factory or default_seat_factory(root=design.root, model=bound_model)
+            seats_cache[seat_id] = _instantiate_seat(factory, seat_id=seat_id, role=seat.role, tools=tools, recorder=recorder, recursion_limit=recursion_for_budget(budget), model=bound_model)
         return seats_cache[seat_id]
 
     events_by_tick: dict[int, list[CustomerEvent]] = {}
@@ -410,13 +436,34 @@ def _retime_event(event: CustomerEvent, *, trigger_tick: int, deadline_tick: int
     return CustomerEvent(**{**event.to_dict(), "trigger_tick": trigger_tick, "deadline_tick": deadline_tick})
 
 
-def kernel_profile(design: DesignInputs, knobs: dict[str, bool] | None = None, *, scc_switch_enabled: bool = True) -> KernelProfile:
+def _instantiate_seat(factory: SeatFactory, *, seat_id: str, role: str, tools: list[Any], recorder: RunRecorder, recursion_limit: int, model: str):
+    kwargs = {"seat_id": seat_id, "role": role, "tools": tools, "recorder": recorder, "recursion_limit": recursion_limit}
+    try:
+        signature = inspect.signature(factory)
+    except (TypeError, ValueError):
+        accepts_model = False
+    else:
+        accepts_model = "model" in signature.parameters or any(param.kind == inspect.Parameter.VAR_KEYWORD for param in signature.parameters.values())
+    if accepts_model:
+        kwargs["model"] = model
+    return factory(**kwargs)
+
+
+def kernel_profile(design: DesignInputs, knobs: dict[str, bool] | None = None, *, schedule: dict[str, Any] | None = None, scc_switch_enabled: bool = True) -> KernelProfile:
+    schedule = schedule or {}
     return KernelProfile(
         knobs=dict(knobs or {}),
         valid_doc_ids=set(design.documents) | {f"{doc_id}@v1.0" for doc_id in ("DFH-SAL-021", "DFH-SAL-045")},
         require_prior_read_for_basis=True,
         seat_roles={seat_id: seat.role for seat_id, seat in design.seats.items()},
         scc_switch_enabled=scc_switch_enabled,
+        campaign_deadline_tick=int(schedule.get("campaign_deadline_tick") or 20),
+        manager_absence_ticks=tuple(int(tick) for tick in (schedule.get("manager_absence_ticks") or [23, 24])),
+        scc_switch_tick=schedule.get("scc_switch_tick"),
+        month_end_tick=int(schedule.get("month_end_tick") or 40),
+        timed_notice_recipients=tuple(str(seat_id) for seat_id in (schedule.get("timed_notice_recipients") or [])),
+        approval_due_ticks=int(schedule.get("approval_due_ticks") or 2),
+        approval_notice_recipients=tuple(str(seat_id) for seat_id in (schedule.get("approval_notice_recipients") or [])),
         seat_qualifications={
             "emp-A": {"投資", "ロボアド"},
             "emp-B": {"保険"},

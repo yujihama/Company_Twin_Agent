@@ -1,6 +1,5 @@
 """Tests for the second-review fixes (role bundles, span-specific S0, D4 read,
 interactive customer, config/prompt consistency, stale visibility, scoped acceptance)."""
-import hashlib
 import json
 from dataclasses import replace
 from pathlib import Path
@@ -11,7 +10,7 @@ from company_twin.acceptance import a05_grounding_population, a09_anchor_is_live
 from company_twin.agents import load_role_card
 from company_twin.campaign import _world_prompt_leak_failures, static_world_surface_lint
 from company_twin.corpus import Corpus
-from company_twin.design_loader import load_design
+from company_twin.design_loader import load_design, stable_text_sha256
 from company_twin.harness import _s0_prompt, _turn_prompt, run_s1_episode
 from company_twin.kernel import WorldKernel, KernelProfile
 from company_twin.recorder import RunRecorder, read_jsonl
@@ -263,7 +262,7 @@ def test_world_config_role_card_hash_matches_prompt_source() -> None:
         if not seat["role_card_path"]:
             assert card_text == ""
             continue
-        actual = hashlib.sha256((design.root / seat["role_card_path"]).read_bytes()).hexdigest()
+        actual = stable_text_sha256(design.root / seat["role_card_path"])
         assert seat["role_card_sha256"] == actual
         assert (design.root / seat["role_card_path"]).read_text(encoding="utf-8") == card_text
     assert seats["emp-A"]["tools"] == list(ROLE_TOOL_BUNDLES["sales"]) + ["note_to_self", "recall_notes"]

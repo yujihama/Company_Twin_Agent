@@ -13,7 +13,7 @@ from .corpus import Corpus
 from .design_loader import load_design
 from .env import load_local_env, normalize_openrouter_model
 from .harness import make_run_root, run_s0, run_s1_episode, run_s2_world
-from .oracles import write_triage
+from .oracles import execute_min_repro_jobs, write_triage
 from .readiness import run_readiness_gate, write_readiness_reports
 
 app = typer.Typer(no_args_is_help=True)
@@ -33,6 +33,20 @@ def _require_live(base: Path) -> None:
     ready, detail = openrouter_ready(base)
     if not ready:
         raise typer.BadParameter(f"live execution is required for all runs; {detail}")
+
+
+def _seat_model_bindings(values: list[str] | None) -> dict[str, str]:
+    bindings: dict[str, str] = {}
+    for value in values or []:
+        if "=" not in value:
+            raise typer.BadParameter(f"--seat-model must be seat_id=model, got {value!r}")
+        seat_id, model = value.split("=", 1)
+        seat_id = seat_id.strip()
+        model = model.strip()
+        if not seat_id or not model:
+            raise typer.BadParameter(f"--seat-model must be seat_id=model, got {value!r}")
+        bindings[seat_id] = normalize_openrouter_model(model)
+    return bindings
 
 
 @app.command("inspect")
@@ -97,6 +111,8 @@ def s1(
     run_root: Annotated[Path | None, typer.Option("--run-root")] = None,
     model: Annotated[str | None, typer.Option("--model")] = None,
     prompt_mode: Annotated[str, typer.Option("--prompt-mode", help="scaffold | measurement")] = "scaffold",
+    seat_model: Annotated[list[str] | None, typer.Option("--seat-model", help="Per-seat model binding, e.g. emp-A=openrouter:qwen/qwen3.6-flash")] = None,
+    scc_switch_tick: Annotated[int | None, typer.Option("--scc-switch-tick", help="Tick at which K-completion-gate becomes active")] = None,
 ) -> None:
     """Run one live S1 multi-seat episode."""
     base = _root(root)
@@ -105,7 +121,7 @@ def s1(
     corpus = Corpus.from_design(design)
     knobs = {"K-completion-gate": strict_completion, "K-material-picker": strict_material}
     target_root = (run_root or make_run_root(base, f"s1_{probe}")).resolve()
-    result = run_s1_episode(design=design, corpus=corpus, probe_id=probe, run_root=target_root, model=model, knobs=knobs, seed=seed, ticks=ticks, prompt_mode=prompt_mode)  # type: ignore[arg-type]
+    result = run_s1_episode(design=design, corpus=corpus, probe_id=probe, run_root=target_root, model=model, knobs=knobs, seed=seed, ticks=ticks, prompt_mode=prompt_mode, model_bindings=_seat_model_bindings(seat_model), scc_switch_tick=scc_switch_tick)  # type: ignore[arg-type]
     write_triage(target_root)
     _echo_json(result)
 
@@ -119,6 +135,8 @@ def s2(
     run_root: Annotated[Path | None, typer.Option("--run-root")] = None,
     model: Annotated[str | None, typer.Option("--model")] = None,
     prompt_mode: Annotated[str, typer.Option("--prompt-mode", help="scaffold | measurement")] = "scaffold",
+    seat_model: Annotated[list[str] | None, typer.Option("--seat-model", help="Per-seat model binding, e.g. emp-A=openrouter:qwen/qwen3.6-flash")] = None,
+    scc_switch_tick: Annotated[int | None, typer.Option("--scc-switch-tick", help="Tick at which K-completion-gate becomes active")] = None,
 ) -> None:
     """Run one live S2 world (full deck)."""
     base = _root(root)
@@ -126,7 +144,7 @@ def s2(
     design = load_design(base)
     corpus = Corpus.from_design(design)
     target_root = (run_root or make_run_root(base, "anchor_s2" if anchor else "s2")).resolve()
-    result = run_s2_world(design=design, corpus=corpus, run_root=target_root, model=model, knobs={}, seed=seed, ticks=ticks, anchor=anchor, prompt_mode=prompt_mode)  # type: ignore[arg-type]
+    result = run_s2_world(design=design, corpus=corpus, run_root=target_root, model=model, knobs={}, seed=seed, ticks=ticks, anchor=anchor, prompt_mode=prompt_mode, model_bindings=_seat_model_bindings(seat_model), scc_switch_tick=scc_switch_tick)  # type: ignore[arg-type]
     write_triage(target_root)
     _echo_json(result)
 
@@ -144,6 +162,8 @@ def campaign(
     root: Annotated[Path | None, typer.Option("--root")] = None,
     model: Annotated[str | None, typer.Option("--model")] = None,
     prompt_mode: Annotated[str, typer.Option("--prompt-mode", help="scaffold | measurement")] = "scaffold",
+    seat_model: Annotated[list[str] | None, typer.Option("--seat-model", help="Per-seat model binding, e.g. emp-A=openrouter:qwen/qwen3.6-flash")] = None,
+    scc_switch_tick: Annotated[int | None, typer.Option("--scc-switch-tick", help="Tick at which K-completion-gate becomes active")] = None,
 ) -> None:
     """Run a live campaign: S0 battery -> S1 ensemble -> optional S2 + anchor -> acceptance."""
     base = _root(root)
@@ -164,6 +184,8 @@ def campaign(
         s2_k=s2_k,
         s2_ticks=s2_ticks,
         prompt_mode=prompt_mode,  # type: ignore[arg-type]
+        model_bindings=_seat_model_bindings(seat_model),
+        scc_switch_tick=scc_switch_tick,
     )
     _echo_json(payload)
 
@@ -175,13 +197,24 @@ def triage(run_root: Annotated[Path, typer.Argument()]) -> None:
     _echo_json(payload)
 
 
+@app.command("min-repro")
+def min_repro(
+    campaign_root: Annotated[Path, typer.Option("--campaign-root")],
+    min_rate: Annotated[float, typer.Option("--min-rate", help="Pre-registered reproduction threshold for the later live confirmation plan")] = 0.5,
+    min_seeds: Annotated[int, typer.Option("--min-seeds", help="Minimum fresh confirmation bundles required by the later live confirmation plan")] = 3,
+) -> None:
+    """Collate queued min-repro evidence without promoting confirmed findings."""
+    payload = execute_min_repro_jobs(campaign_root.resolve(), min_rate=min_rate, min_seeds=min_seeds)
+    _echo_json(payload)
+
+
 @app.command("acceptance")
 def acceptance(
     campaign_root: Annotated[Path, typer.Option("--campaign-root")],
     scope: Annotated[str, typer.Option("--scope", help="auto | s0_s1 | full_world")] = "auto",
     root: Annotated[Path | None, typer.Option("--root")] = None,
 ) -> None:
-    """Run harness-safety acceptance gates (A-01..A-13), not Stage 9 readiness."""
+    """Run harness-safety acceptance gates (A-01..A-14), not Stage 9 readiness."""
     base = _root(root)
     design = load_design(base)
     corpus = Corpus.from_design(design)

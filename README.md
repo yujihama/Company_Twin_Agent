@@ -13,6 +13,12 @@ readiness gate passes.
 - S1: live multi-seat episode entry.
 - S2: live entry point and acceptance gates exist, but full-world evidence must
   be produced separately with `--with-s2`.
+- Experiment controls: S0 campaigns default to multiple cold-read models, S1/S2
+  can bind models per seat, and SCC completion-gate switch timing is
+  config-driven.
+- Observability: ensemble triage writes candidate attribution, min-repro queues,
+  min-repro evidence-collation manifests, rule hit rates, detection-miss rates,
+  and a deterministic behavior coverage map.
 - Acceptance: harness-safety gates only.
 - Readiness: Stage 9 gate exists and intentionally fails until the required
   evidence reports are generated and pass.
@@ -22,8 +28,9 @@ readiness gate passes.
 - No attached live full-world S2 + anchor artifact is claimed by this branch.
 - `grounding_g3_machine_heuristic_rate` is lexical/machine grounding, not the
   Stage 9 semantic entailment oracle.
-- Candidate attribution and min-repro queues are generated, but confirmed
-  findings require reproduction evidence.
+- Candidate attribution and default `min-repro` output remain exploratory.
+  Confirmed findings require fresh live confirmation bundles with
+  `status=reproduced`; same-campaign evidence collation is not enough.
 - Stage 9 backcasting, SME blind review, and holdout reports are required before
   experiment-level conclusions.
 
@@ -34,6 +41,7 @@ python -m compileall -q src tests
 pytest -q
 python -m company_twin.cli inspect
 python -m company_twin.cli lint
+python -m company_twin.cli min-repro --campaign-root runs\design_campaign_YYYYMMDD_HHMMSS
 ```
 
 The default live model is loaded from local environment settings and should
@@ -49,6 +57,7 @@ For a full-world claim, run a live campaign with S2 and then verify both gates:
 
 ```powershell
 python -m company_twin.cli campaign --with-s2 --s2-k 1 --s2-ticks 40 --s0-model openrouter:qwen/qwen3.6-flash
+python -m company_twin.cli min-repro --campaign-root runs\design_campaign_YYYYMMDD_HHMMSS
 python -m company_twin.cli acceptance --campaign-root runs\design_campaign_YYYYMMDD_HHMMSS --scope full_world
 python -m company_twin.cli readiness-reports --campaign-root runs\design_campaign_YYYYMMDD_HHMMSS --overwrite
 python -m company_twin.cli readiness --campaign-root runs\design_campaign_YYYYMMDD_HHMMSS
@@ -56,6 +65,9 @@ python -m company_twin.cli readiness --campaign-root runs\design_campaign_YYYYMM
 
 `acceptance --scope full_world` requires a live anchor S2 bundle and a non-anchor
 S2 bundle with month-end, customer utterances, agent-originated controlled
-actions, action-bound basis, and ensemble artifacts. `readiness` is stricter and
+actions, action-bound basis, and ensemble artifacts. `ensemble_triage.json`
+links to `coverage_map.json`, and run metrics include `rule_hit_rate` plus
+`detection_miss_rate` from two-population
+`data/compiled_data/detection_rules_v2.json`. `readiness` is stricter and
 requires routine smoke, retrieval audit, leak lint, semantic grounding,
 backcasting, SME blind review, and holdout evidence.

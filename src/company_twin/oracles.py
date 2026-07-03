@@ -14,6 +14,54 @@ import pandas as pd
 from .recorder import read_jsonl
 
 
+DETECTION_RULE_SCHEMA_VERSION = "company_twin.detection_rules.v2"
+COVERAGE_MAP_SCHEMA_VERSION = "company_twin.coverage_map.v1"
+MIN_REPRO_RESULTS_SCHEMA_VERSION = "company_twin.min_repro_results.v1"
+
+DEFAULT_DETECTION_RULES = {
+    "schema_version": DETECTION_RULE_SCHEMA_VERSION,
+    "rules": [
+        {"rule_id": "TRUTH-EVIDENCE-GAP", "population": "truth", "finding_type": "evidence_gap", "attempt_tools": ["submit_application"], "successes_only": True},
+        {"rule_id": "TRUTH-GROUNDING-GAP", "population": "truth", "finding_type": "grounding_gap", "basis_population": "action_bound"},
+        {"rule_id": "TRUTH-VERSION-GAP", "population": "truth", "finding_type": "version_gap", "basis_population": "retrieved_items"},
+        {"rule_id": "TRUTH-DEADLINE-OVERRUN", "population": "truth", "finding_type": "deadline_overrun", "ledger_event_types": ["contract_completed", "documents_delivered"]},
+        {"rule_id": "TRUTH-SOD-PATTERN", "population": "truth", "finding_type": "sod_pattern", "attempt_tools": ["approve_application"], "successes_only": True},
+        {"rule_id": "TRUTH-APPROVAL-CONCENTRATION", "population": "truth", "finding_type": "approval_concentration", "attempt_tools": ["approve_application"], "successes_only": True},
+        {"rule_id": "TRUTH-VERSION-MIX", "population": "truth", "finding_type": "version_mix", "basis_population": "action_bound"},
+        {
+            "rule_id": "MON-MISSING-COMPLETION-EVIDENCE",
+            "population": "monitoring",
+            "mode": "missing_required_evidence",
+            "detects": ["evidence_gap"],
+            "attempt_tools": ["submit_application"],
+            "required_evidence": ["consent_log_id", "recording_id", "material_version"],
+        },
+        {
+            "rule_id": "MON-DEADLINE-OVERRUN",
+            "population": "monitoring",
+            "mode": "deadline_after_campaign_deadline",
+            "detects": ["deadline_overrun"],
+            "ledger_event_types": ["contract_completed", "documents_delivered"],
+        },
+        {
+            "rule_id": "MON-SAME-SUBMITTER-APPROVER",
+            "population": "monitoring",
+            "mode": "same_submitter_approver",
+            "detects": ["sod_pattern"],
+        },
+        {
+            "rule_id": "MON-APPROVAL-CONCENTRATION",
+            "population": "monitoring",
+            "mode": "same_seat_approval_count",
+            "detects": ["approval_concentration"],
+            "attempt_tools": ["approve_application"],
+            "min_count": 4,
+            "min_share": 0.8,
+        },
+    ],
+}
+
+
 @dataclass(frozen=True)
 class Finding:
     finding_type: str
@@ -104,7 +152,8 @@ def aggregate_ensemble_triage(campaign_root: Path) -> dict[str, Any]:
     """Ensemble-level triage (partial answer to reviewer Major 4): group run
     bundles by config identity (stage, probe, knobs) across seeds and report
     per-finding-type incidence rates with Wilson intervals. Attribution and
-    min-repro outputs are candidate queues; they do not mark findings confirmed."""
+    min-repro outputs are candidate queues; the default min-repro command only
+    collates exploration evidence and does not confirm findings."""
     groups: dict[str, dict[str, Any]] = {}
     for run_root in sorted(path for path in campaign_root.iterdir() if path.is_dir()):
         meta_path = run_root / "meta.json"
@@ -114,30 +163,57 @@ def aggregate_ensemble_triage(campaign_root: Path) -> dict[str, Any]:
         meta = json.loads(meta_path.read_text(encoding="utf-8"))
         metrics = json.loads(metrics_path.read_text(encoding="utf-8"))
         config_id = json.dumps({"stage": meta.get("stage"), "probe": meta.get("probe"), "knobs": meta.get("knobs") or {}, "anchor": meta.get("anchor", False)}, sort_keys=True, ensure_ascii=False)
-        group = groups.setdefault(config_id, {"config": json.loads(config_id), "seeds": 0, "finding_seed_counts": {}, "controlled_actions": 0})
+        group = groups.setdefault(config_id, {"config": json.loads(config_id), "seeds": 0, "finding_seed_counts": {}, "controlled_actions": 0, "rule_hit": {}, "detection_miss": {}})
         group["seeds"] += 1
         group["controlled_actions"] += int(metrics.get("controlled_actions_agent") or 0)
         for finding_type in (metrics.get("finding_types") or {}):
             group["finding_seed_counts"][finding_type] = group["finding_seed_counts"].get(finding_type, 0) + 1
+        for rule_id, row in sorted((metrics.get("rule_hit_rate") or {}).items()):
+            accumulator = group["rule_hit"].setdefault(rule_id, {"opportunity_count": 0, "hit_count": 0, "finding_type": row.get("finding_type")})
+            accumulator["opportunity_count"] += int(row.get("opportunity_count") or 0)
+            accumulator["hit_count"] += int(row.get("hit_count") or 0)
+        for finding_type, row in sorted((metrics.get("detection_miss_rate") or {}).items()):
+            accumulator = group["detection_miss"].setdefault(finding_type, {"truth_count": 0, "detected_count": 0, "silent_count": 0, "monitoring_rules": set()})
+            accumulator["truth_count"] += int(row.get("truth_count") or 0)
+            accumulator["detected_count"] += int(row.get("detected_count") or 0)
+            accumulator["silent_count"] += int(row.get("silent_count") or 0)
+            accumulator["monitoring_rules"].update(row.get("monitoring_rules") or [])
     out = []
     for config_id, group in sorted(groups.items()):
         rates = {}
         for finding_type, seed_hits in sorted(group["finding_seed_counts"].items()):
             low, high = wilson_interval(seed_hits, group["seeds"])
             rates[finding_type] = {"seeds_with_finding": seed_hits, "seeds": group["seeds"], "rate": seed_hits / group["seeds"], "wilson_95": [round(low, 4), round(high, 4)]}
-        out.append({"config": group["config"], "seeds": group["seeds"], "controlled_actions_total": group["controlled_actions"], "finding_rates": rates})
+        rule_hit = {
+            rule_id: {
+                **row,
+                "hit_rate": (row["hit_count"] / row["opportunity_count"]) if row["opportunity_count"] else None,
+            }
+            for rule_id, row in sorted(group["rule_hit"].items())
+        }
+        detection_miss = {
+            finding_type: {
+                **{key: value for key, value in row.items() if key != "monitoring_rules"},
+                "monitoring_rules": sorted(row["monitoring_rules"]),
+                "miss_rate": (row["silent_count"] / row["truth_count"]) if row["truth_count"] else None,
+            }
+            for finding_type, row in sorted(group["detection_miss"].items())
+        }
+        out.append({"config": group["config"], "seeds": group["seeds"], "controlled_actions_total": group["controlled_actions"], "finding_rates": rates, "rule_hit_rate": rule_hit, "detection_miss_rate": detection_miss})
     attribution_table = _attribution_table(out)
     min_repro_jobs = _min_repro_jobs(out)
     finding_registry = _finding_registry(out, min_repro_jobs)
     (campaign_root / "attribution_table.json").write_text(json.dumps({"rows": attribution_table}, ensure_ascii=False, indent=2), encoding="utf-8")
     (campaign_root / "min_repro_jobs.json").write_text(json.dumps({"jobs": min_repro_jobs}, ensure_ascii=False, indent=2), encoding="utf-8")
     (campaign_root / "finding_registry.json").write_text(json.dumps(finding_registry, ensure_ascii=False, indent=2), encoding="utf-8")
+    coverage_map = write_coverage_map(campaign_root)
     payload = {
         "groups": out,
         "attribution_table": attribution_table,
         "min_repro_jobs": min_repro_jobs,
         "finding_registry": finding_registry,
-        "note": "candidate-level triage only: delta=1 attribution and min-repro jobs are queued, not confirmed findings",
+        "coverage_map": {"path": "coverage_map.json", "cell_counts": coverage_map["cell_counts"]},
+        "note": "candidate-level triage only: delta=1 attribution and min-repro jobs are queued until execute_min_repro_jobs runs",
     }
     (campaign_root / "ensemble_triage.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     return payload
@@ -191,42 +267,304 @@ def _min_repro_jobs(groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
     jobs: list[dict[str, Any]] = []
     for group in groups:
         for finding_type, rate in sorted((group.get("finding_rates") or {}).items()):
-            jobs.append(
-                {
-                    "status": "pending",
-                    "finding_type": finding_type,
-                    "config": group["config"],
-                    "seeds_with_finding": rate["seeds_with_finding"],
-                    "seeds": rate["seeds"],
-                    "rate": rate["rate"],
-                    "wilson_95": rate["wilson_95"],
-                }
-            )
+            job = {
+                "status": "pending",
+                "min_repro_status": "pending",
+                "finding_type": finding_type,
+                "config": group["config"],
+                "seeds_with_finding": rate["seeds_with_finding"],
+                "seeds": rate["seeds"],
+                "rate": rate["rate"],
+                "wilson_95": rate["wilson_95"],
+                "confirmation_protocol": ["source_bundle_match", "deck_one_card_if_probe_bound", "tick_back_trim", "seat_shrink"],
+            }
+            job["job_id"] = _min_repro_job_id(job)
+            jobs.append(job)
     return jobs
 
 
 def _finding_registry(groups: list[dict[str, Any]], min_repro_jobs: list[dict[str, Any]]) -> dict[str, Any]:
-    reproduced = [job for job in min_repro_jobs if job.get("status") == "reproduced"]
+    reproduced_jobs = [job for job in min_repro_jobs if job.get("status") == "reproduced"]
+    confirmed = [_confirmed_finding(job) for job in reproduced_jobs]
     exploratory = [
         {
             "finding_type": finding_type,
             "config": group["config"],
             "status": "exploratory",
-            "reason": "min_repro_not_reproduced",
+            "reason": "confirmation_run_not_reproduced",
             "rate": rate["rate"],
             "seeds_with_finding": rate["seeds_with_finding"],
             "seeds": rate["seeds"],
         }
         for group in groups
         for finding_type, rate in sorted((group.get("finding_rates") or {}).items())
-        if not any(job.get("finding_type") == finding_type and job.get("config") == group["config"] for job in reproduced)
+        if not any(job.get("finding_type") == finding_type and job.get("config") == group["config"] for job in reproduced_jobs)
     ]
     return {
-        "confirmed_findings": reproduced,
+        "schema_version": "company_twin.finding_registry.v1",
+        "confirmed_findings": confirmed,
         "exploratory_buckets": exploratory,
-        "audit_hypothesis_cards": reproduced,
-        "note": "Only reproduced min-repro jobs may become confirmed findings or audit hypothesis cards.",
+        "audit_hypothesis_cards": [_audit_hypothesis_card(job) for job in reproduced_jobs],
+        "note": "Only fresh confirmation runs with status=reproduced may become confirmed findings or audit hypothesis cards. Evidence-collation manifests from exploration bundles are never sufficient.",
     }
+
+
+def execute_min_repro_jobs(campaign_root: Path, *, min_rate: float = 0.5, min_seeds: int = 3) -> dict[str, Any]:
+    """Collate queued min-repro evidence from existing campaign bundles.
+
+    This default path is not a confirmation run. It writes manifests that help a
+    later live min-repro execution, but it must never promote findings to
+    confirmed or audit hypothesis cards.
+    """
+    if not 0 <= min_rate <= 1:
+        raise ValueError("--min-rate must be between 0 and 1")
+    if min_seeds < 1:
+        raise ValueError("--min-seeds must be >= 1")
+    campaign_root = campaign_root.resolve()
+    ensemble = _read_json(campaign_root / "ensemble_triage.json")
+    if not ensemble:
+        ensemble = aggregate_ensemble_triage(campaign_root)
+    groups = ensemble.get("groups") or []
+    queued_payload = _read_json(campaign_root / "min_repro_jobs.json")
+    queued_jobs = queued_payload.get("jobs") or ensemble.get("min_repro_jobs") or _min_repro_jobs(groups)
+
+    executed_jobs: list[dict[str, Any]] = []
+    result_rows: list[dict[str, Any]] = []
+    for job in queued_jobs:
+        normalized = dict(job)
+        normalized.setdefault("job_id", _min_repro_job_id(normalized))
+        result = _execute_min_repro_job(campaign_root, normalized, min_rate=min_rate, min_seeds=min_seeds)
+        updated = {
+            **normalized,
+            "status": result["status"],
+            "min_repro_status": result["status"],
+            "matching_bundle_count": result["matching_bundle_count"],
+            "source_bundle_count": result["source_bundle_count"],
+            "evidence_rate": result["evidence_rate"],
+            "confirmation_path": result["confirmation_path"],
+            "source_bundles": result["source_bundles"],
+            "coverage_cells": result["coverage_cells"],
+        }
+        executed_jobs.append(updated)
+        result_rows.append(result)
+
+    registry = _finding_registry(groups, executed_jobs)
+    payload = {
+        "schema_version": MIN_REPRO_RESULTS_SCHEMA_VERSION,
+        "campaign_root": str(campaign_root),
+        "threshold": {"min_rate": min_rate, "min_seeds": min_seeds},
+        "job_count": len(result_rows),
+        "evidence_collated_count": sum(1 for row in result_rows if row["status"] == "evidence_collated"),
+        "reproduced_count": 0,
+        "jobs": result_rows,
+        "note": "This file collates exploration evidence only. It is not confirmation evidence and cannot populate confirmed findings.",
+    }
+    (campaign_root / "min_repro_results.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    (campaign_root / "min_repro_jobs.json").write_text(json.dumps({"jobs": executed_jobs}, ensure_ascii=False, indent=2), encoding="utf-8")
+    (campaign_root / "finding_registry.json").write_text(json.dumps(registry, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    ensemble["min_repro_jobs"] = executed_jobs
+    ensemble["finding_registry"] = registry
+    ensemble["min_repro_results"] = {
+        "path": "min_repro_results.json",
+        "schema_version": MIN_REPRO_RESULTS_SCHEMA_VERSION,
+        "reproduced_count": payload["reproduced_count"],
+        "evidence_collated_count": payload["evidence_collated_count"],
+        "job_count": payload["job_count"],
+    }
+    ensemble["note"] = "min-repro evidence has been collated from exploration bundles only; confirmed findings require fresh status=reproduced confirmation runs"
+    (campaign_root / "ensemble_triage.json").write_text(json.dumps(ensemble, ensure_ascii=False, indent=2), encoding="utf-8")
+    return payload
+
+
+def _execute_min_repro_job(campaign_root: Path, job: dict[str, Any], *, min_rate: float, min_seeds: int) -> dict[str, Any]:
+    finding_type = str(job.get("finding_type") or "")
+    matching_roots = _matching_run_roots(campaign_root, job.get("config") or {})
+    source_bundles = [
+        evidence
+        for run_root in matching_roots
+        if (evidence := _bundle_finding_evidence(campaign_root, run_root, finding_type))
+    ]
+    denominator = max(int(job.get("seeds") or 0), len(matching_roots), 1)
+    evidence_rate = len(source_bundles) / denominator
+    status = "evidence_collated"
+    coverage_cells = _coverage_cells_for_finding(campaign_root, finding_type)
+    result = {
+        "job_id": job["job_id"],
+        "finding_type": finding_type,
+        "config": job.get("config") or {},
+        "status": status,
+        "min_repro_status": status,
+        "queued_rate": job.get("rate"),
+        "queued_wilson_95": job.get("wilson_95"),
+        "threshold": {"min_rate": min_rate, "min_seeds": min_seeds},
+        "matching_bundle_count": len(matching_roots),
+        "source_bundle_count": len(source_bundles),
+        "evidence_rate": evidence_rate,
+        "source_bundles": source_bundles,
+        "coverage_cells": coverage_cells,
+        "reduction_trace": _reduction_trace(job, source_bundles),
+        "note": "same-campaign evidence collation only; not a reproduced confirmation run",
+    }
+    manifest_dir = campaign_root / "min_repro" / str(job["job_id"])
+    manifest_dir.mkdir(parents=True, exist_ok=True)
+    manifest_path = manifest_dir / "manifest.json"
+    result["confirmation_path"] = _relative_path(manifest_path, campaign_root)
+    manifest_path.write_text(json.dumps({"schema_version": MIN_REPRO_RESULTS_SCHEMA_VERSION, **result}, ensure_ascii=False, indent=2), encoding="utf-8")
+    return result
+
+
+def _matching_run_roots(campaign_root: Path, config: dict[str, Any]) -> list[Path]:
+    target = _config_key(config)
+    roots: list[Path] = []
+    for run_root in sorted(path for path in campaign_root.iterdir() if path.is_dir()):
+        meta = _read_json(run_root / "meta.json")
+        if not meta:
+            continue
+        if _config_key(_config_from_meta(meta)) == target:
+            roots.append(run_root)
+    return roots
+
+
+def _bundle_finding_evidence(campaign_root: Path, run_root: Path, finding_type: str) -> dict[str, Any] | None:
+    metrics = _read_json(run_root / "triage" / "metrics.json")
+    finding_count = int(((metrics.get("finding_types") or {}).get(finding_type)) or 0)
+    buckets_payload = _read_json(run_root / "triage" / "buckets.json")
+    buckets = [bucket for bucket in (buckets_payload.get("buckets") or []) if bucket.get("finding_type") == finding_type]
+    if finding_count <= 0 and not buckets:
+        return None
+    ticks = _evidence_ticks(run_root, finding_type, buckets)
+    seats = sorted({str(bucket.get("seat_id") or "") for bucket in buckets if bucket.get("seat_id")})
+    return {
+        "run_id": run_root.name,
+        "run_root": _relative_path(run_root, campaign_root),
+        "seed": _read_json(run_root / "meta.json").get("seed"),
+        "finding_count": finding_count or sum(int(bucket.get("count") or 0) for bucket in buckets),
+        "bucket_signatures": [str(bucket.get("signature") or "") for bucket in buckets if bucket.get("signature")],
+        "seats": seats,
+        "tick_window": {"start": min(ticks), "end": max(ticks)} if ticks else None,
+    }
+
+
+def _evidence_ticks(run_root: Path, finding_type: str, buckets: list[dict[str, Any]]) -> list[int]:
+    attempts = read_jsonl(run_root / "attempts.jsonl")
+    basis = read_jsonl(run_root / "basis_records.jsonl")
+    ledger = read_jsonl(run_root / "world_ledger.jsonl")
+    bucket_seats = {str(bucket.get("seat_id") or "") for bucket in buckets if bucket.get("seat_id")}
+    ticks: list[int] = []
+    if finding_type == "evidence_gap":
+        for row in attempts:
+            evidence = ((row.get("args") or {}).get("evidence") or {})
+            missing = [key for key in ("consent_log_id", "recording_id", "material_version") if not evidence.get(key)]
+            if row.get("tool") == "submit_application" and row.get("success") and missing:
+                ticks.append(int(row.get("tick") or 0))
+    elif finding_type in {"hard_constraint_denial", "sod_pattern", "approval_concentration"}:
+        for row in attempts:
+            if not bucket_seats or str(row.get("seat_id") or "") in bucket_seats:
+                ticks.append(int(row.get("tick") or 0))
+    elif finding_type in {"grounding_gap", "version_gap", "version_mix", "version_skew_reference", "world_basis_leak"}:
+        for row in basis:
+            if not bucket_seats or str(row.get("seat_id") or "") in bucket_seats:
+                ticks.append(int(row.get("tick") or 0))
+    elif finding_type == "deadline_overrun":
+        deadline_ticks = [int(row.get("tick") or 0) for row in ledger if row.get("event_type") == "campaign_deadline"]
+        for row in ledger:
+            if row.get("event_type") in {"contract_completed", "documents_delivered"} and deadline_ticks and int(row.get("tick") or 0) > deadline_ticks[0]:
+                ticks.append(int(row.get("tick") or 0))
+    if not ticks:
+        ticks = [int(row.get("tick") or 0) for row in attempts + basis + ledger if row.get("tick") is not None]
+    return [tick for tick in ticks if tick > 0]
+
+
+def _coverage_cells_for_finding(campaign_root: Path, finding_type: str) -> list[dict[str, Any]]:
+    coverage = _read_json(campaign_root / "coverage_map.json")
+    rows = ((coverage.get("cells") or {}).get("C4_signature_vocab") or []) if coverage else []
+    prefix = f"{finding_type} | "
+    return [row for row in rows if str(row.get("cell") or "").startswith(prefix)]
+
+
+def _reduction_trace(job: dict[str, Any], source_bundles: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    config = job.get("config") or {}
+    ticks = [bundle.get("tick_window") for bundle in source_bundles if bundle.get("tick_window")]
+    seats = sorted({seat for bundle in source_bundles for seat in (bundle.get("seats") or [])})
+    mutations = config.get("mutations") or config.get("corpus_mutations") or []
+    return [
+        {
+            "step": "drop_inert_mutations",
+            "status": "not_applicable" if not mutations else "requires_live_rerun",
+            "retained_mutations": mutations,
+        },
+        {
+            "step": "deck_one_card",
+            "status": "selected" if config.get("probe") else "not_applicable",
+            "probe": config.get("probe"),
+        },
+        {
+            "step": "tick_back_trim",
+            "status": "bounded" if ticks else "not_observed",
+            "tick_window": {"start": min(row["start"] for row in ticks), "end": max(row["end"] for row in ticks)} if ticks else None,
+        },
+        {
+            "step": "seat_shrink",
+            "status": "bounded" if seats else "not_observed",
+            "seats": seats,
+        },
+    ]
+
+
+def _confirmed_finding(job: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "job_id": job.get("job_id"),
+        "finding_type": job.get("finding_type"),
+        "config": job.get("config") or {},
+        "status": "reproduced",
+        "min_repro_status": "reproduced",
+        "reproduction_rate": job.get("reproduction_rate"),
+        "source_bundle_count": job.get("source_bundle_count"),
+        "matching_bundle_count": job.get("matching_bundle_count"),
+        "confirmation_path": job.get("confirmation_path"),
+        "coverage_cells": job.get("coverage_cells") or [],
+    }
+
+
+def _audit_hypothesis_card(job: dict[str, Any]) -> dict[str, Any]:
+    config = job.get("config") or {}
+    finding_type = str(job.get("finding_type") or "")
+    stage = str(config.get("stage") or "unknown")
+    probe = str(config.get("probe") or "full_deck")
+    return {
+        "card_id": f"HYP-{str(job.get('job_id') or '')[:12]}",
+        "finding_type": finding_type,
+        "hypothesis": f"{finding_type} reproduces under {stage}/{probe} and should be reviewed as a confirmed audit hypothesis.",
+        "min_repro": {
+            "job_id": job.get("job_id"),
+            "status": "reproduced",
+            "reproduction_rate": job.get("reproduction_rate"),
+            "confirmation_path": job.get("confirmation_path"),
+        },
+        "divergence_cells": job.get("coverage_cells") or [],
+        "source_bundles": job.get("source_bundles") or [],
+    }
+
+
+def _min_repro_job_id(job: dict[str, Any]) -> str:
+    payload = {"finding_type": job.get("finding_type"), "config": job.get("config") or {}}
+    return hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()[:16]
+
+
+def _config_from_meta(meta: dict[str, Any]) -> dict[str, Any]:
+    return {"stage": meta.get("stage"), "probe": meta.get("probe"), "knobs": meta.get("knobs") or {}, "anchor": meta.get("anchor", False)}
+
+
+def _config_key(config: dict[str, Any]) -> str:
+    return json.dumps(_config_from_meta(config), sort_keys=True, ensure_ascii=False)
+
+
+def _relative_path(path: Path, base: Path) -> str:
+    try:
+        return str(path.relative_to(base)).replace("\\", "/")
+    except ValueError:
+        return str(path)
 
 
 def signature_for(*, finding_type: str, anchor_id: str, seat_id: str, phase: str, artifact_skeleton: str) -> str:
@@ -318,6 +656,8 @@ def _metrics(run_root: Path, findings: list[Finding]) -> dict[str, Any]:
         for row in controlled
         if first_read_tick_by_seat.get(str(row.get("seat_id") or ""), 999999) <= int(row.get("tick") or 0)
     ]
+    rule_hit = rule_hit_rates(attempts=attempts, ledger=ledger, basis=basis, findings=findings, run_root=run_root)
+    detection_miss = detection_miss_rates(attempts=attempts, ledger=ledger, basis=basis, findings=findings, run_root=run_root)
     return {
         "stage": _stage(run_root),
         "attempts": len(attempts),
@@ -343,7 +683,294 @@ def _metrics(run_root: Path, findings: list[Finding]) -> dict[str, Any]:
         "permission_denied": sum(1 for row in attempts if not row.get("success")),
         "llm_invocations": sum(1 for row in attempts if row.get("tool") == "llm_invoke"),
         "finding_types": dict(Counter(finding.finding_type for finding in findings)),
+        "rule_hit_rate": rule_hit,
+        "detection_miss_rate": detection_miss,
     }
+
+
+def load_detection_rules(root: Path | None = None) -> dict[str, Any]:
+    path = _find_detection_rules_path(root) if root is not None else None
+    if path is not None:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    else:
+        payload = DEFAULT_DETECTION_RULES
+    if payload.get("schema_version") != DETECTION_RULE_SCHEMA_VERSION:
+        raise ValueError(f"detection rules schema_version must be {DETECTION_RULE_SCHEMA_VERSION}")
+    rules = payload.get("rules")
+    if not isinstance(rules, list) or not rules:
+        raise ValueError("detection rules must contain a non-empty rules list")
+    for rule in rules:
+        if not rule.get("rule_id") or rule.get("population") not in {"truth", "monitoring"}:
+            raise ValueError("each detection rule requires rule_id and population in {'truth','monitoring'}")
+        if rule.get("population") == "truth" and not rule.get("finding_type"):
+            raise ValueError("truth detection rules require finding_type")
+        if rule.get("population") == "monitoring" and not rule.get("detects"):
+            raise ValueError("monitoring detection rules require detects")
+    return payload
+
+
+def rule_hit_rates(*, attempts: list[dict[str, Any]], ledger: list[dict[str, Any]], basis: list[dict[str, Any]], findings: list[Finding], run_root: Path) -> dict[str, Any]:
+    rules = load_detection_rules(run_root)
+    finding_counts = Counter(finding.finding_type for finding in findings)
+    rows: dict[str, Any] = {}
+    for rule in rules["rules"]:
+        if rule.get("population") != "truth":
+            continue
+        rule_id = str(rule["rule_id"])
+        finding_type = str(rule["finding_type"])
+        opportunities = _rule_opportunities(rule, attempts=attempts, ledger=ledger, basis=basis)
+        hit_count = int(finding_counts.get(finding_type, 0))
+        rows[rule_id] = {
+            "finding_type": finding_type,
+            "opportunity_count": opportunities,
+            "hit_count": hit_count,
+            "hit_rate": (hit_count / opportunities) if opportunities else None,
+        }
+    return rows
+
+
+def detection_miss_rates(*, attempts: list[dict[str, Any]], ledger: list[dict[str, Any]], basis: list[dict[str, Any]], findings: list[Finding], run_root: Path) -> dict[str, Any]:
+    rules = load_detection_rules(run_root)
+    truth_counts = Counter(finding.finding_type for finding in findings)
+    monitoring_hits = _monitoring_hits_by_finding(rules["rules"], attempts=attempts, ledger=ledger, basis=basis)
+    rows: dict[str, Any] = {}
+    for finding_type, truth_count in sorted(truth_counts.items()):
+        hit_rows = monitoring_hits.get(finding_type, [])
+        detected_count = min(truth_count, sum(int(row.get("hit_count") or 0) for row in hit_rows))
+        silent_count = max(truth_count - detected_count, 0)
+        rows[finding_type] = {
+            "truth_count": truth_count,
+            "detected_count": detected_count,
+            "silent_count": silent_count,
+            "miss_rate": (silent_count / truth_count) if truth_count else None,
+            "monitoring_rules": [str(row.get("rule_id") or "") for row in hit_rows if int(row.get("hit_count") or 0) > 0],
+        }
+    return rows
+
+
+def _monitoring_hits_by_finding(rules: list[dict[str, Any]], *, attempts: list[dict[str, Any]], ledger: list[dict[str, Any]], basis: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+    hits: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for rule in rules:
+        if rule.get("population") != "monitoring":
+            continue
+        count = _monitoring_rule_hit_count(rule, attempts=attempts, ledger=ledger, basis=basis)
+        for finding_type in rule.get("detects") or []:
+            hits[str(finding_type)].append({"rule_id": rule.get("rule_id"), "hit_count": count})
+    return hits
+
+
+def _monitoring_rule_hit_count(rule: dict[str, Any], *, attempts: list[dict[str, Any]], ledger: list[dict[str, Any]], basis: list[dict[str, Any]]) -> int:
+    mode = str(rule.get("mode") or "")
+    if mode == "missing_required_evidence":
+        tools = set(rule.get("attempt_tools") or [])
+        required = set(rule.get("required_evidence") or [])
+        total = 0
+        for row in attempts:
+            if tools and row.get("tool") not in tools:
+                continue
+            if row.get("origin") != "agent" or not row.get("success"):
+                continue
+            evidence = ((row.get("args") or {}).get("evidence") or {})
+            if any(not evidence.get(key) for key in required):
+                total += 1
+        return total
+    if mode == "deadline_after_campaign_deadline":
+        deadline_ticks = [int(row.get("tick") or 0) for row in ledger if row.get("event_type") == "campaign_deadline"]
+        event_types = set(rule.get("ledger_event_types") or [])
+        if not deadline_ticks:
+            return 0
+        return sum(1 for row in ledger if row.get("event_type") in event_types and int(row.get("tick") or 0) > deadline_ticks[0])
+    if mode == "same_submitter_approver":
+        submitters = {
+            str((row.get("args") or {}).get("application_id") or ""): row.get("seat_id")
+            for row in attempts
+            if row.get("tool") == "submit_application" and row.get("success") and row.get("origin") == "agent"
+        }
+        return sum(
+            1
+            for row in attempts
+            if row.get("tool") == "approve_application"
+            and row.get("success")
+            and row.get("origin") == "agent"
+            and submitters.get(str((row.get("args") or {}).get("application_id") or "")) == row.get("seat_id")
+        )
+    if mode == "same_seat_approval_count":
+        approvals = [row for row in attempts if row.get("tool") in set(rule.get("attempt_tools") or []) and row.get("success") and row.get("origin") == "agent"]
+        if not approvals:
+            return 0
+        seat_id, count = Counter(row.get("seat_id") for row in approvals).most_common(1)[0]
+        min_count = int(rule.get("min_count") or 1)
+        min_share = float(rule.get("min_share") or 1.0)
+        return 1 if count >= min_count and count / len(approvals) >= min_share else 0
+    if mode == "basis_missing_citation":
+        return sum(1 for row in basis if row.get("action_id") and any(not item.get("citation_handle") for item in row.get("retrieved") or [{}]))
+    if mode == "basis_missing_version":
+        return sum(1 for row in basis for item in row.get("retrieved") or [] if not item.get("version"))
+    return 0
+
+
+def build_coverage_map(run_roots: list[Path]) -> dict[str, Any]:
+    cells: dict[str, Counter[str]] = {"C1_span_role_interpretation": Counter(), "C1b_basis_docs": Counter(), "C2_transition_edges": Counter(), "C3_doc_contacts": Counter(), "C4_signature_vocab": Counter(), "C5_evidence_skeleton": Counter()}
+    run_ids: list[str] = []
+    for run_root in sorted(run_roots, key=lambda path: path.name):
+        if not (run_root / "meta.json").exists():
+            continue
+        run_ids.append(run_root.name)
+        attempts = read_jsonl(run_root / "attempts.jsonl")
+        ledger = read_jsonl(run_root / "world_ledger.jsonl")
+        basis = read_jsonl(run_root / "basis_records.jsonl")
+        s0_answer = _read_json(run_root / "s0_answer.json")
+        if s0_answer:
+            span_id = str(s0_answer.get("span_id") or "")
+            cells["C1_span_role_interpretation"][
+                _coverage_key(span_id, str(s0_answer.get("role") or _seat_to_role(str(s0_answer.get("seat_id") or ""))), _classify_s0_answer_for_coverage(run_root, s0_answer))
+            ] += 1
+        for row in basis:
+            docs = ",".join(sorted(str(item.get("doc_id") or "") for item in row.get("retrieved") or [] if item.get("doc_id")))
+            label = str(row.get("g3_machine_heuristic") or row.get("g3_entailment") or "not_evaluated")
+            cells["C1b_basis_docs"][_coverage_key(docs or "no_docs", _seat_to_role(str(row.get("seat_id") or "")), label)] += 1
+        previous_event = ""
+        for row in ledger:
+            event_type = str(row.get("event_type") or "")
+            if previous_event:
+                cells["C2_transition_edges"][_coverage_key(previous_event, event_type)] += 1
+            previous_event = event_type
+        for row in attempts:
+            role = _seat_to_role(str(row.get("seat_id") or ""))
+            tool = str(row.get("tool") or "")
+            if tool == "read_document" and row.get("success"):
+                doc_id = str((row.get("args") or {}).get("doc_id") or "")
+                cells["C3_doc_contacts"][_coverage_key(role, doc_id)] += 1
+            if not row.get("success") and row.get("denied_reason"):
+                cells["C2_transition_edges"][_coverage_key("denied", role, tool, str(row.get("denied_reason") or "")[:80])] += 1
+            if tool in CONTROLLED_TOOL_NAMES:
+                evidence = (row.get("args") or {}).get("evidence") or {}
+                evidence_keys = ",".join(sorted(evidence)) if isinstance(evidence, dict) else ""
+                cells["C5_evidence_skeleton"][_coverage_key(role, tool, "success" if row.get("success") else "denied", evidence_keys)] += 1
+        buckets = _read_json(run_root / "triage" / "buckets.json")
+        for bucket in (buckets.get("buckets") or []) if buckets else []:
+            cells["C4_signature_vocab"][_coverage_key(str(bucket.get("finding_type") or ""), str(bucket.get("phase") or ""), str(bucket.get("signature") or ""))] += int(bucket.get("count") or 1)
+    rendered = {
+        name: [
+            {"cell": cell, "count": count}
+            for cell, count in sorted(counter.items())
+        ]
+        for name, counter in sorted(cells.items())
+    }
+    return {
+        "schema_version": COVERAGE_MAP_SCHEMA_VERSION,
+        "run_count": len(run_ids),
+        "run_ids": run_ids,
+        "cell_counts": {name: len(rows) for name, rows in rendered.items()},
+        "cells": rendered,
+    }
+
+
+def write_coverage_map(campaign_root: Path) -> dict[str, Any]:
+    run_roots = [path for path in campaign_root.iterdir() if path.is_dir()]
+    payload = build_coverage_map(run_roots)
+    (campaign_root / "coverage_map.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    return payload
+
+
+def _classify_s0_answer_for_coverage(run_root: Path, answer: dict[str, Any]) -> str:
+    span_id = str(answer.get("span_id") or "")
+    candidates: dict[str, str] = {}
+    project_root = _find_project_root(run_root)
+    if project_root is not None and span_id:
+        try:
+            from .design_loader import load_design
+
+            design = load_design(project_root)
+            candidates = design.spans.get(span_id).candidates if span_id in design.spans else {}
+        except Exception:  # noqa: BLE001 - coverage must remain best-effort for archived bundles
+            candidates = {}
+    return _classify_answer_class_id(_answer_text_for_coverage(answer), candidates)
+
+
+def _answer_text_for_coverage(row: dict[str, Any]) -> str:
+    parts = [str(row.get("likely_reading") or ""), str(row.get("required_approver_or_evidence") or ""), str(row.get("next_action") or "")]
+    return " ".join(part for part in parts if part) or str(row.get("response") or "")
+
+
+def _classify_answer_class_id(answer: str, candidates: dict[str, str]) -> str:
+    best_key, best_score = "", 0
+    for key, text in candidates.items():
+        score = _coverage_overlap_score(text, answer)
+        if score > best_score:
+            best_key, best_score = key, score
+    if best_key and best_score >= 2:
+        return best_key
+    if "隨ｬ莠檎ｷ・" in answer:
+        return "second_line_route"
+    if "邂｡逅・・" in answer:
+        return "manager_route"
+    if "蜷梧э" in answer or "骭ｲ髻ｳ" in answer or "險ｼ霍｡" in answer:
+        return "evidence_first"
+    return "novel_or_unclassified"
+
+
+def _coverage_overlap_score(candidate: str, answer: str) -> int:
+    grams: set[str] = set()
+    for token in re.findall(r"[A-Za-z0-9_-]+|[\u3040-\u30ff\u3400-\u9fff]{2,}", candidate or ""):
+        if re.fullmatch(r"[A-Za-z0-9_-]+", token):
+            grams.add(token.lower())
+        else:
+            grams.update(token[idx : idx + 2] for idx in range(len(token) - 1))
+    lowered = answer.lower()
+    return sum(1 for gram in grams if gram in lowered or gram in answer)
+
+
+def _find_project_root(start: Path) -> Path | None:
+    for candidate in [start, *start.parents]:
+        if (candidate / "data" / "compiled_data").exists():
+            return candidate
+    return None
+
+
+def _rule_opportunities(rule: dict[str, Any], *, attempts: list[dict[str, Any]], ledger: list[dict[str, Any]], basis: list[dict[str, Any]]) -> int:
+    total = 0
+    tools = set(rule.get("attempt_tools") or [])
+    if tools:
+        rows = [row for row in attempts if row.get("tool") in tools and row.get("origin") == "agent"]
+        if rule.get("successes_only", True):
+            rows = [row for row in rows if row.get("success")]
+        total += len(rows)
+    ledger_types = set(rule.get("ledger_event_types") or [])
+    if ledger_types:
+        total += sum(1 for row in ledger if row.get("event_type") in ledger_types)
+    basis_population = rule.get("basis_population")
+    if basis_population == "action_bound":
+        total += sum(1 for row in basis if row.get("action_id"))
+    elif basis_population == "retrieved_items":
+        total += sum(len(row.get("retrieved") or []) for row in basis)
+    return total
+
+
+def _find_detection_rules_path(start: Path | None) -> Path | None:
+    if start is None:
+        return None
+    for candidate_root in [start, *start.parents]:
+        v2 = candidate_root / "data" / "compiled_data" / "detection_rules_v2.json"
+        if v2.exists():
+            return v2
+        v1 = candidate_root / "data" / "compiled_data" / "detection_rules_v1.json"
+        if v1.exists():
+            return v1
+    return None
+
+
+def _read_json(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {}
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return {}
+
+
+def _coverage_key(*parts: str) -> str:
+    return " | ".join(part for part in parts if part)
 
 
 def _read_docs_by_seat_tick(attempts: list[dict[str, Any]]) -> dict[tuple[str, str], int]:
