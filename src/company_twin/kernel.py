@@ -71,6 +71,11 @@ class KernelProfile:
     seat_roles: dict[str, str] = field(default_factory=dict)
     scc_switch_enabled: bool = False
     seat_qualifications: dict[str, set[str]] = field(default_factory=dict)
+    campaign_deadline_tick: int = 20
+    manager_absence_ticks: tuple[int, ...] = (23, 24)
+    scc_switch_tick: int | None = 30
+    month_end_tick: int = 40
+    timed_notice_recipients: tuple[str, ...] = ()
 
     def enabled(self, knob: str) -> bool:
         return bool(self.knobs.get(knob, False))
@@ -108,15 +113,24 @@ class WorldKernel:
     def fire_timed_events(self, tick: int) -> None:
         self.recorder.set_tick(tick)
         self.recorder.append_ledger("daily_inbox_delivery", {"tick": tick})
-        if tick == 20:
-            self.recorder.append_ledger("campaign_deadline", {"tick": tick, "label": "W2-Friday"})
-        if tick in {23, 24}:
+        if tick == self.profile.campaign_deadline_tick:
+            self.recorder.append_ledger("campaign_deadline", {"tick": tick, "label": "campaign deadline"})
+            self._deliver_timed_notice(
+                tick,
+                notice="campaign_deadline",
+                detail="Campaign deadline reached; confirm evidence, pending approvals, and held items before continuing.",
+            )
+        if tick in set(self.profile.manager_absence_ticks):
             self.recorder.append_ledger("seat_absence", {"tick": tick, "seat_id": "emp-M", "reason": "manager absence"})
-        if self.profile.scc_switch_enabled and tick == 30:
+        if self.profile.scc_switch_enabled and self.profile.scc_switch_tick is not None and tick == self.profile.scc_switch_tick:
             self.profile.knobs["K-completion-gate"] = True
             self.recorder.append_ledger("completion_gate_active", {"knob": "K-completion-gate", "tick": tick})
-        if tick == 40:
+        if tick == self.profile.month_end_tick:
             self.recorder.append_ledger("month_end_close", {"tick": tick})
+
+    def _deliver_timed_notice(self, tick: int, *, notice: str, detail: str) -> None:
+        for seat_id in self.profile.timed_notice_recipients:
+            self.enqueue_inbox(seat_id, {"kind": "timed_notice", "tick": tick, "notice": notice, "detail": detail})
 
     def enqueue_inbox(self, seat_id: str, message: dict[str, Any]) -> None:
         validate_inbox_message(message)

@@ -311,7 +311,7 @@ def validate_design(design: DesignInputs) -> None:
             if not path.exists():
                 problems.append(f"role card for {role} missing: {meta.get('path')}")
                 continue
-            actual = _file_sha256(path)
+            actual = stable_text_sha256(path)
             if actual != meta.get("sha256"):
                 problems.append(f"role card hash mismatch for {role}")
     if not design.s0_question_templates:
@@ -332,6 +332,13 @@ def validate_design(design: DesignInputs) -> None:
 
 def _file_sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def stable_text_sha256(path: Path) -> str:
+    """Hash UTF-8 text content independent of checkout line endings."""
+    text = path.read_text(encoding="utf-8")
+    normalized = text.replace("\r\n", "\n").replace("\r", "\n")
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
 
 
 def _parse_manifest(text: str, root: Path) -> dict[str, DocumentMeta]:

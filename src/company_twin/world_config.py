@@ -8,7 +8,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 
 from .deck import build_customer_deck
-from .design_loader import DesignInputs
+from .design_loader import DesignInputs, stable_text_sha256
 from .env import normalize_openrouter_model
 
 
@@ -46,11 +46,20 @@ def build_world_config(
     mutations: list[dict[str, Any]] | None = None,
     executed_s0_rows: int | None = None,
     d4_enabled: bool = True,
+    model_bindings: dict[str, str] | None = None,
+    scc_switch_tick: int | None = None,
+    timed_notice_recipients: list[str] | None = None,
 ) -> dict[str, Any]:
     normalized_knobs = {**DEFAULT_KNOBS, **(knobs or {})}
     model_name = normalize_openrouter_model(model)
-    seats = _seat_configs(design, model_name, d4_enabled=d4_enabled)
+    seats = _seat_configs(design, model_name, d4_enabled=d4_enabled, model_bindings=model_bindings)
     deck = [event.to_dict() for event in build_customer_deck(design, include_routine=True)]
+    effective_scc_switch_tick = None if anchor else (scc_switch_tick if scc_switch_tick is not None else min(30, ticks))
+    if effective_scc_switch_tick is not None:
+        effective_scc_switch_tick = min(max(int(effective_scc_switch_tick), 1), ticks)
+    deadline_tick = min(20, ticks)
+    absence_ticks = [tick for tick in [23, 24] if tick <= ticks]
+    notice_recipients = sorted(set(timed_notice_recipients or _default_timed_notice_recipients(design)))
     config = {
         "schema_version": "company_twin.world_config.v2",
         "stage": stage,
@@ -92,11 +101,12 @@ def build_world_config(
                 "tick_unit": "half_business_day",
                 "ticks": ticks,
                 "daily_inbox_ticks": list(range(1, ticks + 1)),
-                "campaign_deadline_tick": min(20, ticks),
-                "manager_absence_ticks": [tick for tick in [23, 24] if tick <= ticks],
+                "campaign_deadline_tick": deadline_tick,
+                "manager_absence_ticks": absence_ticks,
                 "month_end_tick": ticks,
                 "scc_switch_enabled": not anchor,
-                "scc_switch_tick": None if anchor else min(30, ticks),
+                "scc_switch_tick": effective_scc_switch_tick,
+                "timed_notice_recipients": notice_recipients,
             },
             "seeds": {
                 "retrieval": seed,
@@ -161,31 +171,37 @@ def default_retrieval_profiles() -> dict[str, Any]:
     }
 
 
-def _seat_configs(design: DesignInputs, model_name: str, *, d4_enabled: bool = True) -> dict[str, Any]:
+def _seat_configs(design: DesignInputs, model_name: str, *, d4_enabled: bool = True, model_bindings: dict[str, str] | None = None) -> dict[str, Any]:
     from .tools import tools_for_role  # local import: avoids world_config<->tools<->corpus cycle
 
     budgets = {"sales": 14, "manager": 10, "application": 12, "second_line": 10, "audit": 8}
     result: dict[str, Any] = {}
     for seat_id, seat in sorted(design.seats.items()):
         card = _role_card_meta(design.root, seat.role)
+        bound_model = normalize_openrouter_model((model_bindings or {}).get(seat_id) or model_name)
         result[seat_id] = {
             "role": seat.role,
             "description": seat.description,
             "role_card_path": card["path"],
             "role_card_sha256": card["sha256"],
             "tick_budget": budgets.get(seat.role, 8),
-            "model_binding": model_name,
+            "model_binding": bound_model,
             "store_enabled": d4_enabled,
             "tools": list(tools_for_role(seat.role, d4_enabled=d4_enabled)),
         }
     return result
 
 
+def _default_timed_notice_recipients(design: DesignInputs) -> list[str]:
+    notice_roles = {"sales", "application", "second_line"}
+    return [seat_id for seat_id, seat in sorted(design.seats.items()) if seat.role in notice_roles]
+
+
 def _role_card_meta(root: Path, role: str) -> dict[str, str]:
     path = root / "data" / "design" / "role_cards" / f"{role}.md"
     if not path.exists():
         return {"path": "", "sha256": ""}
-    return {"path": str(path.relative_to(root)), "sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
+    return {"path": str(path.relative_to(root)), "sha256": stable_text_sha256(path)}
 
 
 def assert_world_config_complete(config: dict[str, Any]) -> list[str]:

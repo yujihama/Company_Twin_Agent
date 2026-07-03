@@ -20,13 +20,13 @@ from company_twin.recorder import RunRecorder
 
 class FakeSeatAgent:
     backend = "test-fake"
-    model = "fake:unit"
 
-    def __init__(self, *, seat_id: str, role: str, tools: list[Any], recorder: RunRecorder):
+    def __init__(self, *, seat_id: str, role: str, tools: list[Any], recorder: RunRecorder, model: str = "fake:unit"):
         self.seat_id = seat_id
         self.role = role
         self.recorder = recorder
         self.tools = {tool.__name__: tool for tool in tools}
+        self.model = model
 
     def _basis(self, doc_id: str, decision: str) -> str:
         version = "1.0" if doc_id.endswith("@v1.0") else "1.1"
@@ -119,8 +119,8 @@ class FakeSeatAgent:
 
 
 def fake_seat_factory(**_ignored: Any):
-    def factory(*, seat_id: str, role: str, tools: list[Any], recorder: RunRecorder, recursion_limit: int) -> FakeSeatAgent:
-        return FakeSeatAgent(seat_id=seat_id, role=role, tools=tools, recorder=recorder)
+    def factory(*, seat_id: str, role: str, tools: list[Any], recorder: RunRecorder, recursion_limit: int, model: str = "fake:unit") -> FakeSeatAgent:
+        return FakeSeatAgent(seat_id=seat_id, role=role, tools=tools, recorder=recorder, model=model)
 
     return factory
 

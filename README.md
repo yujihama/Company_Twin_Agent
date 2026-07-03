@@ -13,6 +13,11 @@ readiness gate passes.
 - S1: live multi-seat episode entry.
 - S2: live entry point and acceptance gates exist, but full-world evidence must
   be produced separately with `--with-s2`.
+- Experiment controls: S0 campaigns default to multiple cold-read models, S1/S2
+  can bind models per seat, and SCC completion-gate switch timing is
+  config-driven.
+- Observability: ensemble triage writes candidate attribution, min-repro queues,
+  detection-miss rates, and a deterministic behavior coverage map.
 - Acceptance: harness-safety gates only.
 - Readiness: Stage 9 gate exists and intentionally fails until the required
   evidence reports are generated and pass.
@@ -56,6 +61,8 @@ python -m company_twin.cli readiness --campaign-root runs\design_campaign_YYYYMM
 
 `acceptance --scope full_world` requires a live anchor S2 bundle and a non-anchor
 S2 bundle with month-end, customer utterances, agent-originated controlled
-actions, action-bound basis, and ensemble artifacts. `readiness` is stricter and
+actions, action-bound basis, and ensemble artifacts. `ensemble_triage.json`
+links to `coverage_map.json`, and run metrics include `detection_miss_rate`
+from `data/compiled_data/detection_rules_v1.json`. `readiness` is stricter and
 requires routine smoke, retrieval audit, leak lint, semantic grounding,
 backcasting, SME blind review, and holdout evidence.

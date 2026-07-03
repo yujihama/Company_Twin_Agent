@@ -14,6 +14,23 @@ import pandas as pd
 from .recorder import read_jsonl
 
 
+DETECTION_RULE_SCHEMA_VERSION = "company_twin.detection_rules.v1"
+COVERAGE_MAP_SCHEMA_VERSION = "company_twin.coverage_map.v1"
+
+DEFAULT_DETECTION_RULES = {
+    "schema_version": DETECTION_RULE_SCHEMA_VERSION,
+    "rules": [
+        {"rule_id": "R-EVIDENCE-GAP", "finding_type": "evidence_gap", "attempt_tools": ["submit_application"], "successes_only": True},
+        {"rule_id": "R-GROUNDING-GAP", "finding_type": "grounding_gap", "basis_population": "action_bound"},
+        {"rule_id": "R-VERSION-GAP", "finding_type": "version_gap", "basis_population": "retrieved_items"},
+        {"rule_id": "R-DEADLINE-OVERRUN", "finding_type": "deadline_overrun", "ledger_event_types": ["contract_completed", "documents_delivered"]},
+        {"rule_id": "R-SOD-PATTERN", "finding_type": "sod_pattern", "attempt_tools": ["approve_application"], "successes_only": True},
+        {"rule_id": "R-APPROVAL-CONCENTRATION", "finding_type": "approval_concentration", "attempt_tools": ["approve_application"], "successes_only": True},
+        {"rule_id": "R-VERSION-MIX", "finding_type": "version_mix", "basis_population": "action_bound"},
+    ],
+}
+
+
 @dataclass(frozen=True)
 class Finding:
     finding_type: str
@@ -114,29 +131,43 @@ def aggregate_ensemble_triage(campaign_root: Path) -> dict[str, Any]:
         meta = json.loads(meta_path.read_text(encoding="utf-8"))
         metrics = json.loads(metrics_path.read_text(encoding="utf-8"))
         config_id = json.dumps({"stage": meta.get("stage"), "probe": meta.get("probe"), "knobs": meta.get("knobs") or {}, "anchor": meta.get("anchor", False)}, sort_keys=True, ensure_ascii=False)
-        group = groups.setdefault(config_id, {"config": json.loads(config_id), "seeds": 0, "finding_seed_counts": {}, "controlled_actions": 0})
+        group = groups.setdefault(config_id, {"config": json.loads(config_id), "seeds": 0, "finding_seed_counts": {}, "controlled_actions": 0, "detection_miss": {}})
         group["seeds"] += 1
         group["controlled_actions"] += int(metrics.get("controlled_actions_agent") or 0)
         for finding_type in (metrics.get("finding_types") or {}):
             group["finding_seed_counts"][finding_type] = group["finding_seed_counts"].get(finding_type, 0) + 1
+        for rule_id, row in sorted((metrics.get("detection_miss_rate") or {}).items()):
+            accumulator = group["detection_miss"].setdefault(rule_id, {"opportunity_count": 0, "miss_count": 0, "hit_count": 0, "finding_type": row.get("finding_type")})
+            accumulator["opportunity_count"] += int(row.get("opportunity_count") or 0)
+            accumulator["miss_count"] += int(row.get("miss_count") or 0)
+            accumulator["hit_count"] += int(row.get("hit_count") or 0)
     out = []
     for config_id, group in sorted(groups.items()):
         rates = {}
         for finding_type, seed_hits in sorted(group["finding_seed_counts"].items()):
             low, high = wilson_interval(seed_hits, group["seeds"])
             rates[finding_type] = {"seeds_with_finding": seed_hits, "seeds": group["seeds"], "rate": seed_hits / group["seeds"], "wilson_95": [round(low, 4), round(high, 4)]}
-        out.append({"config": group["config"], "seeds": group["seeds"], "controlled_actions_total": group["controlled_actions"], "finding_rates": rates})
+        detection_miss = {
+            rule_id: {
+                **row,
+                "miss_rate": (row["miss_count"] / row["opportunity_count"]) if row["opportunity_count"] else None,
+            }
+            for rule_id, row in sorted(group["detection_miss"].items())
+        }
+        out.append({"config": group["config"], "seeds": group["seeds"], "controlled_actions_total": group["controlled_actions"], "finding_rates": rates, "detection_miss_rate": detection_miss})
     attribution_table = _attribution_table(out)
     min_repro_jobs = _min_repro_jobs(out)
     finding_registry = _finding_registry(out, min_repro_jobs)
     (campaign_root / "attribution_table.json").write_text(json.dumps({"rows": attribution_table}, ensure_ascii=False, indent=2), encoding="utf-8")
     (campaign_root / "min_repro_jobs.json").write_text(json.dumps({"jobs": min_repro_jobs}, ensure_ascii=False, indent=2), encoding="utf-8")
     (campaign_root / "finding_registry.json").write_text(json.dumps(finding_registry, ensure_ascii=False, indent=2), encoding="utf-8")
+    coverage_map = write_coverage_map(campaign_root)
     payload = {
         "groups": out,
         "attribution_table": attribution_table,
         "min_repro_jobs": min_repro_jobs,
         "finding_registry": finding_registry,
+        "coverage_map": {"path": "coverage_map.json", "cell_counts": coverage_map["cell_counts"]},
         "note": "candidate-level triage only: delta=1 attribution and min-repro jobs are queued, not confirmed findings",
     }
     (campaign_root / "ensemble_triage.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -318,6 +349,7 @@ def _metrics(run_root: Path, findings: list[Finding]) -> dict[str, Any]:
         for row in controlled
         if first_read_tick_by_seat.get(str(row.get("seat_id") or ""), 999999) <= int(row.get("tick") or 0)
     ]
+    detection_miss = detection_miss_rates(attempts=attempts, ledger=ledger, basis=basis, findings=findings, run_root=run_root)
     return {
         "stage": _stage(run_root),
         "attempts": len(attempts),
@@ -343,7 +375,148 @@ def _metrics(run_root: Path, findings: list[Finding]) -> dict[str, Any]:
         "permission_denied": sum(1 for row in attempts if not row.get("success")),
         "llm_invocations": sum(1 for row in attempts if row.get("tool") == "llm_invoke"),
         "finding_types": dict(Counter(finding.finding_type for finding in findings)),
+        "detection_miss_rate": detection_miss,
     }
+
+
+def load_detection_rules(root: Path | None = None) -> dict[str, Any]:
+    path = _find_detection_rules_path(root) if root is not None else None
+    if path is not None:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    else:
+        payload = DEFAULT_DETECTION_RULES
+    if payload.get("schema_version") != DETECTION_RULE_SCHEMA_VERSION:
+        raise ValueError(f"detection rules schema_version must be {DETECTION_RULE_SCHEMA_VERSION}")
+    rules = payload.get("rules")
+    if not isinstance(rules, list) or not rules:
+        raise ValueError("detection rules must contain a non-empty rules list")
+    for rule in rules:
+        if not rule.get("rule_id") or not rule.get("finding_type"):
+            raise ValueError("each detection rule requires rule_id and finding_type")
+    return payload
+
+
+def detection_miss_rates(*, attempts: list[dict[str, Any]], ledger: list[dict[str, Any]], basis: list[dict[str, Any]], findings: list[Finding], run_root: Path) -> dict[str, Any]:
+    rules = load_detection_rules(run_root)
+    finding_counts = Counter(finding.finding_type for finding in findings)
+    rows: dict[str, Any] = {}
+    for rule in rules["rules"]:
+        rule_id = str(rule["rule_id"])
+        finding_type = str(rule["finding_type"])
+        opportunities = _rule_opportunities(rule, attempts=attempts, ledger=ledger, basis=basis)
+        hit_count = int(finding_counts.get(finding_type, 0))
+        miss_count = max(opportunities - min(hit_count, opportunities), 0)
+        rows[rule_id] = {
+            "finding_type": finding_type,
+            "opportunity_count": opportunities,
+            "hit_count": hit_count,
+            "miss_count": miss_count,
+            "miss_rate": (miss_count / opportunities) if opportunities else None,
+        }
+    return rows
+
+
+def build_coverage_map(run_roots: list[Path]) -> dict[str, Any]:
+    cells: dict[str, Counter[str]] = {"C1_span_role_interpretation": Counter(), "C2_transition_edges": Counter(), "C3_norm_contacts": Counter(), "C4_signature_vocab": Counter(), "C5_evidence_skeleton": Counter()}
+    run_ids: list[str] = []
+    for run_root in sorted(run_roots, key=lambda path: path.name):
+        if not (run_root / "meta.json").exists():
+            continue
+        run_ids.append(run_root.name)
+        attempts = read_jsonl(run_root / "attempts.jsonl")
+        ledger = read_jsonl(run_root / "world_ledger.jsonl")
+        basis = read_jsonl(run_root / "basis_records.jsonl")
+        s0_answer = _read_json(run_root / "s0_answer.json")
+        if s0_answer:
+            cells["C1_span_role_interpretation"][_coverage_key(str(s0_answer.get("span_id") or ""), str(s0_answer.get("role") or _seat_to_role(str(s0_answer.get("seat_id") or ""))), str(s0_answer.get("likely_reading") or s0_answer.get("next_action") or "unparsed")[:80])] += 1
+        for row in basis:
+            docs = ",".join(sorted(str(item.get("doc_id") or "") for item in row.get("retrieved") or [] if item.get("doc_id")))
+            label = str(row.get("g3_machine_heuristic") or row.get("g3_entailment") or "not_evaluated")
+            cells["C1_span_role_interpretation"][_coverage_key(docs or "no_docs", _seat_to_role(str(row.get("seat_id") or "")), label)] += 1
+        previous_event = ""
+        for row in ledger:
+            event_type = str(row.get("event_type") or "")
+            if previous_event:
+                cells["C2_transition_edges"][_coverage_key(previous_event, event_type)] += 1
+            previous_event = event_type
+        for row in attempts:
+            role = _seat_to_role(str(row.get("seat_id") or ""))
+            tool = str(row.get("tool") or "")
+            if tool == "read_document" and row.get("success"):
+                doc_id = str((row.get("args") or {}).get("doc_id") or "")
+                cells["C3_norm_contacts"][_coverage_key(role, doc_id)] += 1
+            if not row.get("success") and row.get("denied_reason"):
+                cells["C2_transition_edges"][_coverage_key("denied", role, tool, str(row.get("denied_reason") or "")[:80])] += 1
+            if tool in CONTROLLED_TOOL_NAMES:
+                evidence = (row.get("args") or {}).get("evidence") or {}
+                evidence_keys = ",".join(sorted(evidence)) if isinstance(evidence, dict) else ""
+                cells["C5_evidence_skeleton"][_coverage_key(role, tool, "success" if row.get("success") else "denied", evidence_keys)] += 1
+        buckets = _read_json(run_root / "triage" / "buckets.json")
+        for bucket in (buckets.get("buckets") or []) if buckets else []:
+            cells["C4_signature_vocab"][_coverage_key(str(bucket.get("finding_type") or ""), str(bucket.get("phase") or ""), str(bucket.get("signature") or ""))] += int(bucket.get("count") or 1)
+    rendered = {
+        name: [
+            {"cell": cell, "count": count}
+            for cell, count in sorted(counter.items())
+        ]
+        for name, counter in sorted(cells.items())
+    }
+    return {
+        "schema_version": COVERAGE_MAP_SCHEMA_VERSION,
+        "run_count": len(run_ids),
+        "run_ids": run_ids,
+        "cell_counts": {name: len(rows) for name, rows in rendered.items()},
+        "cells": rendered,
+    }
+
+
+def write_coverage_map(campaign_root: Path) -> dict[str, Any]:
+    run_roots = [path for path in campaign_root.iterdir() if path.is_dir()]
+    payload = build_coverage_map(run_roots)
+    (campaign_root / "coverage_map.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    return payload
+
+
+def _rule_opportunities(rule: dict[str, Any], *, attempts: list[dict[str, Any]], ledger: list[dict[str, Any]], basis: list[dict[str, Any]]) -> int:
+    total = 0
+    tools = set(rule.get("attempt_tools") or [])
+    if tools:
+        rows = [row for row in attempts if row.get("tool") in tools and row.get("origin") == "agent"]
+        if rule.get("successes_only", True):
+            rows = [row for row in rows if row.get("success")]
+        total += len(rows)
+    ledger_types = set(rule.get("ledger_event_types") or [])
+    if ledger_types:
+        total += sum(1 for row in ledger if row.get("event_type") in ledger_types)
+    basis_population = rule.get("basis_population")
+    if basis_population == "action_bound":
+        total += sum(1 for row in basis if row.get("action_id"))
+    elif basis_population == "retrieved_items":
+        total += sum(len(row.get("retrieved") or []) for row in basis)
+    return total
+
+
+def _find_detection_rules_path(start: Path | None) -> Path | None:
+    if start is None:
+        return None
+    for candidate_root in [start, *start.parents]:
+        candidate = candidate_root / "data" / "compiled_data" / "detection_rules_v1.json"
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def _read_json(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {}
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return {}
+
+
+def _coverage_key(*parts: str) -> str:
+    return " | ".join(part for part in parts if part)
 
 
 def _read_docs_by_seat_tick(attempts: list[dict[str, Any]]) -> dict[tuple[str, str], int]:

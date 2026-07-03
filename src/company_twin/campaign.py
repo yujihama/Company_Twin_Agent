@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import re
 from collections import Counter
 from dataclasses import asdict, dataclass
@@ -68,6 +69,31 @@ class S0MatrixRow:
     variant: int
 
 
+DEFAULT_S0_COLD_READ_MODELS = ("openrouter:qwen/qwen3.6-flash", "openrouter:qwen/qwen3.5-9b")
+
+
+def default_s0_models(model_name: str) -> list[str]:
+    configured = os.getenv("COMPANY_TWIN_S0_MODELS") or os.getenv("DEEPAGENT_S0_MODELS")
+    raw_models = [item.strip() for item in configured.split(",")] if configured else []
+    models = raw_models or [model_name, *DEFAULT_S0_COLD_READ_MODELS]
+    normalized: list[str] = []
+    for model in models:
+        if not model:
+            continue
+        value = normalize_openrouter_model(model)
+        if value not in normalized:
+            normalized.append(value)
+    if model_name not in normalized:
+        normalized.insert(0, model_name)
+    for fallback in DEFAULT_S0_COLD_READ_MODELS:
+        value = normalize_openrouter_model(fallback)
+        if value != model_name and value not in normalized:
+            normalized.append(value)
+        if len(normalized) >= 2:
+            break
+    return normalized
+
+
 def build_s0_matrix(design: DesignInputs, *, models: list[str], variants: int = 2) -> list[S0MatrixRow]:
     seats = sorted(seat_id for seat_id in design.seats if seat_id.startswith("emp-"))
     rows: list[S0MatrixRow] = []
@@ -99,6 +125,8 @@ def run_design_campaign(
     seat_factory: SeatFactory | None = None,
     customer_llm: CustomerLLM | None = None,
     prompt_mode: TurnPromptMode = "scaffold",
+    model_bindings: dict[str, str] | None = None,
+    scc_switch_tick: int | None = None,
 ) -> dict[str, Any]:
     """Live-only campaign: S0 battery -> divergence aggregation -> S1 ensemble -> (optional) S2 + anchor.
 
@@ -109,7 +137,8 @@ def run_design_campaign(
     campaign_root = root / "runs" / f"design_campaign_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
     campaign_root.mkdir(parents=True, exist_ok=True)
 
-    matrix = build_s0_matrix(design, models=s0_models or [model_name], variants=s0_variants)
+    campaign_s0_models = [normalize_openrouter_model(model) for model in (s0_models or default_s0_models(model_name))]
+    matrix = build_s0_matrix(design, models=campaign_s0_models, variants=s0_variants)
     (campaign_root / "s0_matrix.json").write_text(json.dumps([asdict(row) for row in matrix], ensure_ascii=False, indent=2), encoding="utf-8")
     selected = matrix if s0_limit is None else _diverse_s0_rows(matrix, budget=s0_limit)
 
@@ -135,7 +164,20 @@ def run_design_campaign(
     s1_roots: list[str] = []
     for seed in range(s1_k):
         s1_root = campaign_root / f"s1_{promoted_probe}_seed{seed}"
-        run_s1_episode(design=design, corpus=corpus, probe_id=promoted_probe, run_root=s1_root, model=model_name, knobs={}, seed=seed, seat_factory=seat_factory, customer_llm=customer_llm, prompt_mode=prompt_mode)
+        run_s1_episode(
+            design=design,
+            corpus=corpus,
+            probe_id=promoted_probe,
+            run_root=s1_root,
+            model=model_name,
+            knobs={},
+            seed=seed,
+            seat_factory=seat_factory,
+            customer_llm=customer_llm,
+            prompt_mode=prompt_mode,
+            model_bindings=model_bindings,
+            scc_switch_tick=scc_switch_tick,
+        )
         write_triage(s1_root)
         s1_roots.append(str(s1_root))
 
@@ -143,18 +185,49 @@ def run_design_campaign(
     anchor_root: str | None = None
     if with_s2:
         anchor_path = campaign_root / "anchor_s2_seed0"
-        run_s2_world(design=design, corpus=corpus, run_root=anchor_path, model=model_name, knobs={}, seed=0, ticks=s2_ticks, anchor=True, seat_factory=seat_factory, customer_llm=customer_llm, prompt_mode=prompt_mode)
+        run_s2_world(
+            design=design,
+            corpus=corpus,
+            run_root=anchor_path,
+            model=model_name,
+            knobs={},
+            seed=0,
+            ticks=s2_ticks,
+            anchor=True,
+            seat_factory=seat_factory,
+            customer_llm=customer_llm,
+            prompt_mode=prompt_mode,
+            model_bindings=model_bindings,
+            scc_switch_tick=scc_switch_tick,
+        )
         write_triage(anchor_path)
         anchor_root = str(anchor_path)
         for seed in range(s2_k):
             s2_root = campaign_root / f"s2_seed{seed}"
-            run_s2_world(design=design, corpus=corpus, run_root=s2_root, model=model_name, knobs={}, seed=seed, ticks=s2_ticks, anchor=False, seat_factory=seat_factory, customer_llm=customer_llm, prompt_mode=prompt_mode)
+            run_s2_world(
+                design=design,
+                corpus=corpus,
+                run_root=s2_root,
+                model=model_name,
+                knobs={},
+                seed=seed,
+                ticks=s2_ticks,
+                anchor=False,
+                seat_factory=seat_factory,
+                customer_llm=customer_llm,
+                prompt_mode=prompt_mode,
+                model_bindings=model_bindings,
+                scc_switch_tick=scc_switch_tick,
+            )
             write_triage(s2_root)
             s2_roots.append(str(s2_root))
 
     summary = {
         "campaign_root": str(campaign_root),
         "model": model_name,
+        "s0_models": campaign_s0_models,
+        "model_bindings": model_bindings or {},
+        "scc_switch_tick": scc_switch_tick,
         "s0_matrix_rows_generated": len(matrix),
         "s0_rows_executed": len(selected),
         "promoted_probe": promoted_probe,

@@ -35,6 +35,20 @@ def _require_live(base: Path) -> None:
         raise typer.BadParameter(f"live execution is required for all runs; {detail}")
 
 
+def _seat_model_bindings(values: list[str] | None) -> dict[str, str]:
+    bindings: dict[str, str] = {}
+    for value in values or []:
+        if "=" not in value:
+            raise typer.BadParameter(f"--seat-model must be seat_id=model, got {value!r}")
+        seat_id, model = value.split("=", 1)
+        seat_id = seat_id.strip()
+        model = model.strip()
+        if not seat_id or not model:
+            raise typer.BadParameter(f"--seat-model must be seat_id=model, got {value!r}")
+        bindings[seat_id] = normalize_openrouter_model(model)
+    return bindings
+
+
 @app.command("inspect")
 def inspect_inputs(root: Annotated[Path | None, typer.Option("--root")] = None, as_json: Annotated[bool, typer.Option("--json")] = False) -> None:
     """Inspect compiled design inputs and raw document availability."""
@@ -97,6 +111,8 @@ def s1(
     run_root: Annotated[Path | None, typer.Option("--run-root")] = None,
     model: Annotated[str | None, typer.Option("--model")] = None,
     prompt_mode: Annotated[str, typer.Option("--prompt-mode", help="scaffold | measurement")] = "scaffold",
+    seat_model: Annotated[list[str] | None, typer.Option("--seat-model", help="Per-seat model binding, e.g. emp-A=openrouter:qwen/qwen3.6-flash")] = None,
+    scc_switch_tick: Annotated[int | None, typer.Option("--scc-switch-tick", help="Tick at which K-completion-gate becomes active")] = None,
 ) -> None:
     """Run one live S1 multi-seat episode."""
     base = _root(root)
@@ -105,7 +121,7 @@ def s1(
     corpus = Corpus.from_design(design)
     knobs = {"K-completion-gate": strict_completion, "K-material-picker": strict_material}
     target_root = (run_root or make_run_root(base, f"s1_{probe}")).resolve()
-    result = run_s1_episode(design=design, corpus=corpus, probe_id=probe, run_root=target_root, model=model, knobs=knobs, seed=seed, ticks=ticks, prompt_mode=prompt_mode)  # type: ignore[arg-type]
+    result = run_s1_episode(design=design, corpus=corpus, probe_id=probe, run_root=target_root, model=model, knobs=knobs, seed=seed, ticks=ticks, prompt_mode=prompt_mode, model_bindings=_seat_model_bindings(seat_model), scc_switch_tick=scc_switch_tick)  # type: ignore[arg-type]
     write_triage(target_root)
     _echo_json(result)
 
@@ -119,6 +135,8 @@ def s2(
     run_root: Annotated[Path | None, typer.Option("--run-root")] = None,
     model: Annotated[str | None, typer.Option("--model")] = None,
     prompt_mode: Annotated[str, typer.Option("--prompt-mode", help="scaffold | measurement")] = "scaffold",
+    seat_model: Annotated[list[str] | None, typer.Option("--seat-model", help="Per-seat model binding, e.g. emp-A=openrouter:qwen/qwen3.6-flash")] = None,
+    scc_switch_tick: Annotated[int | None, typer.Option("--scc-switch-tick", help="Tick at which K-completion-gate becomes active")] = None,
 ) -> None:
     """Run one live S2 world (full deck)."""
     base = _root(root)
@@ -126,7 +144,7 @@ def s2(
     design = load_design(base)
     corpus = Corpus.from_design(design)
     target_root = (run_root or make_run_root(base, "anchor_s2" if anchor else "s2")).resolve()
-    result = run_s2_world(design=design, corpus=corpus, run_root=target_root, model=model, knobs={}, seed=seed, ticks=ticks, anchor=anchor, prompt_mode=prompt_mode)  # type: ignore[arg-type]
+    result = run_s2_world(design=design, corpus=corpus, run_root=target_root, model=model, knobs={}, seed=seed, ticks=ticks, anchor=anchor, prompt_mode=prompt_mode, model_bindings=_seat_model_bindings(seat_model), scc_switch_tick=scc_switch_tick)  # type: ignore[arg-type]
     write_triage(target_root)
     _echo_json(result)
 
@@ -144,6 +162,8 @@ def campaign(
     root: Annotated[Path | None, typer.Option("--root")] = None,
     model: Annotated[str | None, typer.Option("--model")] = None,
     prompt_mode: Annotated[str, typer.Option("--prompt-mode", help="scaffold | measurement")] = "scaffold",
+    seat_model: Annotated[list[str] | None, typer.Option("--seat-model", help="Per-seat model binding, e.g. emp-A=openrouter:qwen/qwen3.6-flash")] = None,
+    scc_switch_tick: Annotated[int | None, typer.Option("--scc-switch-tick", help="Tick at which K-completion-gate becomes active")] = None,
 ) -> None:
     """Run a live campaign: S0 battery -> S1 ensemble -> optional S2 + anchor -> acceptance."""
     base = _root(root)
@@ -164,6 +184,8 @@ def campaign(
         s2_k=s2_k,
         s2_ticks=s2_ticks,
         prompt_mode=prompt_mode,  # type: ignore[arg-type]
+        model_bindings=_seat_model_bindings(seat_model),
+        scc_switch_tick=scc_switch_tick,
     )
     _echo_json(payload)
 
