@@ -151,6 +151,30 @@ def test_turn_prompt_does_not_leak_experimenter_coordinates() -> None:
         assert forbidden.lower() not in prompt.lower()
 
 
+def test_measurement_turn_prompt_allows_hold_without_mode_leak() -> None:
+    prompt = _turn_prompt(
+        tick=2,
+        ticks=40,
+        budget_left=3,
+        mode="measurement",
+        messages=[
+            {
+                "kind": "chat",
+                "tick": 2,
+                "from": "emp-A",
+                "channel": "workflow",
+                "body": "APP-LINT の判断を確認してください。",
+            }
+        ],
+    )
+
+    assert "defer_or_hold" in prompt
+    assert "無理に発生させる必要はありません" in prompt
+    assert "いずれか実際のworld toolを呼び出してください" not in prompt
+    assert "measurement" not in prompt.lower()
+    assert "scaffold" not in prompt.lower()
+
+
 def test_world_prompt_leak_lint_flags_seeded_coordinates() -> None:
     failures = _world_prompt_leak_failures("turn_prompt", '{"span_id":"AMB-02","latent_truth":"x"}')
     details = " ".join(row["detail"] for row in failures)

@@ -146,3 +146,18 @@ def test_kernel_grounding_uses_citation_handle_not_seeded_span(tmp_path: Path) -
     triage = write_triage(tmp_path)
     assert triage["metrics"]["grounding_g1_citation_handle_exists_rate"] == 1.0
     assert triage["metrics"]["grounding_g2_prior_read_rate"] == 1.0
+
+
+def test_defer_or_hold_records_world_visible_choice(tmp_path: Path) -> None:
+    recorder = RunRecorder(tmp_path, "hold")
+    kernel = WorldKernel(recorder)
+
+    with recorder.origin("agent"):
+        result = kernel.defer_or_hold("emp-A", "APP-1", "上席確認待ち", "次ティックで回答確認", until_tick=3)
+
+    assert result["hold_id"].startswith("HOLD-")
+    ledger = (tmp_path / "world_ledger.jsonl").read_text(encoding="utf-8")
+    attempts = (tmp_path / "attempts.jsonl").read_text(encoding="utf-8")
+    assert '"event_type": "defer_or_hold"' in ledger
+    assert '"tool": "defer_or_hold"' in attempts
+    assert '"origin": "agent"' in attempts

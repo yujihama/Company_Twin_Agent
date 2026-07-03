@@ -152,6 +152,21 @@ class WorldKernel:
         self.recorder.record_attempt(seat_id=seat_id, tool="send_chat", args={"to_seat": to_seat, "channel": channel}, success=True, result={"sent": True})
         return {"sent": True}
 
+    def defer_or_hold(self, seat_id: str, application_id: str, reason: str, next_step: str, until_tick: int | None = None) -> dict[str, Any]:
+        self.event_counter += 1
+        hold_id = f"HOLD-{self.event_counter:06d}"
+        payload = {
+            "hold_id": hold_id,
+            "application_id": application_id,
+            "seat_id": seat_id,
+            "reason": reason,
+            "next_step": next_step,
+            "until_tick": until_tick,
+        }
+        self.recorder.append_ledger("defer_or_hold", payload)
+        self.recorder.record_attempt(seat_id=seat_id, tool="defer_or_hold", args=payload, success=True, result=payload)
+        return payload
+
     def record_customer_contact(self, seat_id: str, customer_id: str, channel: str, summary: str, basis: dict[str, Any]) -> dict[str, Any]:
         action_id = self._next_action_id("contact")
         denial = self._basis_denial(seat_id, action_id, "record_customer_contact", {"customer_id": customer_id}, basis)
@@ -371,9 +386,9 @@ class WorldKernel:
             felt_constraints=str(basis.get("felt_constraints") or ""),
             confidence=float(basis.get("confidence", 0.5)),
             grounded=action_grounded,
-            # Backward-compatible alias: historical run bundles used this
-            # field for seeded span registry coordinates. New world runs set it
-            # from the opaque citation handle check instead.
+            # Backward-compatible alias: historical run bundles used this field
+            # for an older coordinate check. New world runs set it from the
+            # opaque citation handle check instead.
             g1_span_exists=g1_citation_handle_exists,
             g1_citation_handle_exists=g1_citation_handle_exists,
             g2_prior_read=g2_prior_read,

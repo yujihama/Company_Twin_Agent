@@ -96,6 +96,7 @@ def s1(
     root: Annotated[Path | None, typer.Option("--root")] = None,
     run_root: Annotated[Path | None, typer.Option("--run-root")] = None,
     model: Annotated[str | None, typer.Option("--model")] = None,
+    prompt_mode: Annotated[str, typer.Option("--prompt-mode", help="scaffold | measurement")] = "scaffold",
 ) -> None:
     """Run one live S1 multi-seat episode."""
     base = _root(root)
@@ -104,7 +105,7 @@ def s1(
     corpus = Corpus.from_design(design)
     knobs = {"K-completion-gate": strict_completion, "K-material-picker": strict_material}
     target_root = (run_root or make_run_root(base, f"s1_{probe}")).resolve()
-    result = run_s1_episode(design=design, corpus=corpus, probe_id=probe, run_root=target_root, model=model, knobs=knobs, seed=seed, ticks=ticks)
+    result = run_s1_episode(design=design, corpus=corpus, probe_id=probe, run_root=target_root, model=model, knobs=knobs, seed=seed, ticks=ticks, prompt_mode=prompt_mode)  # type: ignore[arg-type]
     write_triage(target_root)
     _echo_json(result)
 
@@ -117,6 +118,7 @@ def s2(
     root: Annotated[Path | None, typer.Option("--root")] = None,
     run_root: Annotated[Path | None, typer.Option("--run-root")] = None,
     model: Annotated[str | None, typer.Option("--model")] = None,
+    prompt_mode: Annotated[str, typer.Option("--prompt-mode", help="scaffold | measurement")] = "scaffold",
 ) -> None:
     """Run one live S2 world (full deck)."""
     base = _root(root)
@@ -124,7 +126,7 @@ def s2(
     design = load_design(base)
     corpus = Corpus.from_design(design)
     target_root = (run_root or make_run_root(base, "anchor_s2" if anchor else "s2")).resolve()
-    result = run_s2_world(design=design, corpus=corpus, run_root=target_root, model=model, knobs={}, seed=seed, ticks=ticks, anchor=anchor)
+    result = run_s2_world(design=design, corpus=corpus, run_root=target_root, model=model, knobs={}, seed=seed, ticks=ticks, anchor=anchor, prompt_mode=prompt_mode)  # type: ignore[arg-type]
     write_triage(target_root)
     _echo_json(result)
 
@@ -141,6 +143,7 @@ def campaign(
     s2_ticks: Annotated[int, typer.Option("--s2-ticks")] = 40,
     root: Annotated[Path | None, typer.Option("--root")] = None,
     model: Annotated[str | None, typer.Option("--model")] = None,
+    prompt_mode: Annotated[str, typer.Option("--prompt-mode", help="scaffold | measurement")] = "scaffold",
 ) -> None:
     """Run a live campaign: S0 battery -> S1 ensemble -> optional S2 + anchor -> acceptance."""
     base = _root(root)
@@ -160,6 +163,7 @@ def campaign(
         with_s2=with_s2,
         s2_k=s2_k,
         s2_ticks=s2_ticks,
+        prompt_mode=prompt_mode,  # type: ignore[arg-type]
     )
     _echo_json(payload)
 

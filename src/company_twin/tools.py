@@ -12,7 +12,7 @@ from .recorder import BasisRecord, RunRecorder, utc_now
 # Exposure reflects what that role's system screens offer. submit_application is
 # deliberately exposed to sales AND application: whether sales may actually
 # submit is the K-sod-gate experiment knob, not a hard bundle restriction.
-COMMON_TOOLS = ("search_corpus", "read_document", "record_interpretation_basis", "send_chat")
+COMMON_TOOLS = ("search_corpus", "read_document", "record_interpretation_basis", "send_chat", "defer_or_hold")
 D4_TOOLS = ("note_to_self", "recall_notes")
 ROLE_TOOL_BUNDLES: dict[str, tuple[str, ...]] = {
     "sales": COMMON_TOOLS + ("record_customer_contact", "request_approval", "submit_application"),
@@ -126,6 +126,12 @@ def build_role_tools(*, corpus: Corpus, kernel: WorldKernel, recorder: RunRecord
             return json.dumps({"success": False, "denied_reason": "tick budget exceeded"}, ensure_ascii=False)
         return json.dumps(kernel.send_chat(seat_id, to_seat, channel, body), ensure_ascii=False)
 
+    def defer_or_hold(application_id: str, reason: str, next_step: str, until_tick: int | None = None) -> str:
+        """Record that this item is deliberately held, deferred, or carried to a later tick."""
+        if not recorder.consume_budget(seat_id, "defer_or_hold"):
+            return json.dumps({"success": False, "denied_reason": "tick budget exceeded"}, ensure_ascii=False)
+        return json.dumps(kernel.defer_or_hold(seat_id, application_id, reason, next_step, until_tick), ensure_ascii=False)
+
     def record_customer_contact(customer_id: str, channel: str, summary: str, basis_json: str) -> str:
         """Record a customer contact event. basis_json is required for control-relevant contacts."""
         if not recorder.consume_budget(seat_id, "record_customer_contact"):
@@ -193,7 +199,7 @@ def build_role_tools(*, corpus: Corpus, kernel: WorldKernel, recorder: RunRecord
         tool.__name__: tool
         for tool in (
             search_corpus, read_document, record_interpretation_basis, note_to_self, recall_notes,
-            send_chat, record_customer_contact, request_approval, submit_application,
+            send_chat, defer_or_hold, record_customer_contact, request_approval, submit_application,
             approve_application, return_application, verify_identity, link_review,
             complete_contract, deliver_documents,
         )

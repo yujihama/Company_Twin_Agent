@@ -52,7 +52,7 @@ def run_l0_triage(run_root: Path) -> list[Finding]:
             doc_id = str(item.get("doc_id") or "")
             citation_handle = str(item.get("citation_handle") or "")
             if "span_id" in item:
-                findings.append(_finding("world_basis_leak", row.get("seat_id", ""), doc_id, "basis", "basis includes seeded span_id instead of citation_handle"))
+                findings.append(_finding("world_basis_leak", row.get("seat_id", ""), doc_id, "basis", "basis includes span_id instead of citation_handle"))
             if not citation_handle:
                 findings.append(_finding("grounding_gap", row.get("seat_id", ""), doc_id, "basis", "basis missing citation_handle"))
             elif not _handle_read_before(read_handles_by_seat_tick, str(row.get("seat_id") or ""), citation_handle, int(row.get("tick") or 0)):

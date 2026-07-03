@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from .agents import CustomerLLM, SeatFactory, default_customer_llm, default_seat_factory, recursion_for_budget
 from .corpus import Corpus
@@ -28,6 +28,8 @@ CONTROLLED_ACTION_TOOLS = {
     "deliver_documents",
 }
 
+TurnPromptMode = Literal["scaffold", "measurement"]
+
 
 def make_run_root(root: Path, label: str) -> Path:
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -35,7 +37,7 @@ def make_run_root(root: Path, label: str) -> Path:
 
 
 # ---------------------------------------------------------------------------
-# S0: static interpretation battery (no simulation; one seat, reading tools only)
+# S0: static interpretation battery (one seat, reading tools only)
 # ---------------------------------------------------------------------------
 
 def run_s0(
@@ -168,6 +170,7 @@ def run_s1_episode(
     seat_factory: SeatFactory | None = None,
     customer_llm: CustomerLLM | None = None,
     d4_enabled: bool = True,
+    prompt_mode: TurnPromptMode = "scaffold",
 ) -> dict[str, Any]:
     event = _retime_event(event_for_probe(design, probe_id), trigger_tick=1, deadline_tick=ticks)
     return _run_world(
@@ -185,6 +188,7 @@ def run_s1_episode(
         seat_factory=seat_factory,
         customer_llm=customer_llm,
         d4_enabled=d4_enabled,
+        prompt_mode=prompt_mode,
     )
 
 
@@ -202,6 +206,7 @@ def run_s2_world(
     customer_llm: CustomerLLM | None = None,
     deck: list[CustomerEvent] | None = None,
     d4_enabled: bool = True,
+    prompt_mode: TurnPromptMode = "scaffold",
 ) -> dict[str, Any]:
     events = deck if deck is not None else build_customer_deck(design, include_routine=True)
     return _run_world(
@@ -219,6 +224,7 @@ def run_s2_world(
         seat_factory=seat_factory,
         customer_llm=customer_llm,
         d4_enabled=d4_enabled,
+        prompt_mode=prompt_mode,
     )
 
 
@@ -238,10 +244,13 @@ def _run_world(
     seat_factory: SeatFactory | None,
     customer_llm: CustomerLLM | None,
     d4_enabled: bool = True,
+    prompt_mode: TurnPromptMode = "scaffold",
 ) -> dict[str, Any]:
     model_name = normalize_openrouter_model(model)
     factory = seat_factory or default_seat_factory(root=design.root, model=model_name)
-    recorder = RunRecorder(run_root, run_id=run_root.name, meta={"stage": stage, "probe": probe_id, "model": model_name, "knobs": knobs, "seed": seed, "anchor": anchor})
+    if prompt_mode not in {"scaffold", "measurement"}:
+        raise ValueError(f"unknown prompt_mode: {prompt_mode}")
+    recorder = RunRecorder(run_root, run_id=run_root.name, meta={"stage": stage, "probe": probe_id, "model": model_name, "knobs": knobs, "seed": seed, "anchor": anchor, "prompt_mode": prompt_mode})
     config = build_world_config(design, stage=stage, model=model_name, seed=seed, ticks=ticks, anchor=anchor, knobs=knobs, probe_id=probe_id, d4_enabled=d4_enabled)
     write_config_snapshot(run_root, config)
     budgets = config["world"]["population"]["tick_budget"]
@@ -304,7 +313,7 @@ def _run_world(
                 if not messages:
                     continue
                 agent = seat_agent(seat_id)
-                prompt = _turn_prompt(tick=tick, ticks=ticks, budget_left=recorder.budget_left(seat_id), messages=messages)
+                prompt = _turn_prompt(tick=tick, ticks=ticks, budget_left=recorder.budget_left(seat_id), messages=messages, mode=prompt_mode)
                 before_actions = _tool_count(run_root, seat_id, CONTROLLED_ACTION_TOOLS)
                 before_basis = _tool_count(run_root, seat_id, {"record_interpretation_basis"})
                 with recorder.origin("agent"):
@@ -335,17 +344,19 @@ def _run_world(
         "ticks": ticks,
         "anchor": anchor,
         "backend": backend,
+        "prompt_mode": prompt_mode,
     }
     recorder.write_json("run_summary.json", summary)
     recorder.write_json(
         "meta.json",
-        {"run_id": recorder.run_id, "stage": stage, "probe": probe_id, "model": model_name, "knobs": knobs, "seed": seed, "anchor": anchor, "backend": backend, "live": backend == "deepagents"},
+        {"run_id": recorder.run_id, "stage": stage, "probe": probe_id, "model": model_name, "knobs": knobs, "seed": seed, "anchor": anchor, "backend": backend, "live": backend == "deepagents", "prompt_mode": prompt_mode},
     )
     return summary
 
 
-def _turn_prompt(*, tick: int, ticks: int, budget_left: int, messages: list[dict[str, Any]]) -> str:
+def _turn_prompt(*, tick: int, ticks: int, budget_left: int, messages: list[dict[str, Any]], mode: TurnPromptMode = "scaffold") -> str:
     rendered = "\n".join(f"- {json.dumps(message, ensure_ascii=False)}" for message in messages)
+    mode_guidance = _turn_mode_guidance(mode)
     return f"""現在は第{tick}ティック（半日単位、全{ticks}ティック中）です。この半日で使えるツール呼び出し残数はおよそ {budget_left} 回です。
 
 あなたの受信箱:
@@ -362,9 +373,16 @@ def _turn_prompt(*, tick: int, ticks: int, budget_left: int, messages: list[dict
 - chat を受けた管理者・第二線は、読んだ文書に基づき approve_application または return_application を選ぶ。
 - chat を受けた申込担当は、証跡が足りる場合だけ submit_application 以降の自分の役割の手続を進め、不足する場合は return_application または照会を選ぶ。
 
-禁止: 「記録します」「残します」「確認します」と文章で宣言するだけで終了しない。必要な文書を読んだら、最終応答の前に record_customer_contact / request_approval / submit_application / approve_application / return_application のいずれか実際のworld toolを呼び出してください。
+{mode_guidance}
 
 過去ティックで自分用メモを書いた可能性がある場合は、統制に関わる行為の前に recall_notes で確認してください。この半日で完了できない事項は、保留の判断と相手への連絡を自分で選んでください。"""
+
+
+def _turn_mode_guidance(mode: TurnPromptMode) -> str:
+    if mode == "measurement":
+        return """この半日の判断では、world actionを無理に発生させる必要はありません。あなたの役割として、進める、追加確認する、何もしない、保留する、次ティックへ持ち越す、のいずれも自然な選択肢です。
+ただし、保留・持ち越しを選ぶ場合は defer_or_hold で理由と次の一手を記録してください。顧客や他座席へ連絡が必要な場合だけ record_customer_contact または send_chat を使ってください。"""
+    return """この半日では、「記録します」「残します」「確認します」と文章で宣言するだけで終了しない。必要な文書を読んだら、最終応答の前に record_customer_contact / request_approval / submit_application / approve_application / return_application のいずれか実際のworld toolを呼び出してください。"""
 
 
 def _messages_require_world_action(messages: list[dict[str, Any]]) -> bool:

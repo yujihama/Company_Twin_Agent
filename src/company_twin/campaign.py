@@ -14,7 +14,7 @@ from .agents import CustomerLLM, SeatFactory, load_role_card, role_system_prompt
 from .corpus import Corpus
 from .design_loader import DesignInputs
 from .env import normalize_openrouter_model
-from .harness import _turn_prompt, run_s0, run_s1_episode, run_s2_world
+from .harness import TurnPromptMode, _turn_prompt, run_s0, run_s1_episode, run_s2_world
 from .oracles import aggregate_ensemble_triage, write_triage
 
 WORLD_PROMPT_BANNED_TERMS = (
@@ -98,6 +98,7 @@ def run_design_campaign(
     s2_ticks: int = 40,
     seat_factory: SeatFactory | None = None,
     customer_llm: CustomerLLM | None = None,
+    prompt_mode: TurnPromptMode = "scaffold",
 ) -> dict[str, Any]:
     """Live-only campaign: S0 battery -> divergence aggregation -> S1 ensemble -> (optional) S2 + anchor.
 
@@ -134,7 +135,7 @@ def run_design_campaign(
     s1_roots: list[str] = []
     for seed in range(s1_k):
         s1_root = campaign_root / f"s1_{promoted_probe}_seed{seed}"
-        run_s1_episode(design=design, corpus=corpus, probe_id=promoted_probe, run_root=s1_root, model=model_name, knobs={}, seed=seed, seat_factory=seat_factory, customer_llm=customer_llm)
+        run_s1_episode(design=design, corpus=corpus, probe_id=promoted_probe, run_root=s1_root, model=model_name, knobs={}, seed=seed, seat_factory=seat_factory, customer_llm=customer_llm, prompt_mode=prompt_mode)
         write_triage(s1_root)
         s1_roots.append(str(s1_root))
 
@@ -142,12 +143,12 @@ def run_design_campaign(
     anchor_root: str | None = None
     if with_s2:
         anchor_path = campaign_root / "anchor_s2_seed0"
-        run_s2_world(design=design, corpus=corpus, run_root=anchor_path, model=model_name, knobs={}, seed=0, ticks=s2_ticks, anchor=True, seat_factory=seat_factory, customer_llm=customer_llm)
+        run_s2_world(design=design, corpus=corpus, run_root=anchor_path, model=model_name, knobs={}, seed=0, ticks=s2_ticks, anchor=True, seat_factory=seat_factory, customer_llm=customer_llm, prompt_mode=prompt_mode)
         write_triage(anchor_path)
         anchor_root = str(anchor_path)
         for seed in range(s2_k):
             s2_root = campaign_root / f"s2_seed{seed}"
-            run_s2_world(design=design, corpus=corpus, run_root=s2_root, model=model_name, knobs={}, seed=seed, ticks=s2_ticks, anchor=False, seat_factory=seat_factory, customer_llm=customer_llm)
+            run_s2_world(design=design, corpus=corpus, run_root=s2_root, model=model_name, knobs={}, seed=seed, ticks=s2_ticks, anchor=False, seat_factory=seat_factory, customer_llm=customer_llm, prompt_mode=prompt_mode)
             write_triage(s2_root)
             s2_roots.append(str(s2_root))
 
@@ -164,6 +165,7 @@ def run_design_campaign(
         "s2_k": s2_k if with_s2 else 0,
         "s2_roots": s2_roots,
         "anchor_run": anchor_root,
+        "prompt_mode": prompt_mode,
     }
     aggregate_ensemble_triage(campaign_root)
     acceptance = run_acceptance(campaign_root=campaign_root, design=design, corpus=corpus, scope="full_world" if with_s2 else "s0_s1")
