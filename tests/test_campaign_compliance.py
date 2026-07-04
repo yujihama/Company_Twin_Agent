@@ -178,6 +178,58 @@ def test_s0_divergence_separates_unparsed_from_novel_queue(tmp_path: Path) -> No
     assert payload["human_review_queue"] == []
 
 
+def test_s0_entropy_excludes_unparsed_but_keeps_no_grounded(tmp_path: Path) -> None:
+    design = load_design(Path.cwd())
+    run_root = tmp_path / "s0"
+    run_root.mkdir()
+    (run_root / "meta.json").write_text(json.dumps({"live": True}), encoding="utf-8")
+
+    payload = aggregate_s0_divergence(
+        design,
+        [
+            {
+                "probe_id": "P-10",
+                "span_id": "STR-01",
+                "seat_id": "emp-A",
+                "model": "m1",
+                "variant": 0,
+                "run_root": str(run_root),
+                "response": "{}",
+                "parsed": True,
+                "likely_reading": "\u7ba1\u7406\u8005\u306e\u78ba\u8a8d\u3067\u8db3\u308a\u308b",
+            },
+            {
+                "probe_id": "P-10",
+                "span_id": "STR-01",
+                "seat_id": "emp-A",
+                "model": "m2",
+                "variant": 1,
+                "run_root": str(run_root),
+                "response": "",
+                "parsed": False,
+                "outcome": "recursion_exhausted",
+            },
+            {
+                "probe_id": "P-10",
+                "span_id": "STR-01",
+                "seat_id": "emp-A",
+                "model": "m3",
+                "variant": 2,
+                "run_root": str(run_root),
+                "response": "",
+                "parsed": False,
+            },
+        ],
+        campaign_root=tmp_path,
+    )
+
+    cell = payload["cells"][0]
+    assert cell["clusters"] == {"manager_route": 1, "no_grounded_answer": 1, "unparsed": 1}
+    assert cell["entropy_clusters"] == {"manager_route": 1, "no_grounded_answer": 1}
+    assert cell["entropy_excluded_clusters"] == {"unparsed": 1}
+    assert cell["entropy"] == 1.0
+
+
 def test_role_cards_do_not_copy_corpus_text() -> None:
     """Role cards may describe habits and tensions but must not smuggle normative
     document text into the seat prompt (MASTER_DESIGN P5)."""

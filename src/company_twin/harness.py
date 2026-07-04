@@ -15,7 +15,7 @@ from .deck import CustomerEvent, build_customer_deck, event_for_probe
 from .design_loader import DesignInputs
 from .env import normalize_openrouter_model
 from .kernel import KernelProfile, WorldKernel
-from .recorder import RunRecorder, read_jsonl
+from .recorder import RunRecorder
 from .tools import build_role_tools
 from .world_config import build_world_config
 
@@ -369,8 +369,8 @@ def _run_world(
                     continue
                 agent = seat_agent(seat_id)
                 prompt = _turn_prompt(tick=tick, ticks=ticks, budget_left=recorder.budget_left(seat_id), messages=messages, mode=prompt_mode)
-                before_actions = _tool_count(run_root, seat_id, CONTROLLED_ACTION_TOOLS)
-                before_basis = _tool_count(run_root, seat_id, {"record_interpretation_basis"})
+                before_actions = _tool_count(recorder, seat_id, CONTROLLED_ACTION_TOOLS)
+                before_basis = _tool_count(recorder, seat_id, {"record_interpretation_basis"})
                 with recorder.origin("agent"):
                     try:
                         response = agent.turn(prompt)
@@ -382,8 +382,8 @@ def _run_world(
                         continue
                 recorder.append_ledger("agent_response", {"seat_id": seat_id, "response": response[:2000], "message_count": len(messages)})
                 agent_turns += 1
-                after_actions = _tool_count(run_root, seat_id, CONTROLLED_ACTION_TOOLS)
-                after_basis = _tool_count(run_root, seat_id, {"record_interpretation_basis"})
+                after_actions = _tool_count(recorder, seat_id, CONTROLLED_ACTION_TOOLS)
+                after_basis = _tool_count(recorder, seat_id, {"record_interpretation_basis"})
                 if stage == "S1" and tick < ticks and _messages_require_world_action(messages) and after_actions == before_actions and after_basis == before_basis:
                     for message in messages:
                         kernel.enqueue_inbox(seat_id, message)
@@ -460,13 +460,8 @@ def _messages_require_world_action(messages: list[dict[str, Any]]) -> bool:
     return any(str(message.get("kind") or "") in {"customer_utterance", "chat"} for message in messages)
 
 
-def _tool_count(run_root: Path, seat_id: str, tools: set[str]) -> int:
-    attempts_path = run_root / "attempts.jsonl"
-    return sum(
-        1
-        for row in read_jsonl(attempts_path)
-        if row.get("seat_id") == seat_id and row.get("origin") == "agent" and row.get("tool") in tools and row.get("success")
-    )
+def _tool_count(recorder: RunRecorder, seat_id: str, tools: set[str]) -> int:
+    return recorder.successful_attempt_count(seat_id=seat_id, tools=tools, origin="agent")
 
 
 def _retime_event(event: CustomerEvent, *, trigger_tick: int, deadline_tick: int) -> CustomerEvent:

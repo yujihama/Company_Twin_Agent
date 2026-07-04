@@ -598,8 +598,20 @@ def aggregate_s0_control_pair_attribution(design: DesignInputs, s0_results: list
     return payload
 
 
+ENTROPY_EXCLUDED_CLUSTERS = frozenset({"unparsed"})
+
+
+def _entropy_clusters(clusters: Counter[str]) -> Counter[str]:
+    return Counter({cluster: count for cluster, count in clusters.items() if cluster not in ENTROPY_EXCLUDED_CLUSTERS})
+
+
+def _entropy_excluded_clusters(clusters: Counter[str]) -> dict[str, int]:
+    return {cluster: count for cluster, count in sorted(clusters.items()) if cluster in ENTROPY_EXCLUDED_CLUSTERS}
+
+
 def _s0_condition_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
     clusters = Counter(str(row.get("cluster") or "novel_or_unclassified") for row in rows)
+    entropy_clusters = _entropy_clusters(clusters)
     total = sum(clusters.values())
     distribution = {cluster: round(count / total, 4) for cluster, count in sorted(clusters.items())} if total else {}
     dominant = clusters.most_common(1)[0][0] if clusters else None
@@ -613,7 +625,9 @@ def _s0_condition_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "clusters": dict(clusters),
         "cluster_distribution": distribution,
         "dominant_cluster": dominant,
-        "entropy": round(entropy(clusters), 4),
+        "entropy": round(entropy(entropy_clusters), 4),
+        "entropy_clusters": dict(entropy_clusters),
+        "entropy_excluded_clusters": _entropy_excluded_clusters(clusters),
     }
 
 
@@ -639,6 +653,7 @@ def aggregate_s0_divergence(design: DesignInputs, s0_results: list[dict[str, Any
     for (span_id, role), rows in sorted(cells.items()):
         candidates = design.spans[span_id].candidates if span_id in design.spans else {}
         clusters = Counter(_s0_cluster(row, candidates) for row in rows)
+        entropy_clusters = _entropy_clusters(clusters)
         probe_counts = Counter(str(row.get("probe_id") or "") for row in rows if row.get("probe_id"))
         primary_probe_id = probe_counts.most_common(1)[0][0] if probe_counts else ""
         span_consistent = all(str(row.get("span_id_from_run") or row.get("span_id") or "") == span_id for row in rows)
@@ -663,7 +678,9 @@ def aggregate_s0_divergence(design: DesignInputs, s0_results: list[dict[str, Any
                 "human_confirmed_class": None,
                 "novel_count": novel_count,
                 "human_review_required": novel_count > 0,
-                "entropy": round(entropy(clusters), 4),
+                "entropy": round(entropy(entropy_clusters), 4),
+                "entropy_clusters": dict(entropy_clusters),
+                "entropy_excluded_clusters": _entropy_excluded_clusters(clusters),
             }
         )
     human_review_queue = [

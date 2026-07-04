@@ -85,6 +85,8 @@ class RunRecorder:
         self._tick_budgets: dict[str, int] = {}
         self._private_store: dict[str, list[dict[str, Any]]] = {}
         self._tick_usage: dict[tuple[int, str], int] = {}
+        self._successful_attempt_counts: dict[tuple[str, str, str], int] = {}
+        self._counter_lock = threading.Lock()
         run_root.mkdir(parents=True, exist_ok=True)
         self.write_json("meta.json", {"run_id": run_id, "created_at": utc_now(), **(meta or {})})
         for name in ("attempts.jsonl", "basis_records.jsonl", "chat_channel.jsonl", "world_ledger.jsonl", "store_events.jsonl"):
@@ -156,6 +158,10 @@ class RunRecorder:
             origin=self._origin,
         )
         self.append_jsonl("attempts.jsonl", asdict(record))
+        if success:
+            key = (self._origin, seat_id, tool)
+            with self._counter_lock:
+                self._successful_attempt_counts[key] = self._successful_attempt_counts.get(key, 0) + 1
         if tool == "read_document" and success:
             doc_id = str((args or {}).get("doc_id") or "")
             if doc_id:
@@ -170,6 +176,10 @@ class RunRecorder:
                     "tick": self.tick,
                 }
         return record
+
+    def successful_attempt_count(self, *, seat_id: str, tools: set[str], origin: str = "agent") -> int:
+        with self._counter_lock:
+            return sum(self._successful_attempt_counts.get((origin, seat_id, tool), 0) for tool in tools)
 
     def next_basis_id(self) -> str:
         self._basis_counter += 1
