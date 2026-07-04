@@ -9,5 +9,7 @@
   "seed_bundle_match": true,
   "attribution_row_count": 3,
   "headline_result": "any_l0_finding rate was unchanged at 0.2 vs 0.2 (effect_delta 0.0). grounding_gap and version_gap appeared in control at 0.2 and treatment at 0.0, but ICC proxy is 0.0 and rows remain candidate-level, not confirmed findings.",
+  "endpoint_boundary": "This is a one-tick S1 L0 finding-incidence endpoint, not an S0 AMB-02 interpretation-entropy or cluster-shift endpoint.",
+  "follow_up": "WP-07b should add a paired S0 battery for span-role entropy deltas and cluster-distribution shifts before answering whether clarify reduces interpretation branching.",
   "readiness_boundary": "WP-07 live evidence is not Stage 9 readiness all-pass."
 }

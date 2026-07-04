@@ -1,6 +1,6 @@
-# WP-07 Live Control-Pair Evidence
+# WP-07 Live S1 Control-Pair Evidence
 
-This folder records the first WP-07 delta-one live control-pair execution.
+This folder records the first WP-07 delta-one live control-pair execution for the S1/L0 endpoint.
 
 ## Scope
 
@@ -11,6 +11,7 @@ This folder records the first WP-07 delta-one live control-pair execution.
 - Prompt mode: `measurement`
 - D2 timed notices: fixed off with `timed_notice_recipients=[]`
 - Live backend: `deepagents` / `openrouter:qwen/qwen3.6-flash`
+- Endpoint: one-tick S1 L0 finding incidence, not S0 AMB-02 interpretation entropy or branch-convergence shift
 
 Command:
 
@@ -35,6 +36,8 @@ Initial candidate-level readout:
 - `grounding_gap`: control `0.2`, treatment `0.0`, `effect_delta=-0.2`.
 - `version_gap`: control `0.2`, treatment `0.0`, `effect_delta=-0.2`.
 
-The ICC proxy is `0.0` for both configs, so these rows should be treated as low-stability candidate evidence, not confirmed findings. The conservative answer to the initial WP-07 question is: the clarification did not reduce overall L0 finding incidence in this first K=5 run, while it produced candidate evidence of fewer grounding/version gaps that needs confirmation before audit use.
+The ICC proxy is `0.0` for both configs, so these rows should be treated as low-stability candidate evidence, not confirmed findings. For sparse rates such as `1/5`, reviewers should read the positive seed counts alongside the rates and ICC proxy.
+
+This run should be read narrowly: at one S1 tick, `clarify_elderly_understanding_all` did not change overall L0 finding incidence and produced candidate evidence of fewer grounding/version gaps. It does not answer whether the clarification reduces interpretation branching. WP-07b should add a paired S0 battery with entropy deltas and cluster-distribution shift endpoints aligned to AMB-02.
 
 This evidence does not claim Stage 9 readiness all-pass.
