@@ -51,15 +51,16 @@ def run_s0(
     span_id: str = "",
     model: str | None = None,
     variant: int = 0,
+    mutations: list[dict[str, Any]] | None = None,
     seat_factory: SeatFactory | None = None,
 ) -> dict[str, Any]:
     seat = design.seats[seat_id]
     model_name = normalize_openrouter_model(model)
     factory = seat_factory or default_seat_factory(root=design.root, model=model_name)
     recorder = RunRecorder(run_root, run_id=run_root.name, meta={"stage": "S0", "probe": probe_id, "span": span_id, "seat": seat_id, "model": model_name, "variant": variant})
-    write_config_snapshot(run_root, build_world_config(design, stage="S0", model=model_name, seed=variant, ticks=1, probe_id=probe_id, seat_id=seat_id, executed_s0_rows=1))
+    write_config_snapshot(run_root, build_world_config(design, stage="S0", model=model_name, seed=variant, ticks=1, probe_id=probe_id, seat_id=seat_id, mutations=mutations, executed_s0_rows=1))
     recorder.set_tick(1)
-    kernel = WorldKernel(recorder, kernel_profile(design))
+    kernel = WorldKernel(recorder, kernel_profile(design, valid_doc_ids=set(corpus.documents)))
     tools = build_role_tools(corpus=corpus, kernel=kernel, recorder=recorder, seat_id=seat_id, seat_role=seat.role, include_workflow=False)
     agent = factory(seat_id=seat_id, role=seat.role, tools=tools, recorder=recorder, recursion_limit=recursion_for_budget(14))
     recorder.write_json("meta.json", {"run_id": recorder.run_id, "stage": "S0", "probe": probe_id, "span": span_id, "seat": seat_id, "model": model_name, "variant": variant, "backend": getattr(agent, "backend", "unknown"), "live": getattr(agent, "backend", "") == "deepagents"})
@@ -174,6 +175,7 @@ def run_s1_episode(
     prompt_mode: TurnPromptMode = "scaffold",
     model_bindings: dict[str, str] | None = None,
     scc_switch_tick: int | None = None,
+    mutations: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     event = _retime_event(event_for_probe(design, probe_id), trigger_tick=1, deadline_tick=ticks)
     return _run_world(
@@ -194,6 +196,7 @@ def run_s1_episode(
         prompt_mode=prompt_mode,
         model_bindings=model_bindings,
         scc_switch_tick=scc_switch_tick,
+        mutations=mutations,
     )
 
 
@@ -214,6 +217,7 @@ def run_s2_world(
     prompt_mode: TurnPromptMode = "scaffold",
     model_bindings: dict[str, str] | None = None,
     scc_switch_tick: int | None = None,
+    mutations: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     events = deck if deck is not None else build_customer_deck(design, include_routine=True)
     return _run_world(
@@ -234,6 +238,7 @@ def run_s2_world(
         prompt_mode=prompt_mode,
         model_bindings=model_bindings,
         scc_switch_tick=scc_switch_tick,
+        mutations=mutations,
     )
 
 
@@ -256,6 +261,7 @@ def _run_world(
     prompt_mode: TurnPromptMode = "scaffold",
     model_bindings: dict[str, str] | None = None,
     scc_switch_tick: int | None = None,
+    mutations: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     model_name = normalize_openrouter_model(model)
     if prompt_mode not in {"scaffold", "measurement"}:
@@ -273,13 +279,14 @@ def _run_world(
         d4_enabled=d4_enabled,
         model_bindings=model_bindings,
         scc_switch_tick=scc_switch_tick,
+        mutations=mutations,
     )
     write_config_snapshot(run_root, config)
     budgets = config["world"]["population"]["tick_budget"]
     recorder.configure_tick_budgets(budgets)
     schedule = config["world"]["schedule"]
     bindings = config["world"]["population"]["binding"]
-    kernel = WorldKernel(recorder, kernel_profile(design, knobs=knobs, schedule=schedule, scc_switch_enabled=not anchor))
+    kernel = WorldKernel(recorder, kernel_profile(design, knobs=knobs, schedule=schedule, scc_switch_enabled=not anchor, valid_doc_ids=set(corpus.documents)))
     customer = customer_llm or default_customer_llm(model=model_name, recorder=recorder)
     absence: dict[str, list[int]] = config["world"]["population"].get("absence", {})
 
@@ -449,11 +456,20 @@ def _instantiate_seat(factory: SeatFactory, *, seat_id: str, role: str, tools: l
     return factory(**kwargs)
 
 
-def kernel_profile(design: DesignInputs, knobs: dict[str, bool] | None = None, *, schedule: dict[str, Any] | None = None, scc_switch_enabled: bool = True) -> KernelProfile:
+def kernel_profile(
+    design: DesignInputs,
+    knobs: dict[str, bool] | None = None,
+    *,
+    schedule: dict[str, Any] | None = None,
+    scc_switch_enabled: bool = True,
+    valid_doc_ids: set[str] | None = None,
+) -> KernelProfile:
     schedule = schedule or {}
+    doc_ids = set(design.documents) | {f"{doc_id}@v1.0" for doc_id in ("DFH-SAL-021", "DFH-SAL-045")}
+    doc_ids.update(valid_doc_ids or set())
     return KernelProfile(
         knobs=dict(knobs or {}),
-        valid_doc_ids=set(design.documents) | {f"{doc_id}@v1.0" for doc_id in ("DFH-SAL-021", "DFH-SAL-045")},
+        valid_doc_ids=doc_ids,
         require_prior_read_for_basis=True,
         seat_roles={seat_id: seat.role for seat_id, seat in design.seats.items()},
         scc_switch_enabled=scc_switch_enabled,

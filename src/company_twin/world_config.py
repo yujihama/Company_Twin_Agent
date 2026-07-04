@@ -54,6 +54,10 @@ def build_world_config(
     model_name = normalize_openrouter_model(model)
     seats = _seat_configs(design, model_name, d4_enabled=d4_enabled, model_bindings=model_bindings)
     deck = [event.to_dict() for event in build_customer_deck(design, include_routine=True)]
+    normalized_mutations = list(mutations or [])
+    raw_corpus_hash = _raw_corpus_hash(design)
+    mutation_hash = _json_hash(normalized_mutations)
+    effective_corpus_hash = raw_corpus_hash if not normalized_mutations else _json_hash({"raw_corpus_hash": raw_corpus_hash, "mutation_hash": mutation_hash})
     effective_scc_switch_tick = None if anchor else (scc_switch_tick if scc_switch_tick is not None else min(30, ticks))
     if effective_scc_switch_tick is not None:
         effective_scc_switch_tick = min(max(int(effective_scc_switch_tick), 1), ticks)
@@ -70,14 +74,17 @@ def build_world_config(
             "corpus": {
                 "corpus_id": "dfh_sales_v2",
                 "manifest_hash": design.compiled_artifact_hashes.get("manifest_v2.json") or _text_hash(_read(design.root / "data" / "compiled_data" / "00_corpus_manifest_v2.yaml")),
-                "raw_corpus_hash": _raw_corpus_hash(design),
+                "raw_corpus_hash": raw_corpus_hash,
                 "span_registry_hash": design.compiled_artifact_hashes.get("span_registry_v2.json") or _text_hash(_read(design.root / "data" / "compiled_data" / "06_seeded_span_registry_v2.yaml")),
                 "deck_artifact_hash": design.compiled_artifact_hashes.get("deck_v2.json", ""),
                 "retrieval_profiles_hash": design.compiled_artifact_hashes.get("retrieval_profiles_v2.json", ""),
                 "role_cards_hash": design.compiled_artifact_hashes.get("role_cards_v2.json", ""),
                 "s0_question_templates_hash": design.compiled_artifact_hashes.get("s0_question_templates_v2.json", ""),
-                "mutations": mutations or [],
-                "document_count": len(design.documents),
+                "mutations": normalized_mutations,
+                "mutation_count": len(normalized_mutations),
+                "mutation_hash": mutation_hash,
+                "effective_corpus_hash": effective_corpus_hash,
+                "document_count": len(design.documents) + _document_delta(normalized_mutations),
             },
             "kernel_profile": {
                 "name": "anchor_erp_standard" if anchor else "erp_standard",
@@ -204,6 +211,10 @@ def _default_timed_notice_recipients(design: DesignInputs) -> list[str]:
 def _approval_notice_recipients(design: DesignInputs) -> list[str]:
     quality_roles = {"second_line", "audit"}
     return [seat_id for seat_id, seat in sorted(design.seats.items()) if seat.role in quality_roles]
+
+
+def _document_delta(mutations: list[dict[str, Any]]) -> int:
+    return sum(int(item.get("document_delta") or 0) for item in mutations)
 
 
 def _role_card_meta(root: Path, role: str) -> dict[str, str]:

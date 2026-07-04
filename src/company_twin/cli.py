@@ -14,6 +14,7 @@ from .corpus import Corpus
 from .design_loader import load_design
 from .env import load_local_env, normalize_openrouter_model
 from .harness import make_run_root, run_s0, run_s1_episode, run_s2_world
+from .mutations import apply_corpus_mutations, build_delta_one_pair_manifest, lint_mutation_specs, load_mutation_catalog, mutation_specs_from_values
 from .oracles import execute_min_repro_jobs, write_triage
 from .readiness import run_readiness_gate, write_readiness_reports
 from .semantic_grounding import LocalSemanticJudge, OpenRouterSemanticJudge, evaluate_semantic_grounding_campaign, evaluate_semantic_grounding_run, export_g3_calibration_samples
@@ -51,6 +52,18 @@ def _seat_model_bindings(values: list[str] | None) -> dict[str, str]:
     return bindings
 
 
+def _corpus_with_mutations(base: Path, design, values: list[str] | None) -> tuple[Corpus, list[dict]]:
+    corpus = Corpus.from_design(design)
+    specs = mutation_specs_from_values(base, values)
+    if not specs:
+        return corpus, []
+    failures = lint_mutation_specs(specs)
+    if failures:
+        raise typer.BadParameter(f"world-visible mutation text failed leak lint: {failures[0]}")
+    result = apply_corpus_mutations(corpus, specs)
+    return result.corpus, result.applied
+
+
 @app.command("inspect")
 def inspect_inputs(root: Annotated[Path | None, typer.Option("--root")] = None, as_json: Annotated[bool, typer.Option("--json")] = False) -> None:
     """Inspect compiled design inputs and raw document availability."""
@@ -83,6 +96,7 @@ def s0(
     root: Annotated[Path | None, typer.Option("--root")] = None,
     run_root: Annotated[Path | None, typer.Option("--run-root")] = None,
     model: Annotated[str | None, typer.Option("--model")] = None,
+    mutation: Annotated[list[str] | None, typer.Option("--mutation", help="Runtime corpus mutation_id from mutation_operators_v1.json; repeat for multiple")] = None,
 ) -> None:
     """Run one live S0 interpretation-battery row for a probe and seat."""
     base = _root(root)
@@ -95,9 +109,9 @@ def s0(
     span_id = span or (design.probes[probe].binds[0] if design.probes[probe].binds else "")
     if span_id not in design.s0_question_templates:
         raise typer.BadParameter(f"unknown or untemplated span for S0: {span_id}")
-    corpus = Corpus.from_design(design)
+    corpus, applied_mutations = _corpus_with_mutations(base, design, mutation)
     target_root = (run_root or make_run_root(base, f"s0_{probe}_{seat}")).resolve()
-    result = run_s0(design=design, corpus=corpus, probe_id=probe, seat_id=seat, run_root=target_root, span_id=span_id, model=model, variant=variant)
+    result = run_s0(design=design, corpus=corpus, probe_id=probe, seat_id=seat, run_root=target_root, span_id=span_id, model=model, variant=variant, mutations=applied_mutations)
     write_triage(target_root)
     _echo_json(result)
 
@@ -115,15 +129,16 @@ def s1(
     prompt_mode: Annotated[str, typer.Option("--prompt-mode", help="scaffold | measurement")] = "scaffold",
     seat_model: Annotated[list[str] | None, typer.Option("--seat-model", help="Per-seat model binding, e.g. emp-A=openrouter:qwen/qwen3.6-flash")] = None,
     scc_switch_tick: Annotated[int | None, typer.Option("--scc-switch-tick", help="Tick at which K-completion-gate becomes active")] = None,
+    mutation: Annotated[list[str] | None, typer.Option("--mutation", help="Runtime corpus mutation_id from mutation_operators_v1.json; repeat for multiple")] = None,
 ) -> None:
     """Run one live S1 multi-seat episode."""
     base = _root(root)
     _require_live(base)
     design = load_design(base)
-    corpus = Corpus.from_design(design)
+    corpus, applied_mutations = _corpus_with_mutations(base, design, mutation)
     knobs = {"K-completion-gate": strict_completion, "K-material-picker": strict_material}
     target_root = (run_root or make_run_root(base, f"s1_{probe}")).resolve()
-    result = run_s1_episode(design=design, corpus=corpus, probe_id=probe, run_root=target_root, model=model, knobs=knobs, seed=seed, ticks=ticks, prompt_mode=prompt_mode, model_bindings=_seat_model_bindings(seat_model), scc_switch_tick=scc_switch_tick)  # type: ignore[arg-type]
+    result = run_s1_episode(design=design, corpus=corpus, probe_id=probe, run_root=target_root, model=model, knobs=knobs, seed=seed, ticks=ticks, prompt_mode=prompt_mode, model_bindings=_seat_model_bindings(seat_model), scc_switch_tick=scc_switch_tick, mutations=applied_mutations)  # type: ignore[arg-type]
     write_triage(target_root)
     _echo_json(result)
 
@@ -139,14 +154,15 @@ def s2(
     prompt_mode: Annotated[str, typer.Option("--prompt-mode", help="scaffold | measurement")] = "scaffold",
     seat_model: Annotated[list[str] | None, typer.Option("--seat-model", help="Per-seat model binding, e.g. emp-A=openrouter:qwen/qwen3.6-flash")] = None,
     scc_switch_tick: Annotated[int | None, typer.Option("--scc-switch-tick", help="Tick at which K-completion-gate becomes active")] = None,
+    mutation: Annotated[list[str] | None, typer.Option("--mutation", help="Runtime corpus mutation_id from mutation_operators_v1.json; repeat for multiple")] = None,
 ) -> None:
     """Run one live S2 world (full deck)."""
     base = _root(root)
     _require_live(base)
     design = load_design(base)
-    corpus = Corpus.from_design(design)
+    corpus, applied_mutations = _corpus_with_mutations(base, design, mutation)
     target_root = (run_root or make_run_root(base, "anchor_s2" if anchor else "s2")).resolve()
-    result = run_s2_world(design=design, corpus=corpus, run_root=target_root, model=model, knobs={}, seed=seed, ticks=ticks, anchor=anchor, prompt_mode=prompt_mode, model_bindings=_seat_model_bindings(seat_model), scc_switch_tick=scc_switch_tick)  # type: ignore[arg-type]
+    result = run_s2_world(design=design, corpus=corpus, run_root=target_root, model=model, knobs={}, seed=seed, ticks=ticks, anchor=anchor, prompt_mode=prompt_mode, model_bindings=_seat_model_bindings(seat_model), scc_switch_tick=scc_switch_tick, mutations=applied_mutations)  # type: ignore[arg-type]
     write_triage(target_root)
     _echo_json(result)
 
@@ -166,12 +182,13 @@ def campaign(
     prompt_mode: Annotated[str, typer.Option("--prompt-mode", help="scaffold | measurement")] = "scaffold",
     seat_model: Annotated[list[str] | None, typer.Option("--seat-model", help="Per-seat model binding, e.g. emp-A=openrouter:qwen/qwen3.6-flash")] = None,
     scc_switch_tick: Annotated[int | None, typer.Option("--scc-switch-tick", help="Tick at which K-completion-gate becomes active")] = None,
+    mutation: Annotated[list[str] | None, typer.Option("--mutation", help="Runtime corpus mutation_id from mutation_operators_v1.json; repeat for multiple")] = None,
 ) -> None:
     """Run a live campaign: S0 battery -> S1 ensemble -> optional S2 + anchor -> acceptance."""
     base = _root(root)
     _require_live(base)
     design = load_design(base)
-    corpus = Corpus.from_design(design)
+    corpus, applied_mutations = _corpus_with_mutations(base, design, mutation)
     payload = run_design_campaign(
         root=base,
         design=design,
@@ -188,7 +205,36 @@ def campaign(
         prompt_mode=prompt_mode,  # type: ignore[arg-type]
         model_bindings=_seat_model_bindings(seat_model),
         scc_switch_tick=scc_switch_tick,
+        mutations=applied_mutations,
     )
+    _echo_json(payload)
+
+
+@app.command("mutation-catalog")
+def mutation_catalog(
+    root: Annotated[Path | None, typer.Option("--root")] = None,
+) -> None:
+    """List runtime corpus mutation operators available for WP-06 runs."""
+    base = _root(root)
+    catalog = load_mutation_catalog(base)
+    _echo_json({"schema_version": "company_twin.mutation_catalog_view.v1", "mutation_ids": sorted(catalog), "operators": catalog})
+
+
+@app.command("control-pairs")
+def control_pairs(
+    mutation: Annotated[list[str] | None, typer.Option("--mutation", help="Mutation id to place in the treatment side; repeat for multiple pairs")] = None,
+    k: Annotated[int, typer.Option("--k", help="Shared seed count per mutation")] = 5,
+    output: Annotated[Path | None, typer.Option("--output", help="Optional JSON path to write")] = None,
+    root: Annotated[Path | None, typer.Option("--root")] = None,
+) -> None:
+    """Generate a WP-07 delta-one pair manifest; execution remains live-only."""
+    base = _root(root)
+    if not mutation:
+        raise typer.BadParameter("at least one --mutation is required")
+    payload = build_delta_one_pair_manifest(root=base, mutation_ids=mutation, seeds=k)
+    if output is not None:
+        output.resolve().parent.mkdir(parents=True, exist_ok=True)
+        output.resolve().write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     _echo_json(payload)
 
 

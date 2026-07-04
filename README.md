@@ -16,6 +16,10 @@ readiness gate passes.
 - Experiment controls: S0 campaigns default to multiple cold-read models, S1/S2
   can bind models per seat, and SCC completion-gate switch timing is
   config-driven.
+- Runtime corpus mutations: WP-06 M1 operators are catalogued in
+  `data/compiled_data/mutation_operators_v1.json` and can be applied with
+  `--mutation <mutation_id>` on S0/S1/S2/campaign commands. Run bundles record
+  the applied mutation entries, `mutation_hash`, and effective corpus hash.
 - Observability: ensemble triage writes candidate attribution, min-repro queues,
   min-repro evidence-collation manifests, rule hit rates, detection-miss rates,
   g3 semantic grounding reports, prompt-mode A/B reports, and a deterministic
@@ -43,6 +47,9 @@ readiness gate passes.
   `status=reproduced`; same-campaign evidence collation is not enough.
 - WP-05 prompt-mode A/B K>=5x2 evidence exists for the scoped S1/P-04/tick=1
   method-freeze comparison. It is not a scaled S2 or Stage 9 readiness claim.
+- WP-06 runtime mutation support does not by itself prove attribution. Use
+  `company-twin control-pairs` only to generate delta-one shared-seed manifests;
+  attribution still requires fresh live paired runs.
 - Stage 9 backcasting, SME blind review, and holdout reports are required before
   experiment-level conclusions.
 
@@ -56,6 +63,8 @@ python -m company_twin.cli lint
 python -m company_twin.cli g3 --campaign-root runs\design_campaign_YYYYMMDD_HHMMSS
 python -m company_twin.cli g3-export-calibration --source-root runs\design_campaign_YYYYMMDD_HHMMSS --output docs\g3_calibration_samples.jsonl
 python -m company_twin.cli prompt-ab-report --campaign-root runs\design_campaign_YYYYMMDD_HHMMSS
+python -m company_twin.cli mutation-catalog
+python -m company_twin.cli control-pairs --mutation clarify_elderly_understanding_all --k 5 --output runs\control_pairs.json
 python -m company_twin.cli min-repro --campaign-root runs\design_campaign_YYYYMMDD_HHMMSS
 ```
 

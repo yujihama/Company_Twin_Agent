@@ -478,4 +478,37 @@ action-time basis capture with `measurement` prompt mode. This is a method
 freeze for the current harness, not a Stage 9 readiness claim; scaled S0/S1/S2,
 backcasting, SME blind review, and holdout evidence remain separate gates.
 
+Statistical caveat: at K=5 the Wilson intervals still overlap
+(`scaffold` 0.23-0.88 vs `measurement` 0.77-1.0 for the compared rate).
+The freeze is a reversible method default, not an irreversible empirical
+conclusion; revisit it if a larger-K shared-seed comparison contradicts this
+directional evidence.
+
 Sanitized PR evidence: `docs/wp05_live_evidence/`.
+
+---
+
+## 19. WP-06 runtime corpus mutation operators (2026-07-04)
+
+WP-06 introduces a catalogued M1 mutation path without editing raw source
+documents. `data/compiled_data/mutation_operators_v1.json` declares five
+runtime entries covering `clarify`, `contradict`, `dangling_fill`, and
+`role_table_fix`; the two `clarify` entries intentionally differ by role
+visibility so retrieval asymmetry can be measured.
+
+Execution path:
+
+- `company-twin s0|s1|s2|campaign --mutation <mutation_id>` applies catalogued
+  mutations to an in-memory corpus copy before tools are built.
+- Run bundles record the applied mutation entries, `mutation_hash`, and
+  `effective_corpus_hash` under `config.json:world.corpus`.
+- World-visible mutation text is linted for experimenter-plane terms and seeded
+  span identifiers before application.
+- `company-twin control-pairs --mutation <mutation_id> --k 5 --output ...`
+  writes a WP-07 delta-one manifest with shared seeds. It is a planning
+  artifact only; attribution still requires live paired runs and ensemble
+  analysis.
+
+Scope boundary: this does not claim WP-07 attribution evidence or Stage 9
+readiness. It supplies the M1 runtime mechanism and the manifest shape needed
+for the next live control-pair campaign.

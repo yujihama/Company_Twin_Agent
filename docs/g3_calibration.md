@@ -137,3 +137,10 @@ Anchor bundle live G3 summary after adjustment:
   "grounding_semantic_all3_rate": 0.9523809523809523
 }
 ```
+
+Next calibration caveat: this 20-case human sample is one-sided because every
+human label is `supported`. It primarily measures false negatives. The next
+manual calibration batch should include known-bad samples, preferably up to 10
+fresh scaffold-mode fabricated-basis findings not used in prompt tuning, so the
+OpenRouter judge's specificity against unsupported or contradicted basis can be
+measured before readiness use.

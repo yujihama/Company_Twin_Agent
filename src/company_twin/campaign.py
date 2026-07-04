@@ -16,6 +16,7 @@ from .corpus import Corpus
 from .design_loader import DesignInputs
 from .env import normalize_openrouter_model
 from .harness import TurnPromptMode, _turn_prompt, run_s0, run_s1_episode, run_s2_world
+from .mutations import lint_mutation_catalog
 from .oracles import aggregate_ensemble_triage, write_triage
 
 WORLD_PROMPT_BANNED_TERMS = (
@@ -127,6 +128,7 @@ def run_design_campaign(
     prompt_mode: TurnPromptMode = "scaffold",
     model_bindings: dict[str, str] | None = None,
     scc_switch_tick: int | None = None,
+    mutations: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Live-only campaign: S0 battery -> divergence aggregation -> S1 ensemble -> (optional) S2 + anchor.
 
@@ -145,7 +147,7 @@ def run_design_campaign(
     s0_results: list[dict[str, Any]] = []
     for idx, row in enumerate(selected):
         s0_root = campaign_root / f"s0_{idx:03d}_{row.probe_id}_{row.seat_id}_v{row.variant}"
-        result = run_s0(design=design, corpus=corpus, probe_id=row.probe_id, seat_id=row.seat_id, run_root=s0_root, span_id=row.span_id, model=row.model, variant=row.variant, seat_factory=seat_factory)
+        result = run_s0(design=design, corpus=corpus, probe_id=row.probe_id, seat_id=row.seat_id, run_root=s0_root, span_id=row.span_id, model=row.model, variant=row.variant, mutations=mutations, seat_factory=seat_factory)
         write_triage(s0_root)
         s0_results.append({**asdict(row), **result})
     (campaign_root / "s0_results.json").write_text(json.dumps(s0_results, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -177,6 +179,7 @@ def run_design_campaign(
             prompt_mode=prompt_mode,
             model_bindings=model_bindings,
             scc_switch_tick=scc_switch_tick,
+            mutations=mutations,
         )
         write_triage(s1_root)
         s1_roots.append(str(s1_root))
@@ -199,6 +202,7 @@ def run_design_campaign(
             prompt_mode=prompt_mode,
             model_bindings=model_bindings,
             scc_switch_tick=scc_switch_tick,
+            mutations=mutations,
         )
         write_triage(anchor_path)
         anchor_root = str(anchor_path)
@@ -218,6 +222,7 @@ def run_design_campaign(
                 prompt_mode=prompt_mode,
                 model_bindings=model_bindings,
                 scc_switch_tick=scc_switch_tick,
+                mutations=mutations,
             )
             write_triage(s2_root)
             s2_roots.append(str(s2_root))
@@ -239,6 +244,7 @@ def run_design_campaign(
         "s2_roots": s2_roots,
         "anchor_run": anchor_root,
         "prompt_mode": prompt_mode,
+        "mutations": mutations or [],
     }
     aggregate_ensemble_triage(campaign_root)
     acceptance = run_acceptance(campaign_root=campaign_root, design=design, corpus=corpus, scope="full_world" if with_s2 else "s0_s1")
@@ -437,6 +443,8 @@ def _diverse_s0_rows(matrix: list[S0MatrixRow], *, budget: int) -> list[S0Matrix
 
 def static_world_surface_lint(design: DesignInputs) -> dict[str, Any]:
     failures: list[dict[str, str]] = []
+    for failure in lint_mutation_catalog(design.root):
+        failures.append({"check": "mutation_visible_text_leak", "detail": f"{failure['mutation_id']}: {failure['label']}"})
     for role in ("sales", "application", "manager", "second_line", "audit"):
         card = load_role_card(design.root, role)
         prompt = role_system_prompt(f"emp-X", role, role_card=card).lower()
