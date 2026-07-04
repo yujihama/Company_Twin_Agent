@@ -4,6 +4,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from .semantic_grounding import READINESS_ALLOWED_JUDGE_BACKENDS
+
 REPORT_SCHEMA_VERSION = "company_twin.readiness_report.v1"
 
 
@@ -100,17 +102,24 @@ def _acceptance_check(campaign_root: Path) -> dict[str, Any]:
 def _semantic_grounding_check(campaign_root: Path, *, semantic_threshold: float) -> dict[str, Any]:
     observed: list[float] = []
     missing = 0
+    disallowed = 0
+    observations: list[dict[str, Any]] = []
     for metrics_path in campaign_root.glob("**/triage/metrics.json"):
         metrics = json.loads(metrics_path.read_text(encoding="utf-8"))
         if metrics.get("stage") != "S2":
             continue
-        value = metrics.get("grounding_semantic_all3_rate")
-        if value is None:
+        observation = _semantic_observation(metrics_path.parents[1], metrics)
+        observations.append(observation)
+        if observation["status"] == "missing":
             missing += 1
             continue
+        if observation["status"] == "disallowed_backend":
+            disallowed += 1
+            continue
+        value = observation["rate"]
         observed.append(float(value))
     ok = bool(observed) and min(observed) >= semantic_threshold
-    detail = f"observed={observed}, missing_semantic_metrics={missing}, threshold={semantic_threshold}"
+    detail = f"observed={observed}, missing_semantic_metrics={missing}, disallowed_backend_metrics={disallowed}, threshold={semantic_threshold}, observations={observations}"
     return {"check": "semantic_grounding_all3_threshold", "passed": ok, "detail": "" if ok else detail}
 
 
@@ -229,10 +238,26 @@ def _leak_lint_report(lint_payload: dict[str, Any] | None) -> dict[str, Any]:
 
 def _semantic_grounding_report(campaign_root: Path, *, semantic_threshold: float) -> dict[str, Any]:
     check = _semantic_grounding_check(campaign_root, semantic_threshold=semantic_threshold)
+    observed_reports = []
+    for path in sorted(campaign_root.glob("**/g3_semantic_grounding.json")):
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            continue
+        if payload.get("schema_version") == "company_twin.g3_semantic_grounding.v1":
+            observed_reports.append(
+                {
+                    "path": str(path.relative_to(campaign_root)).replace("\\", "/"),
+                    "rate": payload.get("grounding_semantic_all3_rate"),
+                    "proxy_rate": payload.get("grounding_semantic_all3_rate_proxy"),
+                    "judge": payload.get("judge"),
+                    "readiness_eligible": _judge_allowed(payload.get("judge")),
+                }
+            )
     return _report(
         "semantic_grounding",
-        [{"name": check["check"], "passed": check["passed"], "detail": check["detail"], "threshold": semantic_threshold}],
-        notes=["Machine lexical g3 is not accepted here; this report requires grounding_semantic_all3_rate."],
+        [{"name": check["check"], "passed": check["passed"], "detail": check["detail"], "threshold": semantic_threshold, "observed_reports": observed_reports}],
+        notes=["This report requires g3 semantic grounding values; legacy machine lexical g3 alone is not sufficient."],
     )
 
 
@@ -270,3 +295,41 @@ def _read_jsonl(path: Path) -> list[dict[str, Any]]:
         if line.strip():
             rows.append(json.loads(line))
     return rows
+
+
+def _semantic_observation(run_root: Path, metrics: dict[str, Any]) -> dict[str, Any]:
+    metric_judge = metrics.get("semantic_grounding_judge")
+    metric_rate = metrics.get("grounding_semantic_all3_rate")
+    metric_proxy_rate = metrics.get("grounding_semantic_all3_rate_proxy")
+    if metric_rate is not None:
+        if _judge_allowed(metric_judge):
+            return {"run_root": run_root.name, "status": "eligible", "rate": float(metric_rate), "proxy_rate": metric_proxy_rate, "judge": metric_judge}
+        return {"run_root": run_root.name, "status": "disallowed_backend", "rate": metric_rate, "proxy_rate": metric_proxy_rate, "judge": metric_judge}
+
+    report = _read_json(run_root / "g3_semantic_grounding.json")
+    report_rate = report.get("grounding_semantic_all3_rate") if report else None
+    report_proxy_rate = report.get("grounding_semantic_all3_rate_proxy") if report else metric_proxy_rate
+    report_judge = report.get("judge") if report else metric_judge
+    if report_rate is not None:
+        if _judge_allowed(report_judge):
+            return {"run_root": run_root.name, "status": "eligible", "rate": float(report_rate), "proxy_rate": report_proxy_rate, "judge": report_judge}
+        return {"run_root": run_root.name, "status": "disallowed_backend", "rate": report_rate, "proxy_rate": report_proxy_rate, "judge": report_judge}
+    if report_proxy_rate is not None or metric_proxy_rate is not None:
+        return {"run_root": run_root.name, "status": "disallowed_backend", "rate": None, "proxy_rate": report_proxy_rate, "judge": report_judge}
+    return {"run_root": run_root.name, "status": "missing", "rate": None, "proxy_rate": None, "judge": report_judge}
+
+
+def _judge_allowed(judge: Any) -> bool:
+    if not isinstance(judge, dict):
+        return False
+    return bool(judge.get("readiness_eligible")) and str(judge.get("backend") or "") in READINESS_ALLOWED_JUDGE_BACKENDS
+
+
+def _read_json(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return {}
+    return payload if isinstance(payload, dict) else {}

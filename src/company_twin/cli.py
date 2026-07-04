@@ -8,6 +8,7 @@ import typer
 
 from .acceptance import run_acceptance
 from .agents import openrouter_ready
+from .ab_testing import write_prompt_mode_ab_report
 from .campaign import run_design_campaign, static_world_surface_lint
 from .corpus import Corpus
 from .design_loader import load_design
@@ -15,6 +16,7 @@ from .env import load_local_env, normalize_openrouter_model
 from .harness import make_run_root, run_s0, run_s1_episode, run_s2_world
 from .oracles import execute_min_repro_jobs, write_triage
 from .readiness import run_readiness_gate, write_readiness_reports
+from .semantic_grounding import LocalSemanticJudge, OpenRouterSemanticJudge, evaluate_semantic_grounding_campaign, evaluate_semantic_grounding_run, export_g3_calibration_samples
 
 app = typer.Typer(no_args_is_help=True)
 
@@ -205,6 +207,42 @@ def min_repro(
 ) -> None:
     """Collate queued min-repro evidence without promoting confirmed findings."""
     payload = execute_min_repro_jobs(campaign_root.resolve(), min_rate=min_rate, min_seeds=min_seeds)
+    _echo_json(payload)
+
+
+@app.command("g3")
+def g3(
+    run_root: Annotated[Path | None, typer.Option("--run-root", help="Single run bundle to evaluate")] = None,
+    campaign_root: Annotated[Path | None, typer.Option("--campaign-root", help="Campaign root whose child bundles should be evaluated")] = None,
+    judge_model: Annotated[str | None, typer.Option("--judge-model", help="OpenRouter model for live semantic judge; omitted uses local deterministic proxy")] = None,
+) -> None:
+    """Evaluate g3 semantic grounding over existing basis/read_document evidence."""
+    if bool(run_root) == bool(campaign_root):
+        raise typer.BadParameter("Provide exactly one of --run-root or --campaign-root")
+    judge = OpenRouterSemanticJudge(judge_model) if judge_model else LocalSemanticJudge()
+    payload = (
+        evaluate_semantic_grounding_campaign(campaign_root.resolve(), judge=judge)
+        if campaign_root is not None
+        else evaluate_semantic_grounding_run(run_root.resolve(), judge=judge)
+    )
+    _echo_json(payload)
+
+
+@app.command("g3-export-calibration")
+def g3_export_calibration(
+    source_root: Annotated[Path, typer.Option("--source-root", help="Run bundle or campaign root containing basis_records.jsonl")],
+    output: Annotated[Path, typer.Option("--output", help="JSONL file to write for human labels")],
+    limit: Annotated[int, typer.Option("--limit")] = 20,
+) -> None:
+    """Export action-bound basis samples for human g3 calibration labels."""
+    payload = export_g3_calibration_samples(source_root.resolve(), output.resolve(), limit=limit)
+    _echo_json(payload)
+
+
+@app.command("prompt-ab-report")
+def prompt_ab_report(campaign_root: Annotated[Path, typer.Option("--campaign-root")]) -> None:
+    """Build the WP-05 scaffold-vs-measurement report from existing bundles."""
+    payload = write_prompt_mode_ab_report(campaign_root.resolve())
     _echo_json(payload)
 
 
