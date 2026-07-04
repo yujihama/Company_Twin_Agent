@@ -49,10 +49,17 @@ def build_world_config(
     model_bindings: dict[str, str] | None = None,
     scc_switch_tick: int | None = None,
     timed_notice_recipients: list[str] | None = None,
+    seats_subset: list[str] | None = None,
 ) -> dict[str, Any]:
     normalized_knobs = {**DEFAULT_KNOBS, **(knobs or {})}
     model_name = normalize_openrouter_model(model)
     seats = _seat_configs(design, model_name, d4_enabled=d4_enabled, model_bindings=model_bindings)
+    requested_seats = _normalize_seats_subset(seats_subset)
+    if requested_seats is not None:
+        unknown = [seat_id_ for seat_id_ in requested_seats if seat_id_ not in seats]
+        if unknown:
+            raise ValueError(f"unknown seats in seats_subset: {', '.join(unknown)}")
+        seats = {seat_id_: seats[seat_id_] for seat_id_ in requested_seats}
     deck = [event.to_dict() for event in build_customer_deck(design, include_routine=True)]
     normalized_mutations = list(mutations or [])
     raw_corpus_hash = _raw_corpus_hash(design)
@@ -64,6 +71,7 @@ def build_world_config(
     deadline_tick = min(20, ticks)
     approval_due_ticks = 2
     absence_ticks = [tick for tick in [23, 24] if tick <= ticks]
+    absence = {"emp-M": absence_ticks} if "emp-M" in seats else {}
     notice_source = timed_notice_recipients if timed_notice_recipients is not None else _default_timed_notice_recipients(design)
     notice_recipients = sorted(set(notice_source))
     approval_notice_recipients = sorted(set(_approval_notice_recipients(design)))
@@ -96,7 +104,7 @@ def build_world_config(
             "population": {
                 "seats": seats,
                 "binding": {seat_id_: seat["model_binding"] for seat_id_, seat in seats.items()},
-                "absence": {"emp-M": [23, 24]},
+                "absence": absence,
                 "tick_budget": {seat_id_: seat["tick_budget"] for seat_id_, seat in seats.items()},
             },
             "retrieval_profiles": design.retrieval_profiles or default_retrieval_profiles(),
@@ -132,6 +140,7 @@ def build_world_config(
             "seat_id": seat_id,
             "executed_s0_rows": executed_s0_rows,
             "d4_enabled": d4_enabled,
+            "seats_subset": requested_seats,
         },
         "model": {
             "default": model_name,
@@ -141,6 +150,15 @@ def build_world_config(
     }
     validate_world_config_schema(config)
     return config
+
+
+def _normalize_seats_subset(seats_subset: list[str] | None) -> list[str] | None:
+    if seats_subset is None:
+        return None
+    normalized = sorted({str(seat_id).strip() for seat_id in seats_subset if str(seat_id).strip()})
+    if not normalized:
+        raise ValueError("seats_subset must include at least one seat")
+    return normalized
 
 
 def default_retrieval_profiles() -> dict[str, Any]:

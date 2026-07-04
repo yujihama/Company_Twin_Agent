@@ -1,0 +1,196 @@
+{
+  "schema_version": "company_twin.control_pair_campaign.v1",
+  "campaign_root_name": "control_pair_campaign_20260704_151040",
+  "stage": "S0",
+  "probe": "P-01",
+  "s0_endpoint": {
+    "span_id": "AMB-02",
+    "seat_id": "emp-A",
+    "models": [
+      "openrouter:qwen/qwen3.6-flash",
+      "openrouter:qwen/qwen3.6-plus"
+    ],
+    "variants": 2,
+    "rows": 1,
+    "path": "s0_attribution_table.json"
+  },
+  "pair_count": 1,
+  "condition_run_count": 8,
+  "all_condition_runs_live": true,
+  "parse_summary": {
+    "control": {
+      "rows": 4,
+      "parsed": 3,
+      "parsed_rate": 0.75,
+      "models": [
+        "openrouter:qwen/qwen3.6-flash",
+        "openrouter:qwen/qwen3.6-plus"
+      ],
+      "variants": [
+        0,
+        1
+      ]
+    },
+    "treatment": {
+      "rows": 4,
+      "parsed": 3,
+      "parsed_rate": 0.75,
+      "models": [
+        "openrouter:qwen/qwen3.6-flash",
+        "openrouter:qwen/qwen3.6-plus"
+      ],
+      "variants": [
+        0,
+        1
+      ]
+    }
+  },
+  "runs": [
+    {
+      "run_id": "pair_clarify_elderly_understanding_all_seed0_control_s0_openrouter-qwen-qwen3-6-flash_v0",
+      "condition": "control",
+      "seed": 0,
+      "stage": "S0",
+      "probe": "P-01",
+      "span_id": "AMB-02",
+      "seat_id": "emp-A",
+      "role": "sales",
+      "model": "openrouter:qwen/qwen3.6-flash",
+      "variant": 0,
+      "mutations": [],
+      "backend": "deepagents",
+      "live": true,
+      "parsed": true,
+      "cited_doc_count": 2
+    },
+    {
+      "run_id": "pair_clarify_elderly_understanding_all_seed0_control_s0_openrouter-qwen-qwen3-6-flash_v1",
+      "condition": "control",
+      "seed": 0,
+      "stage": "S0",
+      "probe": "P-01",
+      "span_id": "AMB-02",
+      "seat_id": "emp-A",
+      "role": "sales",
+      "model": "openrouter:qwen/qwen3.6-flash",
+      "variant": 1,
+      "mutations": [],
+      "backend": "deepagents",
+      "live": true,
+      "parsed": false,
+      "cited_doc_count": 0
+    },
+    {
+      "run_id": "pair_clarify_elderly_understanding_all_seed0_control_s0_openrouter-qwen-qwen3-6-plus_v0",
+      "condition": "control",
+      "seed": 0,
+      "stage": "S0",
+      "probe": "P-01",
+      "span_id": "AMB-02",
+      "seat_id": "emp-A",
+      "role": "sales",
+      "model": "openrouter:qwen/qwen3.6-plus",
+      "variant": 0,
+      "mutations": [],
+      "backend": "deepagents",
+      "live": true,
+      "parsed": true,
+      "cited_doc_count": 4
+    },
+    {
+      "run_id": "pair_clarify_elderly_understanding_all_seed0_control_s0_openrouter-qwen-qwen3-6-plus_v1",
+      "condition": "control",
+      "seed": 0,
+      "stage": "S0",
+      "probe": "P-01",
+      "span_id": "AMB-02",
+      "seat_id": "emp-A",
+      "role": "sales",
+      "model": "openrouter:qwen/qwen3.6-plus",
+      "variant": 1,
+      "mutations": [],
+      "backend": "deepagents",
+      "live": true,
+      "parsed": true,
+      "cited_doc_count": 2
+    },
+    {
+      "run_id": "pair_clarify_elderly_understanding_all_seed0_treatment_s0_openrouter-qwen-qwen3-6-flash_v0",
+      "condition": "treatment",
+      "seed": 0,
+      "stage": "S0",
+      "probe": "P-01",
+      "span_id": "AMB-02",
+      "seat_id": "emp-A",
+      "role": "sales",
+      "model": "openrouter:qwen/qwen3.6-flash",
+      "variant": 0,
+      "mutations": [
+        "clarify_elderly_understanding_all"
+      ],
+      "backend": "deepagents",
+      "live": true,
+      "parsed": true,
+      "cited_doc_count": 2
+    },
+    {
+      "run_id": "pair_clarify_elderly_understanding_all_seed0_treatment_s0_openrouter-qwen-qwen3-6-flash_v1",
+      "condition": "treatment",
+      "seed": 0,
+      "stage": "S0",
+      "probe": "P-01",
+      "span_id": "AMB-02",
+      "seat_id": "emp-A",
+      "role": "sales",
+      "model": "openrouter:qwen/qwen3.6-flash",
+      "variant": 1,
+      "mutations": [
+        "clarify_elderly_understanding_all"
+      ],
+      "backend": "deepagents",
+      "live": true,
+      "parsed": true,
+      "cited_doc_count": 3
+    },
+    {
+      "run_id": "pair_clarify_elderly_understanding_all_seed0_treatment_s0_openrouter-qwen-qwen3-6-plus_v0",
+      "condition": "treatment",
+      "seed": 0,
+      "stage": "S0",
+      "probe": "P-01",
+      "span_id": "AMB-02",
+      "seat_id": "emp-A",
+      "role": "sales",
+      "model": "openrouter:qwen/qwen3.6-plus",
+      "variant": 0,
+      "mutations": [
+        "clarify_elderly_understanding_all"
+      ],
+      "backend": "deepagents",
+      "live": true,
+      "parsed": true,
+      "cited_doc_count": 3
+    },
+    {
+      "run_id": "pair_clarify_elderly_understanding_all_seed0_treatment_s0_openrouter-qwen-qwen3-6-plus_v1",
+      "condition": "treatment",
+      "seed": 0,
+      "stage": "S0",
+      "probe": "P-01",
+      "span_id": "AMB-02",
+      "seat_id": "emp-A",
+      "role": "sales",
+      "model": "openrouter:qwen/qwen3.6-plus",
+      "variant": 1,
+      "mutations": [
+        "clarify_elderly_understanding_all"
+      ],
+      "backend": "deepagents",
+      "live": true,
+      "parsed": false,
+      "cited_doc_count": 0
+    }
+  ],
+  "ensemble_triage": null,
+  "note": "WP-07b S0 endpoint only; S1/S2 L0 attribution, harness acceptance, and Stage 9 readiness remain separate gates."
+}

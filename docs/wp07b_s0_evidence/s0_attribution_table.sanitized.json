@@ -1,0 +1,103 @@
+{
+  "schema_version": "company_twin.s0_control_pair_attribution.v1",
+  "endpoint": "s0_interpretation_entropy_and_cluster_shift",
+  "run_filter": {
+    "mode": "control_pairs_s0",
+    "included_run_count": 8,
+    "included_run_ids": [
+      "pair_clarify_elderly_understanding_all_seed0_control_s0_openrouter-qwen-qwen3-6-flash_v0",
+      "pair_clarify_elderly_understanding_all_seed0_control_s0_openrouter-qwen-qwen3-6-flash_v1",
+      "pair_clarify_elderly_understanding_all_seed0_control_s0_openrouter-qwen-qwen3-6-plus_v0",
+      "pair_clarify_elderly_understanding_all_seed0_control_s0_openrouter-qwen-qwen3-6-plus_v1",
+      "pair_clarify_elderly_understanding_all_seed0_treatment_s0_openrouter-qwen-qwen3-6-flash_v0",
+      "pair_clarify_elderly_understanding_all_seed0_treatment_s0_openrouter-qwen-qwen3-6-flash_v1",
+      "pair_clarify_elderly_understanding_all_seed0_treatment_s0_openrouter-qwen-qwen3-6-plus_v0",
+      "pair_clarify_elderly_understanding_all_seed0_treatment_s0_openrouter-qwen-qwen3-6-plus_v1"
+    ]
+  },
+  "all_answers_live": true,
+  "rows": [
+    {
+      "status": "candidate",
+      "endpoint": "s0_interpretation_entropy_and_cluster_shift",
+      "delta": "world.corpus.mutations",
+      "left_value": [],
+      "right_value": [
+        "clarify_elderly_understanding_all"
+      ],
+      "span_id": "AMB-02",
+      "role": "sales",
+      "left": {
+        "answer_count": 4,
+        "parsed_answers": 3,
+        "parsed_rate": 0.75,
+        "seed_values": [
+          0
+        ],
+        "model_values": [
+          "openrouter:qwen/qwen3.6-flash",
+          "openrouter:qwen/qwen3.6-plus"
+        ],
+        "variant_values": [
+          0,
+          1
+        ],
+        "clusters": {
+          "C4": 3,
+          "novel_or_unclassified": 1
+        },
+        "cluster_distribution": {
+          "C4": 0.75,
+          "novel_or_unclassified": 0.25
+        },
+        "dominant_cluster": "C4",
+        "entropy": 0.8113
+      },
+      "right": {
+        "answer_count": 4,
+        "parsed_answers": 3,
+        "parsed_rate": 0.75,
+        "seed_values": [
+          0
+        ],
+        "model_values": [
+          "openrouter:qwen/qwen3.6-flash",
+          "openrouter:qwen/qwen3.6-plus"
+        ],
+        "variant_values": [
+          0,
+          1
+        ],
+        "clusters": {
+          "C4": 4
+        },
+        "cluster_distribution": {
+          "C4": 1.0
+        },
+        "dominant_cluster": "C4",
+        "entropy": -0.0
+      },
+      "entropy_delta": -0.8113,
+      "cluster_shift_total_variation": 0.25,
+      "cluster_distribution_delta": {
+        "C4": 0.25,
+        "novel_or_unclassified": -0.25
+      },
+      "observation_bundle_match": true,
+      "left_observation_keys": [
+        "seed=0|model=openrouter:qwen/qwen3.6-flash|variant=0",
+        "seed=0|model=openrouter:qwen/qwen3.6-flash|variant=1",
+        "seed=0|model=openrouter:qwen/qwen3.6-plus|variant=0",
+        "seed=0|model=openrouter:qwen/qwen3.6-plus|variant=1"
+      ],
+      "right_observation_keys": [
+        "seed=0|model=openrouter:qwen/qwen3.6-flash|variant=0",
+        "seed=0|model=openrouter:qwen/qwen3.6-flash|variant=1",
+        "seed=0|model=openrouter:qwen/qwen3.6-plus|variant=0",
+        "seed=0|model=openrouter:qwen/qwen3.6-plus|variant=1"
+      ],
+      "dominant_cluster_shifted": false
+    }
+  ],
+  "note": "S0 attribution compares interpretation entropy and cluster distributions. It is a screening endpoint and does not confirm S1/S2 action conversion."
+}
