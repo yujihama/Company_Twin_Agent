@@ -131,6 +131,35 @@ def test_s0_divergence_marks_machine_novel_for_human_review(tmp_path: Path) -> N
     assert payload["human_review_queue"][0]["primary_probe_id"] == "P-03"
 
 
+def test_s0_divergence_separates_unparsed_from_novel_queue(tmp_path: Path) -> None:
+    design = load_design(Path.cwd())
+    run_root = tmp_path / "s0"
+    run_root.mkdir()
+    (run_root / "meta.json").write_text(json.dumps({"live": True}), encoding="utf-8")
+
+    payload = aggregate_s0_divergence(
+        design,
+        [
+            {
+                "probe_id": "P-03",
+                "span_id": "AMB-01",
+                "seat_id": "emp-A",
+                "model": "m1",
+                "variant": 0,
+                "run_root": str(run_root),
+                "response": "not json",
+                "parsed": False,
+            },
+        ],
+        campaign_root=tmp_path,
+    )
+
+    cell = payload["cells"][0]
+    assert cell["clusters"]["unparsed"] == 1
+    assert cell["novel_count"] == 0
+    assert payload["human_review_queue"] == []
+
+
 def test_role_cards_do_not_copy_corpus_text() -> None:
     """Role cards may describe habits and tensions but must not smuggle normative
     document text into the seat prompt (MASTER_DESIGN P5)."""

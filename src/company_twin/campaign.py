@@ -698,6 +698,8 @@ def _answer_text(row: dict[str, Any]) -> str:
 def _s0_cluster(row: dict[str, Any], candidates: dict[str, str]) -> str:
     if row.get("outcome") == "recursion_exhausted":
         return "no_grounded_answer"
+    if row.get("parsed") is False:
+        return "unparsed"
     return classify_answer(_answer_text(row), candidates)
 
 
