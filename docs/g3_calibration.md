@@ -82,3 +82,58 @@ The command writes `g3_semantic_grounding.json` plus
 `g3_entailment_cache.json`. Readiness then consumes only allowlisted, unqualified
 semantic rates through triage metrics or the run-level g3 report; proxy-only
 reports remain visible but cannot pass the semantic threshold.
+
+## WP-01 Campaign Calibration Result
+
+Date: 2026-07-04
+
+Source: WP-01 live campaign `runs/design_campaign_20260704_012445`, anchor bundle
+`anchor_s2_seed0`. The reviewer-labeled sample file is `calibration.jsonl`.
+
+Sample hash:
+
+```text
+SHA256 39049BABF3B48C29CDCCBB5A7A75AE21DF078C9245297188D6FB24E64E05F2C5
+```
+
+Human labels: 20 samples, all `supported`. The exported rows were action-bound
+customer-contact basis records with cited `read_document` text. The only
+borderline item was `anchor_s2_seed0:BASIS-000004`, where the human label
+accepted a high-level merchant-contract process citation as supporting the
+staff's operational next step, while the judge required a more explicit
+approval rule.
+
+Live judge:
+
+```powershell
+python -m company_twin.cli g3 --run-root runs\design_campaign_20260704_012445\anchor_s2_seed0 --judge-model openrouter:qwen/qwen3.6-plus
+```
+
+Result:
+
+| Judge prompt | Agreement | Rate | Target |
+|---|---:|---:|---:|
+| pre-adjustment prompt | 16/20 | 80% | below 90% |
+| `operational-support-v2` | 19/20 | 95% | pass |
+
+The prompt adjustment keeps the live OpenRouter path strict, but tells the judge
+to evaluate substantive policy/procedure support rather than exact internal tool
+names, local field names, action IDs, or v1.0/v1.1 label wording. Cache keys now
+include the prompt version so prior OpenRouter labels are not reused after a
+prompt change.
+
+Anchor bundle live G3 summary after adjustment:
+
+```json
+{
+  "judge": {
+    "backend": "openrouter",
+    "model": "openrouter:qwen/qwen3.6-plus",
+    "prompt_version": "operational-support-v2",
+    "readiness_eligible": true
+  },
+  "basis_action_bound": 21,
+  "supported_count": 20,
+  "grounding_semantic_all3_rate": 0.9523809523809523
+}
+```

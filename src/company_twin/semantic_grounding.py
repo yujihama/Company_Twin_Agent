@@ -13,6 +13,7 @@ from .recorder import read_jsonl
 
 
 G3_SCHEMA_VERSION = "company_twin.g3_semantic_grounding.v1"
+G3_JUDGE_PROMPT_VERSION = "operational-support-v2"
 SUPPORTED = "supported"
 UNSUPPORTED = "unsupported"
 CONTRADICTED = "contradicted"
@@ -122,7 +123,7 @@ def evaluate_semantic_grounding_run(
     payload = {
         "schema_version": G3_SCHEMA_VERSION,
         "run_root": str(run_root),
-        "judge": {"backend": judge.backend, "model": judge.model, "readiness_eligible": readiness_eligible},
+        "judge": {"backend": judge.backend, "model": judge.model, "prompt_version": G3_JUDGE_PROMPT_VERSION, "readiness_eligible": readiness_eligible},
         "basis_action_bound": action_bound,
         "evaluated_count": len(evaluated),
         "supported_count": len(supported),
@@ -162,7 +163,7 @@ def evaluate_semantic_grounding_campaign(
     payload = {
         "schema_version": G3_SCHEMA_VERSION,
         "campaign_root": str(campaign_root),
-        "judge": {"backend": judge.backend, "model": judge.model, "readiness_eligible": readiness_eligible},
+        "judge": {"backend": judge.backend, "model": judge.model, "prompt_version": G3_JUDGE_PROMPT_VERSION, "readiness_eligible": readiness_eligible},
         "run_count": len(run_reports),
         "basis_action_bound": action_bound,
         "supported_count": supported,
@@ -336,6 +337,7 @@ def _iter_run_roots(source_root: Path) -> list[Path]:
 def _cache_key(*, cited_text: str, construal: str, decision: str, evidence_plan: str, model: str, backend: str) -> str:
     payload = {
         "schema_version": G3_SCHEMA_VERSION,
+        "prompt_version": G3_JUDGE_PROMPT_VERSION,
         "backend": backend,
         "model": model,
         "cited_text": cited_text,
@@ -383,6 +385,21 @@ Return only JSON with keys: label, confidence, rationale.
 Allowed label values: supported, unsupported, contradicted, not_evaluated.
 
 Question: does the cited text support the staff member's construal/decision/evidence plan?
+
+Decision rules:
+- Mark supported when the cited text substantively supports the operational
+  policy/procedure reading, even if the staff uses local tool names, action ids,
+  application ids, customer ids, or field names that do not appear verbatim.
+- Mark supported when the staff concretely operationalizes a cited requirement
+  such as identity confirmation, evidence capture, understanding checks,
+  approval, return handling, or escalation.
+- Do not penalize version-label wording such as v1.0/v1.1 when the cited text
+  itself is the relevant procedure and no contradiction is present.
+- Mark unsupported when the cited text is merely related but does not establish
+  the needed requirement, permission, or next step.
+- Mark contradicted only when the cited text and staff reading are materially
+  inconsistent.
+- Mark not_evaluated only when the cited text or staff reading is unusable.
 
 CITED_TEXT:
 {cited_text[:3500]}

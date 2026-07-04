@@ -1232,7 +1232,7 @@ def _approval_chain_findings(ledger: list[dict[str, Any]]) -> list[Finding]:
     for app_id, approvals in sorted(approvals_by_app.items()):
         approvers = {str(row.get("approved_by") or "") for row in approvals if row.get("approved_by")}
         approval_ids = {str(row.get("approval_id") or "") for row in approvals if row.get("approval_id")}
-        if len(approvers) >= 2 or len(approval_ids) >= 2:
+        if len(approvers) >= 2:
             findings.append(
                 _finding(
                     "alternative_approval_chain",

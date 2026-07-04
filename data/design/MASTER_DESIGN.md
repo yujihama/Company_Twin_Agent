@@ -211,7 +211,7 @@ tick=半日。時限イベント: 日次inbox配信、W2金キャンペーン締
 
 統制タグ付きツール（承認実行・チェックシート記入・申込確定・例外申請等）は`basis`引数を必須とする。スキーマ: trigger_event / retrieved(doc,ver,span) / construal（どう読んだか）/ decision / evidence_plan / alternatives_considered / felt_constraints / confidence。カーネルがbasisを剥離してrecorderへ送り、世界には行為のみが出る。
 
-計測反応性（根拠を書かせること自体が接地を誘発する）は消せないため、**全役割・全条件でプロトコルを一定に保つ**ことで条件間比較の内的妥当性を守る。行為と同一パスで取るか事後別パスで再構成するかは、リハーサル世界で接地率と作話率を小規模比較してから凍結する（未決事項として明記）。
+計測反応性（根拠を書かせること自体が接地を誘発する）は消せないため、**全役割・全条件でプロトコルを一定に保つ**ことで条件間比較の内的妥当性を守る。WP-05のlive対照（2026-07-04, S1/P-04, tick=1, scaffold vs measurement, seed 0..4共有）により、実験測定では行為ツール実行時のaction-bound basisを標準とし、`measurement` prompt modeを既定に凍結する。`scaffold` prompt modeはスモーク、デバッグ、教材的可視化に限定し、測定ランの方式には使わない。
 
 ### 7.4 慣行・学習・人材品質
 
@@ -380,7 +380,7 @@ signature = hash(finding_type, anchor_id(span/norm/遷移辺), role, phase, arti
 
 ## 15. 未決事項（設計上の選択が残る点）
 
-1. **basisの取得方式**: 行為ツール引数（時間結合・スキーマ検証が利くが作話パディング懸念）vs 直後の`log_interpretation`強制ペア。リハーサル世界で接地率・作話率を比較して凍結する。
+1. **basisの取得方式**: WP-05 live対照により、測定ランは行為時action-bound basis + `measurement` prompt modeへ凍結済み。`scaffold`は測定ではなくスモーク/デバッグ用とする。
 2. **S0の重みづけ**: S0分岐のS1転化率が低い場合、S0の昇格閾値・予算配分を見直す。
 3. **K値**: 初期値（S1=5, S2=3）は分散実測で調整。
 4. **解釈クラス粒度**: registry候補集合の粒度が粗すぎる/細かすぎる場合の改定手続（registry改定は実験者プレーンのみで完結し、進行中バッチには適用しない）。
@@ -447,6 +447,35 @@ claim Stage 9 readiness or the scaled S0/S1/S2 live milestone.
   including Wilson intervals and an explicit `ready_for_design_conclusion`
   marker that stays false until both prompt modes have at least five live runs.
 
-Design boundary: WP-05's K>=5x2 live comparison and the next scaled S0/S1/S2
-campaign are still future execution work. The new report generator makes that
-execution auditable but does not replace it.
+## 18. WP-05 live prompt-mode comparison and method freeze (2026-07-04)
+
+Live comparison root: `runs/prompt_ab_k5_tick1_20260704_120201`.
+
+Command shape:
+`python -m company_twin.cli s1 --probe P-04 --seed <0..4> --ticks 1 --prompt-mode <scaffold|measurement> --run-root ... --model openrouter:qwen/qwen3.6-flash`.
+
+Follow-up commands:
+
+- `python -m company_twin.cli g3 --campaign-root runs\prompt_ab_k5_tick1_20260704_120201 --judge-model openrouter:qwen/qwen3.6-plus`
+- `python -m company_twin.cli prompt-ab-report --campaign-root runs\prompt_ab_k5_tick1_20260704_120201`
+
+Result:
+
+| prompt mode | runs | seeds | action-bound basis | live semantic all-3 | grounding gap rate | basis fabrication findings |
+|---|---:|---|---:|---:|---:|---:|
+| measurement | 5 | 0,1,2,3,4 | 5 | 1.0 | 0.6 | 3 |
+| scaffold | 5 | 0,1,2,3,4 | 4 | 1.0 | 1.0 | 11 |
+
+Comparison: `ready_for_design_conclusion=true`,
+`semantic_all3_delta_measurement_minus_scaffold=0.0`,
+`grounding_gap_delta_measurement_minus_scaffold=-0.4`, and
+`controlled_actions_delta_measurement_minus_scaffold=1`.
+
+Freeze decision: the measurement path keeps equivalent live semantic grounding
+while reducing grounding-gap and basis-fabrication findings in this S1/P-04
+contrast. Therefore §7.3 and §15 freeze the measurement protocol as
+action-time basis capture with `measurement` prompt mode. This is a method
+freeze for the current harness, not a Stage 9 readiness claim; scaled S0/S1/S2,
+backcasting, SME blind review, and holdout evidence remain separate gates.
+
+Sanitized PR evidence: `docs/wp05_live_evidence/`.

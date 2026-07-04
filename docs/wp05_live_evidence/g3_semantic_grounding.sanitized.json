@@ -1,0 +1,130 @@
+﻿{
+    "schema_version":  "company_twin.g3_semantic_grounding.v1",
+    "campaign_root":  "runs/prompt_ab_k5_tick1_20260704_120201",
+    "judge":  {
+                  "backend":  "openrouter",
+                  "model":  "openrouter:qwen/qwen3.6-plus",
+                  "prompt_version":  "operational-support-v2",
+                  "readiness_eligible":  true
+              },
+    "run_count":  10,
+    "basis_action_bound":  9,
+    "supported_count":  9,
+    "semantic_all3_count":  9,
+    "grounding_g3_semantic_rate":  1.0,
+    "grounding_semantic_all3_rate":  1.0,
+    "grounding_g3_semantic_rate_proxy":  null,
+    "grounding_semantic_all3_rate_proxy":  null,
+    "run_reports":  [
+                        {
+                            "run_root":  "runs/prompt_ab_k5_tick1_20260704_120201/s1_P-04_measurement_seed0",
+                            "grounding_semantic_all3_rate":  null,
+                            "grounding_semantic_all3_rate_proxy":  null,
+                            "judge":  {
+                                          "backend":  "openrouter",
+                                          "model":  "openrouter:qwen/qwen3.6-plus",
+                                          "prompt_version":  "operational-support-v2",
+                                          "readiness_eligible":  true
+                                      }
+                        },
+                        {
+                            "run_root":  "runs/prompt_ab_k5_tick1_20260704_120201/s1_P-04_measurement_seed1",
+                            "grounding_semantic_all3_rate":  1.0,
+                            "grounding_semantic_all3_rate_proxy":  null,
+                            "judge":  {
+                                          "backend":  "openrouter",
+                                          "model":  "openrouter:qwen/qwen3.6-plus",
+                                          "prompt_version":  "operational-support-v2",
+                                          "readiness_eligible":  true
+                                      }
+                        },
+                        {
+                            "run_root":  "runs/prompt_ab_k5_tick1_20260704_120201/s1_P-04_measurement_seed2",
+                            "grounding_semantic_all3_rate":  1.0,
+                            "grounding_semantic_all3_rate_proxy":  null,
+                            "judge":  {
+                                          "backend":  "openrouter",
+                                          "model":  "openrouter:qwen/qwen3.6-plus",
+                                          "prompt_version":  "operational-support-v2",
+                                          "readiness_eligible":  true
+                                      }
+                        },
+                        {
+                            "run_root":  "runs/prompt_ab_k5_tick1_20260704_120201/s1_P-04_measurement_seed3",
+                            "grounding_semantic_all3_rate":  1.0,
+                            "grounding_semantic_all3_rate_proxy":  null,
+                            "judge":  {
+                                          "backend":  "openrouter",
+                                          "model":  "openrouter:qwen/qwen3.6-plus",
+                                          "prompt_version":  "operational-support-v2",
+                                          "readiness_eligible":  true
+                                      }
+                        },
+                        {
+                            "run_root":  "runs/prompt_ab_k5_tick1_20260704_120201/s1_P-04_measurement_seed4",
+                            "grounding_semantic_all3_rate":  null,
+                            "grounding_semantic_all3_rate_proxy":  null,
+                            "judge":  {
+                                          "backend":  "openrouter",
+                                          "model":  "openrouter:qwen/qwen3.6-plus",
+                                          "prompt_version":  "operational-support-v2",
+                                          "readiness_eligible":  true
+                                      }
+                        },
+                        {
+                            "run_root":  "runs/prompt_ab_k5_tick1_20260704_120201/s1_P-04_scaffold_seed0",
+                            "grounding_semantic_all3_rate":  1.0,
+                            "grounding_semantic_all3_rate_proxy":  null,
+                            "judge":  {
+                                          "backend":  "openrouter",
+                                          "model":  "openrouter:qwen/qwen3.6-plus",
+                                          "prompt_version":  "operational-support-v2",
+                                          "readiness_eligible":  true
+                                      }
+                        },
+                        {
+                            "run_root":  "runs/prompt_ab_k5_tick1_20260704_120201/s1_P-04_scaffold_seed1",
+                            "grounding_semantic_all3_rate":  null,
+                            "grounding_semantic_all3_rate_proxy":  null,
+                            "judge":  {
+                                          "backend":  "openrouter",
+                                          "model":  "openrouter:qwen/qwen3.6-plus",
+                                          "prompt_version":  "operational-support-v2",
+                                          "readiness_eligible":  true
+                                      }
+                        },
+                        {
+                            "run_root":  "runs/prompt_ab_k5_tick1_20260704_120201/s1_P-04_scaffold_seed2",
+                            "grounding_semantic_all3_rate":  1.0,
+                            "grounding_semantic_all3_rate_proxy":  null,
+                            "judge":  {
+                                          "backend":  "openrouter",
+                                          "model":  "openrouter:qwen/qwen3.6-plus",
+                                          "prompt_version":  "operational-support-v2",
+                                          "readiness_eligible":  true
+                                      }
+                        },
+                        {
+                            "run_root":  "runs/prompt_ab_k5_tick1_20260704_120201/s1_P-04_scaffold_seed3",
+                            "grounding_semantic_all3_rate":  null,
+                            "grounding_semantic_all3_rate_proxy":  null,
+                            "judge":  {
+                                          "backend":  "openrouter",
+                                          "model":  "openrouter:qwen/qwen3.6-plus",
+                                          "prompt_version":  "operational-support-v2",
+                                          "readiness_eligible":  true
+                                      }
+                        },
+                        {
+                            "run_root":  "runs/prompt_ab_k5_tick1_20260704_120201/s1_P-04_scaffold_seed4",
+                            "grounding_semantic_all3_rate":  1.0,
+                            "grounding_semantic_all3_rate_proxy":  null,
+                            "judge":  {
+                                          "backend":  "openrouter",
+                                          "model":  "openrouter:qwen/qwen3.6-plus",
+                                          "prompt_version":  "operational-support-v2",
+                                          "readiness_eligible":  true
+                                      }
+                        }
+                    ]
+}

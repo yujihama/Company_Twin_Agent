@@ -217,6 +217,7 @@ def g3(
     judge_model: Annotated[str | None, typer.Option("--judge-model", help="OpenRouter model for live semantic judge; omitted uses local deterministic proxy")] = None,
 ) -> None:
     """Evaluate g3 semantic grounding over existing basis/read_document evidence."""
+    _root()
     if bool(run_root) == bool(campaign_root):
         raise typer.BadParameter("Provide exactly one of --run-root or --campaign-root")
     judge = OpenRouterSemanticJudge(judge_model) if judge_model else LocalSemanticJudge()
@@ -235,6 +236,7 @@ def g3_export_calibration(
     limit: Annotated[int, typer.Option("--limit")] = 20,
 ) -> None:
     """Export action-bound basis samples for human g3 calibration labels."""
+    _root()
     payload = export_g3_calibration_samples(source_root.resolve(), output.resolve(), limit=limit)
     _echo_json(payload)
 
