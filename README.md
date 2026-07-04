@@ -18,7 +18,8 @@ readiness gate passes.
   config-driven.
 - Observability: ensemble triage writes candidate attribution, min-repro queues,
   min-repro evidence-collation manifests, rule hit rates, detection-miss rates,
-  and a deterministic behavior coverage map.
+  g3 semantic grounding reports, prompt-mode A/B reports, and a deterministic
+  behavior coverage map.
 - Acceptance: harness-safety gates only.
 - Evidence: sanitized WP-01 live evidence is committed under
   `docs/wp01_live_evidence`; raw run bundles remain under ignored `runs/`.
@@ -29,11 +30,17 @@ readiness gate passes.
 
 - Raw live full-world S2 + anchor bundles are not committed; only sanitized
   WP-01 evidence is attached.
-- `grounding_g3_machine_heuristic_rate` is lexical/machine grounding, not the
-  Stage 9 semantic entailment oracle.
+- `grounding_g3_machine_heuristic_rate` is lexical/machine grounding. The g3
+  semantic evaluator is implemented separately and writes
+  `g3_semantic_grounding.json`; Stage 9 should use a reviewed/live judge run,
+  not the legacy machine heuristic.
+- The local deterministic g3 proxy writes only `*_proxy` rates. Readiness
+  accepts only unqualified semantic rates produced by allowlisted live judges.
 - Candidate attribution and default `min-repro` output remain exploratory.
   Confirmed findings require fresh live confirmation bundles with
   `status=reproduced`; same-campaign evidence collation is not enough.
+- WP-05 prompt-mode A/B reporting exists, but K>=5x2 live comparison evidence is
+  not yet claimed.
 - Stage 9 backcasting, SME blind review, and holdout reports are required before
   experiment-level conclusions.
 
@@ -44,6 +51,9 @@ python -m compileall -q src tests
 pytest -q
 python -m company_twin.cli inspect
 python -m company_twin.cli lint
+python -m company_twin.cli g3 --campaign-root runs\design_campaign_YYYYMMDD_HHMMSS
+python -m company_twin.cli g3-export-calibration --source-root runs\design_campaign_YYYYMMDD_HHMMSS --output docs\g3_calibration_samples.jsonl
+python -m company_twin.cli prompt-ab-report --campaign-root runs\design_campaign_YYYYMMDD_HHMMSS
 python -m company_twin.cli min-repro --campaign-root runs\design_campaign_YYYYMMDD_HHMMSS
 ```
 
@@ -60,6 +70,7 @@ For a full-world claim, run a live campaign with S2 and then verify both gates:
 
 ```powershell
 python -m company_twin.cli campaign --with-s2 --s2-k 1 --s2-ticks 40 --s0-model openrouter:qwen/qwen3.6-flash
+python -m company_twin.cli g3 --campaign-root runs\design_campaign_YYYYMMDD_HHMMSS --judge-model openrouter:qwen/qwen3.6-plus
 python -m company_twin.cli min-repro --campaign-root runs\design_campaign_YYYYMMDD_HHMMSS
 python -m company_twin.cli acceptance --campaign-root runs\design_campaign_YYYYMMDD_HHMMSS --scope full_world
 python -m company_twin.cli readiness-reports --campaign-root runs\design_campaign_YYYYMMDD_HHMMSS --overwrite

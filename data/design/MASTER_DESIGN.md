@@ -410,3 +410,43 @@ executed at `runs/design_campaign_20260704_002346`; `qwen3.5-9b` returned empty
 S0 responses for both variants, so full-world A-06 failed with
 `multimodel_cell=false`. The accepted WP-01 run replaced that second model with
 `openrouter:qwen/qwen3.6-plus`, which parsed successfully for both variants.
+
+---
+
+## 17. WP-02 / WP-04b / WP-05 implementation update (2026-07-04)
+
+This section records the next instrumentation layer after WP-01. It does not
+claim Stage 9 readiness or the scaled S0/S1/S2 live milestone.
+
+- WP-02 g3 semantic grounding: `company_twin.semantic_grounding` evaluates
+  action-bound basis rows against the actual `read_document` text behind each
+  `citation_handle`. It writes run-level `g3_semantic_grounding.json` and
+  `g3_entailment_cache.json`; triage metrics now populate
+  `grounding_g3_semantic_rate`, `grounding_semantic_all3_rate`, and
+  `semantic_grounding_judge` instead of leaving semantic all-3 as a placeholder.
+- Non-injection boundary: the g3 evaluator consumes only `attempts.jsonl` and
+  `basis_records.jsonl`; it does not load span registry coordinates, latent
+  truth, or seeded span ids. The legacy `grounding_g3_machine_heuristic_rate`
+  remains separate from semantic g3.
+- Calibration artifact: `docs/g3_calibration.md` records the 20-case local
+  calibration fixture and the command for rerunning the upper-model judge. The
+  local deterministic judge is for offline tests; live readiness evidence should
+  be generated with an explicit OpenRouter judge model.
+- Gate boundary: local proxy output is written only to
+  `grounding_*_semantic*_proxy` fields. `grounding_semantic_all3_rate` is
+  populated only by allowlisted live judge backends, and readiness rejects proxy
+  reports even when their proxy rate exceeds the threshold.
+- WP-04b L1 additions: deterministic L1 findings now include
+  `tacit_chat_to_action`, `rapid_resubmit_after_return`, and
+  `alternative_approval_chain`. `data/compiled_data/detection_rules_v2.json`
+  keeps truth rules and monitoring mimic rules as separate `population`
+  classes, so `detection_miss_rate` remains truth-finding silence by monitoring
+  rules, not a compliance complement.
+- WP-05 entrypoint: `company-twin prompt-ab-report --campaign-root ...` builds a
+  deterministic scaffold-vs-measurement report from existing run bundles,
+  including Wilson intervals and an explicit `ready_for_design_conclusion`
+  marker that stays false until both prompt modes have at least five live runs.
+
+Design boundary: WP-05's K>=5x2 live comparison and the next scaled S0/S1/S2
+campaign are still future execution work. The new report generator makes that
+execution auditable but does not replace it.
