@@ -7,7 +7,7 @@ from company_twin.campaign import default_s0_models
 from company_twin.corpus import Corpus
 from company_twin.design_loader import load_design
 from company_twin.harness import run_s1_episode, run_s2_world
-from company_twin.oracles import aggregate_ensemble_triage, execute_min_repro_jobs, load_detection_rules, write_triage
+from company_twin.oracles import aggregate_ensemble_triage, execute_fresh_min_repro_confirmation, execute_min_repro_jobs, load_detection_rules, write_triage
 from company_twin.recorder import RunRecorder, read_jsonl
 from conftest import fake_seat_factory
 from test_world_runs import _LateBoundCustomer
@@ -272,6 +272,81 @@ def test_min_repro_collation_never_promotes_confirmed_findings(tmp_path: Path) -
     assert registry["audit_hypothesis_cards"] == []
     updated_jobs = json.loads((tmp_path / "min_repro_jobs.json").read_text(encoding="utf-8"))["jobs"]
     assert updated_jobs[0]["status"] == "evidence_collated"
+    assert a14_confirmed_requires_fresh_reproduction(tmp_path).passed
+
+
+def test_fresh_min_repro_confirmation_promotes_reproduced_with_disjoint_live_seeds(tmp_path: Path) -> None:
+    for seed, has_finding in enumerate([True, True, False]):
+        _write_min_repro_source(tmp_path, f"s1_P-04_seed{seed}", seed=seed, has_finding=has_finding)
+    aggregate_ensemble_triage(tmp_path)
+
+    def write_confirmation_bundle(run_root: Path, seed: int, config: dict[str, Any], finding_type: str) -> None:
+        run_root.mkdir(parents=True)
+        (run_root / "triage").mkdir()
+        (run_root / "meta.json").write_text(
+            json.dumps(
+                {
+                    "stage": config["stage"],
+                    "probe": config["probe"],
+                    "knobs": config.get("knobs") or {},
+                    "seed": seed,
+                    "anchor": False,
+                    "live": True,
+                    "backend": "deepagents",
+                }
+            ),
+            encoding="utf-8",
+        )
+        (run_root / "triage" / "metrics.json").write_text(
+            json.dumps({"controlled_actions_agent": 1, "finding_types": {finding_type: 1}}),
+            encoding="utf-8",
+        )
+        (run_root / "triage" / "buckets.json").write_text(
+            json.dumps(
+                {
+                    "buckets": [
+                        {
+                            "signature": f"{finding_type}:confirm:{seed}",
+                            "finding_type": finding_type,
+                            "seat_id": "emp-C",
+                            "count": 1,
+                        }
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+        _write_jsonl(
+            run_root / "attempts.jsonl",
+            [
+                {"tick": 1, "seat_id": "emp-C", "tool": "llm_response", "args": {"backend": "deepagents"}, "success": True, "result": {}, "origin": "agent"},
+                {"tick": 1, "seat_id": "emp-C", "tool": "submit_application", "args": {"evidence": {"material_version": "v1.1"}}, "success": True, "result": {}, "origin": "agent"},
+            ],
+        )
+        _write_jsonl(run_root / "basis_records.jsonl", [])
+        _write_jsonl(run_root / "world_ledger.jsonl", [])
+        _write_jsonl(run_root / "store_events.jsonl", [])
+
+    payload = execute_fresh_min_repro_confirmation(
+        tmp_path,
+        finding_type="evidence_gap",
+        confirmation_seeds=3,
+        seed_start=100,
+        min_rate=0.5,
+        confirmation_bundle_runner=write_confirmation_bundle,
+    )
+
+    assert payload["status"] == "reproduced"
+    assert payload["confirmed_count"] == 1
+    assert payload["source_bundle_count"] == 3
+    manifest = json.loads((tmp_path / payload["manifest_path"]).read_text(encoding="utf-8"))
+    assert manifest["status"] == "reproduced"
+    assert manifest["fresh_seeds"] == [100, 101, 102]
+    assert all(bundle["run_root"].startswith(f"min_repro/{payload['job_id']}/runs/") for bundle in manifest["source_bundles"])
+
+    registry = json.loads((tmp_path / "finding_registry.json").read_text(encoding="utf-8"))
+    assert registry["confirmed_findings"][0]["status"] == "reproduced"
+    assert registry["audit_hypothesis_cards"]
     assert a14_confirmed_requires_fresh_reproduction(tmp_path).passed
 
 

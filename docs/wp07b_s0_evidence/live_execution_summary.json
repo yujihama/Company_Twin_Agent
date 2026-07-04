@@ -1,0 +1,27 @@
+{
+  "schema_version": "company_twin.wp07b_s0_live_evidence.v1",
+  "campaign_root_name": "control_pair_campaign_20260704_151040",
+  "command": "python -m company_twin.cli control-pair-campaign --manifest runs\\wp07b_clarify_s0_pair_k1.json --stage S0 --probe P-01 --s0-span AMB-02 --s0-seat emp-A --s0-model openrouter:qwen/qwen3.6-flash --s0-model openrouter:qwen/qwen3.6-plus --s0-variants 2 --model openrouter:qwen/qwen3.6-flash",
+  "mutation_id": "clarify_elderly_understanding_all",
+  "condition_run_count": 8,
+  "endpoint": "S0 AMB-02 sales entropy delta and cluster-distribution shift",
+  "result": {
+    "span_id": "AMB-02",
+    "role": "sales",
+    "left_entropy": 0.8113,
+    "right_entropy": -0.0,
+    "entropy_delta": -0.8113,
+    "cluster_shift_total_variation": 0.25,
+    "left_clusters": {
+      "C4": 3,
+      "novel_or_unclassified": 1
+    },
+    "right_clusters": {
+      "C4": 4
+    },
+    "left_parsed_rate": 0.75,
+    "right_parsed_rate": 0.75,
+    "observation_bundle_match": true
+  },
+  "boundary": "S0 screening evidence only. This answers interpretation branching for the AMB-02 sales cell more directly than the prior S1 one-tick L0 endpoint, but it still does not claim S1/S2 action conversion, confirmed findings, or Stage 9 readiness."
+}

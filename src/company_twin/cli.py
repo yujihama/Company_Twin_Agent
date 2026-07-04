@@ -15,7 +15,7 @@ from .design_loader import load_design
 from .env import load_local_env, normalize_openrouter_model
 from .harness import make_run_root, run_s0, run_s1_episode, run_s2_world
 from .mutations import apply_corpus_mutations, build_delta_one_pair_manifest, lint_mutation_specs, load_mutation_catalog, mutation_specs_from_values
-from .oracles import execute_min_repro_jobs, write_triage
+from .oracles import execute_fresh_min_repro_confirmation, execute_min_repro_jobs, write_triage
 from .readiness import run_readiness_gate, write_readiness_reports
 from .semantic_grounding import LocalSemanticJudge, OpenRouterSemanticJudge, evaluate_semantic_grounding_campaign, evaluate_semantic_grounding_run, export_g3_calibration_samples
 
@@ -241,8 +241,8 @@ def control_pairs(
 @app.command("control-pair-campaign")
 def control_pair_campaign(
     manifest: Annotated[Path, typer.Option("--manifest", help="WP-07 control-pairs JSON manifest to execute")],
-    probe: Annotated[str, typer.Option("--probe", help="S1 probe to run for every pair side")] = "P-01",
-    stage: Annotated[str, typer.Option("--stage", help="S1 | S2")] = "S1",
+    probe: Annotated[str, typer.Option("--probe", help="S0/S1 probe to run for every pair side")] = "P-01",
+    stage: Annotated[str, typer.Option("--stage", help="S0 | S1 | S2")] = "S1",
     ticks: Annotated[int, typer.Option("--ticks")] = 6,
     root: Annotated[Path | None, typer.Option("--root")] = None,
     model: Annotated[str | None, typer.Option("--model")] = None,
@@ -250,8 +250,12 @@ def control_pair_campaign(
     seat_model: Annotated[list[str] | None, typer.Option("--seat-model", help="Per-seat model binding, e.g. emp-A=openrouter:qwen/qwen3.6-flash")] = None,
     scc_switch_tick: Annotated[int | None, typer.Option("--scc-switch-tick", help="Tick at which K-completion-gate becomes active")] = None,
     timed_notices: Annotated[bool, typer.Option("--timed-notices/--no-timed-notices", help="Deliver campaign deadline notices during the control-pair campaign")] = False,
+    s0_span: Annotated[str | None, typer.Option("--s0-span", help="S0 span id to bind; defaults to the first span bound to --probe")] = None,
+    s0_seat: Annotated[str, typer.Option("--s0-seat", help="S0 seat id / role cell to run")] = "emp-A",
+    s0_model: Annotated[list[str] | None, typer.Option("--s0-model", help="S0 cold-read model; repeat for multiple models")] = None,
+    s0_variants: Annotated[int, typer.Option("--s0-variants", help="Number of S0 paraphrase variants per model")] = 2,
 ) -> None:
-    """Execute a WP-07 live delta-one control-pair campaign from a manifest."""
+    """Execute a live delta-one control-pair campaign from a manifest."""
     base = _root(root)
     _require_live(base)
     design = load_design(base)
@@ -268,6 +272,10 @@ def control_pair_campaign(
         model_bindings=_seat_model_bindings(seat_model),
         scc_switch_tick=scc_switch_tick,
         timed_notice_recipients=None if timed_notices else [],
+        s0_span=s0_span,
+        s0_seat=s0_seat,
+        s0_models=s0_model,
+        s0_variants=s0_variants,
     )
     _echo_json(payload)
 
@@ -287,6 +295,43 @@ def min_repro(
 ) -> None:
     """Collate queued min-repro evidence without promoting confirmed findings."""
     payload = execute_min_repro_jobs(campaign_root.resolve(), min_rate=min_rate, min_seeds=min_seeds)
+    _echo_json(payload)
+
+
+@app.command("min-repro-confirm")
+def min_repro_confirm(
+    campaign_root: Annotated[Path, typer.Option("--campaign-root")],
+    job_id: Annotated[str | None, typer.Option("--job-id", help="Queued min-repro job id to confirm")] = None,
+    finding_type: Annotated[str | None, typer.Option("--finding-type", help="Select the highest-rate queued job for this finding type")] = None,
+    confirmation_seeds: Annotated[int, typer.Option("--confirmation-seeds", help="Fresh disjoint seed count")] = 3,
+    seed_start: Annotated[int, typer.Option("--seed-start", help="First candidate fresh seed")] = 100,
+    min_rate: Annotated[float, typer.Option("--min-rate", help="Reproduction-rate threshold for status=reproduced")] = 0.5,
+    ticks: Annotated[int, typer.Option("--ticks", help="Trimmed S1/S2 confirmation tick window")] = 6,
+    root: Annotated[Path | None, typer.Option("--root")] = None,
+    model: Annotated[str | None, typer.Option("--model")] = None,
+    prompt_mode: Annotated[str, typer.Option("--prompt-mode", help="scaffold | measurement")] = "measurement",
+    seat_model: Annotated[list[str] | None, typer.Option("--seat-model", help="Per-seat model binding, e.g. emp-A=openrouter:qwen/qwen3.6-flash")] = None,
+    timed_notices: Annotated[bool, typer.Option("--timed-notices/--no-timed-notices", help="Deliver timed notices during confirmation runs")] = False,
+) -> None:
+    """Run fresh live confirmation bundles for one queued min-repro job."""
+    base = _root(root)
+    _require_live(base)
+    design = load_design(base)
+    payload = execute_fresh_min_repro_confirmation(
+        campaign_root.resolve(),
+        design=design,
+        corpus=Corpus.from_design(design),
+        job_id=job_id,
+        finding_type=finding_type,
+        confirmation_seeds=confirmation_seeds,
+        seed_start=seed_start,
+        min_rate=min_rate,
+        ticks=ticks,
+        model=model,
+        prompt_mode=prompt_mode,
+        model_bindings=_seat_model_bindings(seat_model),
+        timed_notice_recipients=None if timed_notices else [],
+    )
     _echo_json(payload)
 
 
