@@ -359,7 +359,7 @@ def test_fresh_min_repro_confirmation_promotes_reproduced_with_disjoint_live_see
         _write_jsonl(
             run_root / "attempts.jsonl",
             [
-                {"tick": 1, "seat_id": "emp-C", "tool": "llm_response", "args": {"backend": "deepagents"}, "success": True, "result": {}, "origin": "agent"},
+                    {"tick": 1, "seat_id": "emp-C", "tool": "llm_invoke", "args": {"backend": "deepagents"}, "success": True, "result": {}, "origin": "agent"},
                 {"tick": 1, "seat_id": "emp-C", "tool": "submit_application", "args": {"evidence": {"material_version": "v1.1"}}, "success": True, "result": {}, "origin": "agent"},
             ],
         )
@@ -433,7 +433,7 @@ def test_fresh_min_repro_confirmation_requires_source_signature_match(tmp_path: 
             json.dumps({"buckets": [{"signature": "sig-other", "finding_type": finding_type, "seat_id": "emp-C", "count": 1}]}),
             encoding="utf-8",
         )
-        _write_jsonl(run_root / "attempts.jsonl", [{"tick": 1, "seat_id": "emp-C", "tool": "llm_response", "args": {"backend": "deepagents"}, "success": True, "result": {}, "origin": "agent"}])
+        _write_jsonl(run_root / "attempts.jsonl", [{"tick": 1, "seat_id": "emp-C", "tool": "llm_invoke", "args": {"backend": "deepagents"}, "success": True, "result": {}, "origin": "agent"}])
         _write_jsonl(run_root / "basis_records.jsonl", [])
         _write_jsonl(run_root / "world_ledger.jsonl", [])
         _write_jsonl(run_root / "store_events.jsonl", [])
@@ -475,7 +475,7 @@ def test_s2_fresh_min_repro_confirmation_infers_seats_subset(tmp_path: Path) -> 
             json.dumps({"buckets": [{"signature": "sig-source", "finding_type": finding_type, "seat_id": "emp-C", "count": 1}]}),
             encoding="utf-8",
         )
-        _write_jsonl(run_root / "attempts.jsonl", [{"tick": 1, "seat_id": "emp-C", "tool": "llm_response", "args": {"backend": "deepagents"}, "success": True, "result": {}, "origin": "agent"}])
+        _write_jsonl(run_root / "attempts.jsonl", [{"tick": 1, "seat_id": "emp-C", "tool": "llm_invoke", "args": {"backend": "deepagents"}, "success": True, "result": {}, "origin": "agent"}])
         _write_jsonl(run_root / "basis_records.jsonl", [])
         _write_jsonl(run_root / "world_ledger.jsonl", [])
         _write_jsonl(run_root / "store_events.jsonl", [])
@@ -523,7 +523,7 @@ def test_a14_accepts_fresh_live_min_repro_bundle_with_disjoint_seed(tmp_path: Pa
     (live_root / "meta.json").write_text(json.dumps({"stage": "S1", "probe": "P-04", "knobs": {}, "seed": 100, "anchor": False, "live": True}), encoding="utf-8")
     _write_jsonl(
         live_root / "attempts.jsonl",
-        [{"seat_id": "emp-C", "tool": "llm_response", "args": {"backend": "deepagents"}, "success": True, "result": {}, "origin": "agent"}],
+        [{"seat_id": "emp-C", "tool": "llm_invoke", "args": {"backend": "deepagents"}, "success": True, "result": {}, "origin": "agent"}],
     )
     _write_jsonl(live_root / "basis_records.jsonl", [])
     _write_jsonl(live_root / "world_ledger.jsonl", [])
@@ -555,7 +555,7 @@ def test_a14_rejects_threshold_override_manifest(tmp_path: Path) -> None:
     live_root = tmp_path / "min_repro" / job["job_id"] / "runs" / "s1_P-04_confirm_seed100"
     live_root.mkdir(parents=True)
     (live_root / "meta.json").write_text(json.dumps({"stage": "S1", "probe": "P-04", "knobs": {}, "seed": 100, "anchor": False, "live": True}), encoding="utf-8")
-    _write_jsonl(live_root / "attempts.jsonl", [{"seat_id": "emp-C", "tool": "llm_response", "args": {"backend": "deepagents"}, "success": True, "result": {}, "origin": "agent"}])
+    _write_jsonl(live_root / "attempts.jsonl", [{"seat_id": "emp-C", "tool": "llm_invoke", "args": {"backend": "deepagents"}, "success": True, "result": {}, "origin": "agent"}])
     _write_jsonl(live_root / "basis_records.jsonl", [])
     _write_jsonl(live_root / "world_ledger.jsonl", [])
     manifest_path = tmp_path / "min_repro" / job["job_id"] / "manifest.json"

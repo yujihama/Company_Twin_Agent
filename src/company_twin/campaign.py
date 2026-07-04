@@ -543,7 +543,7 @@ def aggregate_s0_control_pair_attribution(design: DesignInputs, s0_results: list
         enriched = {
             **row,
             "role": role,
-            "cluster": classify_answer(_answer_text(row), candidates),
+            "cluster": _s0_cluster(row, candidates),
             "observation_key": _s0_observation_key(row),
             "parsed": bool(row.get("parsed")),
         }
@@ -625,7 +625,7 @@ def aggregate_s0_divergence(design: DesignInputs, s0_results: list[dict[str, Any
     cells: dict[tuple[str, str], list[dict[str, Any]]] = {}
     all_live = True
     for row in s0_results:
-        if not row.get("response"):
+        if not row.get("response") and row.get("outcome") != "recursion_exhausted":
             continue
         meta_path = Path(str(row.get("run_root") or "")) / "meta.json"
         if meta_path.exists():
@@ -638,7 +638,7 @@ def aggregate_s0_divergence(design: DesignInputs, s0_results: list[dict[str, Any
     out_cells: list[dict[str, Any]] = []
     for (span_id, role), rows in sorted(cells.items()):
         candidates = design.spans[span_id].candidates if span_id in design.spans else {}
-        clusters = Counter(classify_answer(_answer_text(row), candidates) for row in rows)
+        clusters = Counter(_s0_cluster(row, candidates) for row in rows)
         probe_counts = Counter(str(row.get("probe_id") or "") for row in rows if row.get("probe_id"))
         primary_probe_id = probe_counts.most_common(1)[0][0] if probe_counts else ""
         span_consistent = all(str(row.get("span_id_from_run") or row.get("span_id") or "") == span_id for row in rows)
@@ -693,6 +693,12 @@ def _answer_text(row: dict[str, Any]) -> str:
     parts = [str(row.get("likely_reading") or ""), str(row.get("required_approver_or_evidence") or ""), str(row.get("next_action") or "")]
     joined = " ".join(part for part in parts if part)
     return joined or str(row.get("response") or "")
+
+
+def _s0_cluster(row: dict[str, Any], candidates: dict[str, str]) -> str:
+    if row.get("outcome") == "recursion_exhausted":
+        return "no_grounded_answer"
+    return classify_answer(_answer_text(row), candidates)
 
 
 def classify_answer(answer: str, candidates: dict[str, str]) -> str:

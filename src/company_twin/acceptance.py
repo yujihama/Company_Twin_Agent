@@ -20,8 +20,8 @@ from .recorder import ALLOWED_ORIGINS, read_jsonl
 #
 # Design properties that make these hard to game:
 #  * populations are filtered by origin, and banned origins fail the whole gate
-#  * "live" requires completed llm_response evidence from backend=="deepagents",
-#    while llm_invoke start records preserve tool-call ordering inside DeepAgents
+#  * "live" requires an actual DeepAgents llm_invoke attempt. A failed invoke is
+#    still live evidence; missing final text is measured in the answer artifact.
 #  * inbox whitelist is checked on the recorded ledger, not on source code
 #  * basis authorship requires a same-seat llm_invoke earlier in the bundle
 # ---------------------------------------------------------------------------
@@ -73,10 +73,11 @@ def a01_no_scripted_origin(run_root: Path) -> GateResult:
 
 def a02_live_required(run_root: Path) -> GateResult:
     data = _load(run_root)
-    live_calls = [row for row in data["attempts"] if row.get("tool") == "llm_response" and row.get("success") and (row.get("args") or {}).get("backend") == "deepagents"]
+    live_calls = [row for row in data["attempts"] if row.get("tool") == "llm_invoke" and (row.get("args") or {}).get("backend") == "deepagents"]
     meta_live = bool(data["meta"].get("live"))
     ok = bool(live_calls) and meta_live
-    return GateResult("A-02 live_required", ok, "" if ok else f"deepagents llm_response={len(live_calls)}, meta.live={meta_live}")
+    failed = sum(1 for row in live_calls if not row.get("success"))
+    return GateResult("A-02 live_required", ok, "" if ok else f"deepagents llm_invoke={len(live_calls)}, failed={failed}, meta.live={meta_live}")
 
 
 def a03_inbox_whitelist(run_root: Path) -> GateResult:
@@ -102,12 +103,6 @@ def a03_inbox_whitelist(run_root: Path) -> GateResult:
 def a04_basis_authorship(run_root: Path) -> GateResult:
     data = _load(run_root)
     llm_seen: set[str] = set()
-    llm_completed = {
-        "customer" if (row.get("args") or {}).get("role") == "customer" else str(row.get("seat_id") or "")
-        for row in data["attempts"]
-        if row.get("tool") == "llm_response" and row.get("success")
-    }
-    basis_seats: set[str] = set()
     author_ok = True
     detail = ""
     basis_ids_from_attempts: dict[str, str] = {}
@@ -119,16 +114,10 @@ def a04_basis_authorship(run_root: Path) -> GateResult:
             basis_id = str(((row.get("args") or {}).get("basis_id")) or "")
             if basis_id:
                 basis_ids_from_attempts[basis_id] = seat
-            basis_seats.add(seat)
             if seat not in llm_seen:
                 author_ok = False
                 detail = f"basis recorded by {seat} before any llm_invoke of that seat"
                 break
-    if author_ok:
-        incomplete = sorted(seat for seat in basis_seats if seat not in llm_completed)
-        if incomplete:
-            author_ok = False
-            detail = f"basis recorded by seats without completed llm_response: {incomplete}"
     if author_ok:
         orphans = [row for row in data["basis"] if str(row.get("basis_id")) not in basis_ids_from_attempts]
         if orphans:

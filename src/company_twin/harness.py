@@ -6,6 +6,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal
 
+from langgraph.errors import GraphRecursionError
+
 from .agents import CustomerLLM, SeatFactory, default_customer_llm, default_seat_factory, recursion_for_budget
 from .corpus import Corpus
 from .customer_agent import CustomerActor, emit_customer_reply, emit_customer_turn
@@ -64,12 +66,18 @@ def run_s0(
     tools = build_role_tools(corpus=corpus, kernel=kernel, recorder=recorder, seat_id=seat_id, seat_role=seat.role, include_workflow=False)
     agent = factory(seat_id=seat_id, role=seat.role, tools=tools, recorder=recorder, recursion_limit=recursion_for_budget(14))
     recorder.write_json("meta.json", {"run_id": recorder.run_id, "stage": "S0", "probe": probe_id, "span": span_id, "seat": seat_id, "model": model_name, "variant": variant, "backend": getattr(agent, "backend", "unknown"), "live": getattr(agent, "backend", "") == "deepagents"})
+    outcome = "answered"
     with recorder.origin("agent"):
         try:
             response = agent.turn(_s0_prompt(design, probe_id, span_id, variant))
+        except GraphRecursionError as exc:
+            recorder.append_ledger("agent_error", {"seat_id": seat_id, "error_type": type(exc).__name__, "message": str(exc)[:500]})
+            response = ""
+            outcome = "recursion_exhausted"
         except Exception as exc:  # noqa: BLE001 - recorded, run continues as failed row
             recorder.append_ledger("agent_error", {"seat_id": seat_id, "error_type": type(exc).__name__, "message": str(exc)[:500]})
             response = ""
+            outcome = "agent_error"
     recorder.append_ledger("s0_agent_response", {"seat_id": seat_id, "probe_id": probe_id, "response": response})
     parsed = _parse_s0_response(response)
     answer_record = {
@@ -80,6 +88,7 @@ def run_s0(
         "model": model_name,
         "variant": variant,
         "response": response,
+        "outcome": outcome,
         **parsed,
     }
     recorder.write_json("s0_answer.json", answer_record)

@@ -92,7 +92,23 @@ class DeepAgentSeat:
             success=True,
             result={"phase": "start"},
         )
-        result = self._agent.invoke({"messages": [{"role": "user", "content": prompt}]}, config={"recursion_limit": self.recursion_limit})
+        try:
+            result = self._agent.invoke({"messages": [{"role": "user", "content": prompt}]}, config={"recursion_limit": self.recursion_limit})
+        except Exception as exc:
+            self.recorder.record_attempt(
+                seat_id=self.seat_id,
+                tool="llm_invoke",
+                args={
+                    "backend": self.backend,
+                    "model": self.model,
+                    "prompt_chars": len(prompt),
+                    "phase": "error",
+                    "error_type": type(exc).__name__,
+                },
+                success=False,
+                result={"error_type": type(exc).__name__, "message": str(exc)[:500]},
+            )
+            raise
         text = final_text(result)
         self.recorder.record_attempt(
             seat_id=self.seat_id,
