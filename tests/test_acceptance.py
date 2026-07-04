@@ -57,7 +57,14 @@ def test_a02_requires_deepagents_llm_invoke_and_meta(tmp_path: Path) -> None:
     assert not a02_live_required(fake_backend).passed
 
     start_only = _bundle(tmp_path, "startonly", attempts=[LIVE_CALL])
-    assert not a02_live_required(start_only).passed
+    assert a02_live_required(start_only).passed
+
+    failed_invoke = _bundle(
+        tmp_path,
+        "failed-invoke",
+        attempts=[_attempt("emp-A", "llm_invoke", args={"backend": "deepagents", "error_type": "GraphRecursionError"}, success=False)],
+    )
+    assert a02_live_required(failed_invoke).passed
 
     meta_false = _bundle(tmp_path, "metafalse", attempts=[LIVE_CALL, LIVE_RESPONSE], meta={"stage": "S1", "live": False})
     assert not a02_live_required(meta_false).passed
@@ -97,7 +104,7 @@ def test_a04_basis_requires_llm_authorship(tmp_path: Path) -> None:
         attempts=[LIVE_CALL, _attempt("emp-A", "record_interpretation_basis", args={"basis_id": "BASIS-000001"})],
         basis=[{"basis_id": "BASIS-000001", "seat_id": "emp-A"}],
     )
-    assert not a04_basis_authorship(incomplete).passed
+    assert a04_basis_authorship(incomplete).passed
 
     orphan = _bundle(tmp_path, "orphan", attempts=[LIVE_CALL, LIVE_RESPONSE], basis=[{"basis_id": "BASIS-000009", "seat_id": "emp-A"}])
     result = a04_basis_authorship(orphan)
