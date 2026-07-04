@@ -64,7 +64,8 @@ def build_world_config(
     deadline_tick = min(20, ticks)
     approval_due_ticks = 2
     absence_ticks = [tick for tick in [23, 24] if tick <= ticks]
-    notice_recipients = sorted(set(timed_notice_recipients or _default_timed_notice_recipients(design)))
+    notice_source = timed_notice_recipients if timed_notice_recipients is not None else _default_timed_notice_recipients(design)
+    notice_recipients = sorted(set(notice_source))
     approval_notice_recipients = sorted(set(_approval_notice_recipients(design)))
     config = {
         "schema_version": "company_twin.world_config.v2",

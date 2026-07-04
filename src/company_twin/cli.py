@@ -9,7 +9,7 @@ import typer
 from .acceptance import run_acceptance
 from .agents import openrouter_ready
 from .ab_testing import write_prompt_mode_ab_report
-from .campaign import run_design_campaign, static_world_surface_lint
+from .campaign import run_control_pair_campaign, run_design_campaign, static_world_surface_lint
 from .corpus import Corpus
 from .design_loader import load_design
 from .env import load_local_env, normalize_openrouter_model
@@ -235,6 +235,40 @@ def control_pairs(
     if output is not None:
         output.resolve().parent.mkdir(parents=True, exist_ok=True)
         output.resolve().write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    _echo_json(payload)
+
+
+@app.command("control-pair-campaign")
+def control_pair_campaign(
+    manifest: Annotated[Path, typer.Option("--manifest", help="WP-07 control-pairs JSON manifest to execute")],
+    probe: Annotated[str, typer.Option("--probe", help="S1 probe to run for every pair side")] = "P-01",
+    stage: Annotated[str, typer.Option("--stage", help="S1 | S2")] = "S1",
+    ticks: Annotated[int, typer.Option("--ticks")] = 6,
+    root: Annotated[Path | None, typer.Option("--root")] = None,
+    model: Annotated[str | None, typer.Option("--model")] = None,
+    prompt_mode: Annotated[str, typer.Option("--prompt-mode", help="scaffold | measurement")] = "measurement",
+    seat_model: Annotated[list[str] | None, typer.Option("--seat-model", help="Per-seat model binding, e.g. emp-A=openrouter:qwen/qwen3.6-flash")] = None,
+    scc_switch_tick: Annotated[int | None, typer.Option("--scc-switch-tick", help="Tick at which K-completion-gate becomes active")] = None,
+    timed_notices: Annotated[bool, typer.Option("--timed-notices/--no-timed-notices", help="Deliver campaign deadline notices during the control-pair campaign")] = False,
+) -> None:
+    """Execute a WP-07 live delta-one control-pair campaign from a manifest."""
+    base = _root(root)
+    _require_live(base)
+    design = load_design(base)
+    payload = run_control_pair_campaign(
+        root=base,
+        design=design,
+        corpus=Corpus.from_design(design),
+        manifest=json.loads(manifest.resolve().read_text(encoding="utf-8")),
+        model=model,
+        probe=probe,
+        stage=stage,
+        ticks=ticks,
+        prompt_mode=prompt_mode,  # type: ignore[arg-type]
+        model_bindings=_seat_model_bindings(seat_model),
+        scc_switch_tick=scc_switch_tick,
+        timed_notice_recipients=None if timed_notices else [],
+    )
     _echo_json(payload)
 
 

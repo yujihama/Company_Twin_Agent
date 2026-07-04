@@ -176,6 +176,7 @@ def run_s1_episode(
     model_bindings: dict[str, str] | None = None,
     scc_switch_tick: int | None = None,
     mutations: list[dict[str, Any]] | None = None,
+    timed_notice_recipients: list[str] | None = None,
 ) -> dict[str, Any]:
     event = _retime_event(event_for_probe(design, probe_id), trigger_tick=1, deadline_tick=ticks)
     return _run_world(
@@ -197,6 +198,7 @@ def run_s1_episode(
         model_bindings=model_bindings,
         scc_switch_tick=scc_switch_tick,
         mutations=mutations,
+        timed_notice_recipients=timed_notice_recipients,
     )
 
 
@@ -218,6 +220,7 @@ def run_s2_world(
     model_bindings: dict[str, str] | None = None,
     scc_switch_tick: int | None = None,
     mutations: list[dict[str, Any]] | None = None,
+    timed_notice_recipients: list[str] | None = None,
 ) -> dict[str, Any]:
     events = deck if deck is not None else build_customer_deck(design, include_routine=True)
     return _run_world(
@@ -239,6 +242,7 @@ def run_s2_world(
         model_bindings=model_bindings,
         scc_switch_tick=scc_switch_tick,
         mutations=mutations,
+        timed_notice_recipients=timed_notice_recipients,
     )
 
 
@@ -262,6 +266,7 @@ def _run_world(
     model_bindings: dict[str, str] | None = None,
     scc_switch_tick: int | None = None,
     mutations: list[dict[str, Any]] | None = None,
+    timed_notice_recipients: list[str] | None = None,
 ) -> dict[str, Any]:
     model_name = normalize_openrouter_model(model)
     if prompt_mode not in {"scaffold", "measurement"}:
@@ -280,6 +285,7 @@ def _run_world(
         model_bindings=model_bindings,
         scc_switch_tick=scc_switch_tick,
         mutations=mutations,
+        timed_notice_recipients=timed_notice_recipients,
     )
     write_config_snapshot(run_root, config)
     budgets = config["world"]["population"]["tick_budget"]
@@ -380,9 +386,25 @@ def _run_world(
         "prompt_mode": prompt_mode,
     }
     recorder.write_json("run_summary.json", summary)
+    corpus_meta = config["world"]["corpus"]
+    mutation_ids = [str(item.get("mutation_id") or "") for item in corpus_meta.get("mutations") or [] if item.get("mutation_id")]
     recorder.write_json(
         "meta.json",
-        {"run_id": recorder.run_id, "stage": stage, "probe": probe_id, "model": model_name, "knobs": knobs, "seed": seed, "anchor": anchor, "backend": backend, "live": backend == "deepagents", "prompt_mode": prompt_mode},
+        {
+            "run_id": recorder.run_id,
+            "stage": stage,
+            "probe": probe_id,
+            "model": model_name,
+            "knobs": knobs,
+            "seed": seed,
+            "anchor": anchor,
+            "backend": backend,
+            "live": backend == "deepagents",
+            "prompt_mode": prompt_mode,
+            "mutation_ids": mutation_ids,
+            "mutation_hash": corpus_meta.get("mutation_hash"),
+            "effective_corpus_hash": corpus_meta.get("effective_corpus_hash"),
+        },
     )
     return summary
 

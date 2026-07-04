@@ -186,19 +186,43 @@ def aggregate_ensemble_triage(campaign_root: Path) -> dict[str, Any]:
     min-repro outputs are candidate queues; the default min-repro command only
     collates exploration evidence and does not confirm findings."""
     groups: dict[str, dict[str, Any]] = {}
-    for run_root in sorted(path for path in campaign_root.iterdir() if path.is_dir()):
+    run_roots = _ensemble_run_roots(campaign_root)
+    for run_root in run_roots:
         meta_path = run_root / "meta.json"
         metrics_path = run_root / "triage" / "metrics.json"
         if not meta_path.exists() or not metrics_path.exists():
             continue
         meta = json.loads(meta_path.read_text(encoding="utf-8"))
         metrics = json.loads(metrics_path.read_text(encoding="utf-8"))
-        config_id = json.dumps({"stage": meta.get("stage"), "probe": meta.get("probe"), "knobs": meta.get("knobs") or {}, "anchor": meta.get("anchor", False)}, sort_keys=True, ensure_ascii=False)
-        group = groups.setdefault(config_id, {"config": json.loads(config_id), "seeds": 0, "finding_seed_counts": {}, "controlled_actions": 0, "rule_hit": {}, "detection_miss": {}})
+        config = _config_from_run(run_root, meta)
+        config_id = json.dumps(config, sort_keys=True, ensure_ascii=False)
+        group = groups.setdefault(
+            config_id,
+            {
+                "config": json.loads(config_id),
+                "seeds": 0,
+                "seed_values": set(),
+                "run_roots": [],
+                "finding_seed_counts": {},
+                "finding_seed_presence": {},
+                "any_finding_seed_count": 0,
+                "controlled_actions": 0,
+                "rule_hit": {},
+                "detection_miss": {},
+            },
+        )
         group["seeds"] += 1
+        group["run_roots"].append(run_root.name)
+        seed = meta.get("seed")
+        if seed is not None:
+            group["seed_values"].add(int(seed))
         group["controlled_actions"] += int(metrics.get("controlled_actions_agent") or 0)
-        for finding_type in (metrics.get("finding_types") or {}):
+        if metrics.get("finding_types"):
+            group["any_finding_seed_count"] += 1
+        for finding_type, count in (metrics.get("finding_types") or {}).items():
             group["finding_seed_counts"][finding_type] = group["finding_seed_counts"].get(finding_type, 0) + 1
+            if seed is not None:
+                group["finding_seed_presence"].setdefault(finding_type, {})[int(seed)] = int(count or 0)
         for rule_id, row in sorted((metrics.get("rule_hit_rate") or {}).items()):
             accumulator = group["rule_hit"].setdefault(rule_id, {"opportunity_count": 0, "hit_count": 0, "finding_type": row.get("finding_type")})
             accumulator["opportunity_count"] += int(row.get("opportunity_count") or 0)
@@ -230,19 +254,34 @@ def aggregate_ensemble_triage(campaign_root: Path) -> dict[str, Any]:
             }
             for finding_type, row in sorted(group["detection_miss"].items())
         }
-        out.append({"config": group["config"], "seeds": group["seeds"], "controlled_actions_total": group["controlled_actions"], "finding_rates": rates, "rule_hit_rate": rule_hit, "detection_miss_rate": detection_miss})
+        out.append(
+            {
+                "config": group["config"],
+                "seeds": group["seeds"],
+                "seed_values": sorted(group["seed_values"]),
+                "run_roots": sorted(group["run_roots"]),
+                "any_finding_seed_count": group["any_finding_seed_count"],
+                "controlled_actions_total": group["controlled_actions"],
+                "finding_rates": rates,
+                "rule_hit_rate": rule_hit,
+                "detection_miss_rate": detection_miss,
+                "seed_stability_icc": _seed_stability_icc(group),
+            }
+        )
     attribution_table = _attribution_table(out)
     min_repro_jobs = _min_repro_jobs(out)
     finding_registry = _finding_registry(out, min_repro_jobs)
     (campaign_root / "attribution_table.json").write_text(json.dumps({"rows": attribution_table}, ensure_ascii=False, indent=2), encoding="utf-8")
     (campaign_root / "min_repro_jobs.json").write_text(json.dumps({"jobs": min_repro_jobs}, ensure_ascii=False, indent=2), encoding="utf-8")
     (campaign_root / "finding_registry.json").write_text(json.dumps(finding_registry, ensure_ascii=False, indent=2), encoding="utf-8")
-    coverage_map = write_coverage_map(campaign_root)
+    coverage_map = write_coverage_map(campaign_root, run_roots=run_roots)
     payload = {
         "groups": out,
         "attribution_table": attribution_table,
         "min_repro_jobs": min_repro_jobs,
         "finding_registry": finding_registry,
+        "icc_summary": _icc_summary(out),
+        "run_filter": _run_filter_metadata(campaign_root, run_roots),
         "coverage_map": {"path": "coverage_map.json", "cell_counts": coverage_map["cell_counts"]},
         "note": "candidate-level triage only: delta=1 attribution and min-repro jobs are queued until execute_min_repro_jobs runs",
     }
@@ -254,44 +293,168 @@ def _attribution_table(groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for idx, left in enumerate(groups):
         for right in groups[idx + 1 :]:
-            delta = _single_knob_delta(left["config"], right["config"])
+            delta = _single_config_delta(left["config"], right["config"])
             if delta is None:
                 continue
             finding_types = sorted(set(left.get("finding_rates", {})) | set(right.get("finding_rates", {})))
+            if delta["field"] == "world.corpus.mutations":
+                finding_types = ["any_l0_finding", *finding_types]
             for finding_type in finding_types:
-                left_rate = float(((left.get("finding_rates") or {}).get(finding_type) or {}).get("rate") or 0.0)
-                right_rate = float(((right.get("finding_rates") or {}).get(finding_type) or {}).get("rate") or 0.0)
-                if left_rate == right_rate:
+                left_rate_row = _attribution_rate_row(left, finding_type)
+                right_rate_row = _attribution_rate_row(right, finding_type)
+                left_rate = float(left_rate_row.get("rate") or 0.0)
+                right_rate = float(right_rate_row.get("rate") or 0.0)
+                if left_rate == right_rate and finding_type != "any_l0_finding":
                     continue
+                left_wilson = list(left_rate_row.get("wilson_95") or [0.0, 0.0])
+                right_wilson = list(right_rate_row.get("wilson_95") or [0.0, 0.0])
+                seed_bundle_match = _seed_bundle_match(left, right)
                 rows.append(
                     {
-                        "status": "candidate",
+                        "status": "candidate" if seed_bundle_match else "invalid_seed_mismatch",
                         "finding_type": finding_type,
-                        "delta_knob": delta["knob"],
+                        "delta": delta["field"],
+                        "delta_knob": delta.get("knob") or delta["field"],
                         "left_value": delta["left"],
                         "right_value": delta["right"],
                         "left_config": left["config"],
                         "right_config": right["config"],
+                        "left_seeds": left.get("seed_values") or [],
+                        "right_seeds": right.get("seed_values") or [],
+                        "seed_bundle_match": seed_bundle_match,
                         "left_rate": left_rate,
                         "right_rate": right_rate,
+                        "left_wilson_95": left_wilson,
+                        "right_wilson_95": right_wilson,
                         "effect_delta": round(right_rate - left_rate, 6),
+                        "effect_delta_wilson_95": [round(right_wilson[0] - left_wilson[1], 4), round(right_wilson[1] - left_wilson[0], 4)],
                     }
                 )
     return rows
 
 
-def _single_knob_delta(left: dict[str, Any], right: dict[str, Any]) -> dict[str, Any] | None:
+def _attribution_rate_row(group: dict[str, Any], finding_type: str) -> dict[str, Any]:
+    if finding_type != "any_l0_finding":
+        return (group.get("finding_rates") or {}).get(finding_type) or {}
+    seeds = int(group.get("seeds") or 0)
+    hits = int(group.get("any_finding_seed_count") or 0)
+    low, high = wilson_interval(hits, seeds)
+    return {
+        "seeds_with_finding": hits,
+        "seeds": seeds,
+        "rate": hits / seeds if seeds else 0.0,
+        "wilson_95": [round(low, 4), round(high, 4)],
+    }
+
+
+def _single_config_delta(left: dict[str, Any], right: dict[str, Any]) -> dict[str, Any] | None:
     comparable_keys = {"stage", "probe", "anchor"}
     if any(left.get(key) != right.get(key) for key in comparable_keys):
         return None
     left_knobs = left.get("knobs") or {}
     right_knobs = right.get("knobs") or {}
     all_knobs = sorted(set(left_knobs) | set(right_knobs))
-    diffs = [knob for knob in all_knobs if bool(left_knobs.get(knob)) != bool(right_knobs.get(knob))]
-    if len(diffs) != 1:
+    knob_diffs = [knob for knob in all_knobs if bool(left_knobs.get(knob)) != bool(right_knobs.get(knob))]
+    left_mutations = list(left.get("mutation_ids") or [])
+    right_mutations = list(right.get("mutation_ids") or [])
+    mutation_diff = left_mutations != right_mutations
+    if len(knob_diffs) + int(mutation_diff) != 1:
         return None
-    knob = diffs[0]
-    return {"knob": knob, "left": bool(left_knobs.get(knob)), "right": bool(right_knobs.get(knob))}
+    if knob_diffs:
+        knob = knob_diffs[0]
+        return {"field": f"world.kernel_profile.knobs.{knob}", "knob": knob, "left": bool(left_knobs.get(knob)), "right": bool(right_knobs.get(knob))}
+    return {"field": "world.corpus.mutations", "left": left_mutations, "right": right_mutations}
+
+
+def _seed_bundle_match(left: dict[str, Any], right: dict[str, Any]) -> bool:
+    left_seeds = set(left.get("seed_values") or [])
+    right_seeds = set(right.get("seed_values") or [])
+    return bool(left_seeds) and left_seeds == right_seeds
+
+
+def _ensemble_run_roots(campaign_root: Path) -> list[Path]:
+    roots = sorted(path for path in campaign_root.iterdir() if path.is_dir())
+    if not (campaign_root / "control_pair_manifest.json").exists():
+        return roots
+    return [run_root for run_root in roots if (_read_json(run_root / "meta.json") or {}).get("campaign_mode") == "control_pairs"]
+
+
+def _run_filter_metadata(campaign_root: Path, run_roots: list[Path]) -> dict[str, Any]:
+    mode = "control_pairs" if (campaign_root / "control_pair_manifest.json").exists() else "all"
+    return {"mode": mode, "included_run_count": len(run_roots), "included_run_ids": [path.name for path in run_roots]}
+
+
+def _config_from_run(run_root: Path, meta: dict[str, Any]) -> dict[str, Any]:
+    config = _config_from_meta(meta)
+    run_config = _read_json(run_root / "config.json")
+    corpus = ((run_config.get("world") or {}).get("corpus") or {}) if run_config else {}
+    mutations = corpus.get("mutations") if corpus else meta.get("mutations")
+    mutation_ids = [str(item.get("mutation_id") or "") for item in (mutations or []) if item.get("mutation_id")]
+    if not mutation_ids:
+        mutation_ids = [str(item) for item in (meta.get("mutation_ids") or []) if item]
+    config["mutation_ids"] = mutation_ids
+    config["mutation_hash"] = corpus.get("mutation_hash") or meta.get("mutation_hash") or ""
+    config["effective_corpus_hash"] = corpus.get("effective_corpus_hash") or meta.get("effective_corpus_hash") or ""
+    return config
+
+
+def _seed_stability_icc(group: dict[str, Any]) -> dict[str, Any]:
+    seed_values = sorted(group.get("seed_values") or [])
+    by_finding_type: dict[str, Any] = {}
+    if len(seed_values) < 2:
+        return {
+            "method": "binary_seed_presence_icc_proxy",
+            "status": "not_enough_seeds",
+            "seed_count": len(seed_values),
+            "by_finding_type": by_finding_type,
+            "mean_icc": None,
+        }
+    for finding_type, presence in sorted((group.get("finding_seed_presence") or {}).items()):
+        vector = [1 if int(presence.get(seed) or 0) > 0 else 0 for seed in seed_values]
+        positives = sum(vector)
+        if not vector:
+            icc = None
+            status = "not_observed"
+        elif positives in {0, len(vector)}:
+            icc = 1.0
+            status = "stable"
+        else:
+            mean = positives / len(vector)
+            sample_variance = sum((value - mean) ** 2 for value in vector) / (len(vector) - 1)
+            max_binary_variance = (len(vector) / (len(vector) - 1)) * mean * (1 - mean)
+            icc = round(max(0.0, 1.0 - (sample_variance / max_binary_variance if max_binary_variance else 0.0)), 4)
+            status = "mixed_seed_instability" if icc < 0.5 else "partially_stable"
+        by_finding_type[finding_type] = {
+            "icc": icc,
+            "status": status,
+            "seed_count": len(vector),
+            "positive_seeds": positives,
+            "rate": positives / len(vector) if vector else None,
+        }
+    values = [row["icc"] for row in by_finding_type.values() if row.get("icc") is not None]
+    return {
+        "method": "binary_seed_presence_icc_proxy",
+        "status": "ok" if values else "no_findings",
+        "seed_count": len(seed_values),
+        "by_finding_type": by_finding_type,
+        "mean_icc": round(sum(values) / len(values), 4) if values else None,
+    }
+
+
+def _icc_summary(groups: list[dict[str, Any]]) -> dict[str, Any]:
+    rows = []
+    for group in groups:
+        icc = group.get("seed_stability_icc") or {}
+        value = icc.get("mean_icc")
+        rows.append({"config": group.get("config") or {}, "mean_icc": value, "status": icc.get("status")})
+    values = [row["mean_icc"] for row in rows if row.get("mean_icc") is not None]
+    return {
+        "method": "binary_seed_presence_icc_proxy",
+        "group_count": len(groups),
+        "estimable_group_count": len(values),
+        "mean_icc": round(sum(values) / len(values), 4) if values else None,
+        "groups": rows,
+    }
 
 
 def _min_repro_jobs(groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -452,7 +615,7 @@ def _matching_run_roots(campaign_root: Path, config: dict[str, Any]) -> list[Pat
         meta = _read_json(run_root / "meta.json")
         if not meta:
             continue
-        if _config_key(_config_from_meta(meta)) == target:
+        if _config_key(_config_from_run(run_root, meta)) == target:
             roots.append(run_root)
     return roots
 
@@ -518,7 +681,7 @@ def _reduction_trace(job: dict[str, Any], source_bundles: list[dict[str, Any]]) 
     config = job.get("config") or {}
     ticks = [bundle.get("tick_window") for bundle in source_bundles if bundle.get("tick_window")]
     seats = sorted({seat for bundle in source_bundles for seat in (bundle.get("seats") or [])})
-    mutations = config.get("mutations") or config.get("corpus_mutations") or []
+    mutations = config.get("mutation_ids") or config.get("mutations") or config.get("corpus_mutations") or []
     return [
         {
             "step": "drop_inert_mutations",
@@ -584,7 +747,15 @@ def _min_repro_job_id(job: dict[str, Any]) -> str:
 
 
 def _config_from_meta(meta: dict[str, Any]) -> dict[str, Any]:
-    return {"stage": meta.get("stage"), "probe": meta.get("probe"), "knobs": meta.get("knobs") or {}, "anchor": meta.get("anchor", False)}
+    return {
+        "stage": meta.get("stage"),
+        "probe": meta.get("probe"),
+        "knobs": meta.get("knobs") or {},
+        "anchor": meta.get("anchor", False),
+        "mutation_ids": list(meta.get("mutation_ids") or []),
+        "mutation_hash": meta.get("mutation_hash") or "",
+        "effective_corpus_hash": meta.get("effective_corpus_hash") or "",
+    }
 
 
 def _config_key(config: dict[str, Any]) -> str:
@@ -958,9 +1129,8 @@ def build_coverage_map(run_roots: list[Path]) -> dict[str, Any]:
     }
 
 
-def write_coverage_map(campaign_root: Path) -> dict[str, Any]:
-    run_roots = [path for path in campaign_root.iterdir() if path.is_dir()]
-    payload = build_coverage_map(run_roots)
+def write_coverage_map(campaign_root: Path, *, run_roots: list[Path] | None = None) -> dict[str, Any]:
+    payload = build_coverage_map(run_roots if run_roots is not None else [path for path in campaign_root.iterdir() if path.is_dir()])
     (campaign_root / "coverage_map.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     return payload
 
