@@ -22,7 +22,9 @@ readiness gate passes.
   behavior coverage map.
 - Acceptance: harness-safety gates only.
 - Evidence: sanitized WP-01 live evidence is committed under
-  `docs/wp01_live_evidence`; raw run bundles remain under ignored `runs/`.
+  `docs/wp01_live_evidence`; sanitized WP-05 prompt-mode A/B evidence is
+  committed under `docs/wp05_live_evidence`; raw run bundles remain under
+  ignored `runs/`.
 - Readiness: Stage 9 gate exists and intentionally fails until the required
   evidence reports are generated and pass.
 
@@ -39,8 +41,8 @@ readiness gate passes.
 - Candidate attribution and default `min-repro` output remain exploratory.
   Confirmed findings require fresh live confirmation bundles with
   `status=reproduced`; same-campaign evidence collation is not enough.
-- WP-05 prompt-mode A/B reporting exists, but K>=5x2 live comparison evidence is
-  not yet claimed.
+- WP-05 prompt-mode A/B K>=5x2 evidence exists for the scoped S1/P-04/tick=1
+  method-freeze comparison. It is not a scaled S2 or Stage 9 readiness claim.
 - Stage 9 backcasting, SME blind review, and holdout reports are required before
   experiment-level conclusions.
 
