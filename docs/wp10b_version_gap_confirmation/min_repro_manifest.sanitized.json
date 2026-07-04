@@ -17,6 +17,25 @@
     "min_rate": 0.2,
     "confirmation_seeds": 5
   },
+  "pre_registered_confirmation": {
+    "min_rate": 0.2,
+    "confirmation_seeds": 5,
+    "basis": "legacy_queue_rate_inference",
+    "registered_at": "legacy_job_without_explicit_preregistration"
+  },
+  "threshold_override": {
+    "enabled": false,
+    "requested": {
+      "min_rate": 0.2,
+      "confirmation_seeds": 5
+    },
+    "pre_registered": {
+      "min_rate": 0.2,
+      "confirmation_seeds": 5,
+      "basis": "legacy_queue_rate_inference",
+      "registered_at": "legacy_job_without_explicit_preregistration"
+    }
+  },
   "exploration_seeds": [
     0,
     1,
@@ -37,7 +56,12 @@
   "seats_subset": null,
   "confirmation_run_count": 5,
   "source_bundle_count": 1,
+  "confirmation_successes": 1,
   "reproduction_rate": 0.2,
+  "reproduction_rate_wilson_95": [
+    0.0362,
+    0.6245
+  ],
   "source_bundles": [
     {
       "run_id": "s1_P-01_confirm_seed104",

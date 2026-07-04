@@ -15,6 +15,25 @@
     "min_rate": 0.2,
     "confirmation_seeds": 5
   },
+  "pre_registered_confirmation": {
+    "min_rate": 0.2,
+    "confirmation_seeds": 5,
+    "basis": "legacy_queue_rate_inference",
+    "registered_at": "legacy_job_without_explicit_preregistration"
+  },
+  "threshold_override": {
+    "enabled": false,
+    "requested": {
+      "min_rate": 0.2,
+      "confirmation_seeds": 5
+    },
+    "pre_registered": {
+      "min_rate": 0.2,
+      "confirmation_seeds": 5,
+      "basis": "legacy_queue_rate_inference",
+      "registered_at": "legacy_job_without_explicit_preregistration"
+    }
+  },
   "fresh_seeds": [
     100,
     101,
@@ -51,7 +70,12 @@
   ],
   "status": "reproduced",
   "source_bundle_count": 1,
+  "confirmation_successes": 1,
   "reproduction_rate": 0.2,
+  "reproduction_rate_wilson_95": [
+    0.0362,
+    0.6245
+  ],
   "confirmed_count": 1,
   "audit_hypothesis_cards": [
     "HYP-fba3117ae70d"

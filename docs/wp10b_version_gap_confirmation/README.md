@@ -14,6 +14,8 @@ This folder records the first WP-10b operational confirmation pass from the WP-0
 - Source positive seed: `3` of `0..4`
 - Fresh confirmation seeds: `100..104`
 - Threshold: `min_rate=0.2`, `confirmation_seeds=5`
+- Pre-registration: `min_rate=0.2`, `confirmation_seeds=5`, derived from the queued exploration rate before confirmation
+- Threshold override: `false`
 - Tick trim: `--ticks 1`
 - Live backend: `deepagents` / `openrouter:qwen/qwen3.6-flash`
 - Matching rule: same finding type plus source bucket signature match
@@ -32,12 +34,13 @@ python -m company_twin.cli min-repro-confirm --campaign-root runs\control_pair_c
 
 ## Result
 
-The WP-10b pass completed `5` fresh live S1 confirmation runs. Seed `104` reproduced the same `version_gap` bucket signature (`9b95d71285dd959e`), yielding `source_bundle_count=1`, `reproduction_rate=0.2`, and `status=reproduced`.
+The WP-10b pass completed `5` fresh live S1 confirmation runs. Seed `104` reproduced the same `version_gap` bucket signature (`9b95d71285dd959e`), yielding `source_bundle_count=1`, `reproduction_rate=0.2`, Wilson 95% interval `[0.04, 0.62]`, and `status=reproduced`.
 
 The finding registry now contains one confirmed finding and one audit hypothesis card:
 
 - Confirmed finding: `version_gap`, job `fba3117ae70d473c`
 - Audit hypothesis card: `HYP-fba3117ae70d`
+- Confirmation strength: `1/5`, Wilson 95% interval `[0.04, 0.62]`
 - Divergence cell: `version_gap | basis | 9b95d71285dd959e`
 - Reproduced bundle: `min_repro/fba3117ae70d473c/runs/s1_P-01_confirm_seed104`
 

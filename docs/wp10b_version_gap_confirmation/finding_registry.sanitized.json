@@ -15,7 +15,22 @@
       },
       "status": "reproduced",
       "min_repro_status": "reproduced",
+      "pre_registered_confirmation": {
+        "min_rate": 0.2,
+        "confirmation_seeds": 5,
+        "basis": "legacy_queue_rate_inference",
+        "registered_at": "legacy_job_without_explicit_preregistration"
+      },
+      "threshold_override": {
+        "enabled": false
+      },
+      "confirmation_successes": 1,
+      "confirmation_seeds": 5,
       "reproduction_rate": 0.2,
+      "reproduction_rate_wilson_95": [
+        0.0362,
+        0.6245
+      ],
       "source_bundle_count": 1,
       "matching_bundle_count": 1,
       "confirmation_path": "min_repro/fba3117ae70d473c/manifest.json",
@@ -90,7 +105,22 @@
       "min_repro": {
         "job_id": "fba3117ae70d473c",
         "status": "reproduced",
+        "pre_registered_confirmation": {
+          "min_rate": 0.2,
+          "confirmation_seeds": 5,
+          "basis": "legacy_queue_rate_inference",
+          "registered_at": "legacy_job_without_explicit_preregistration"
+        },
+        "threshold_override": {
+          "enabled": false
+        },
+        "confirmation_successes": 1,
+        "confirmation_seeds": 5,
         "reproduction_rate": 0.2,
+        "reproduction_rate_wilson_95": [
+          0.0362,
+          0.6245
+        ],
         "confirmation_path": "min_repro/fba3117ae70d473c/manifest.json"
       },
       "divergence_cells": [
