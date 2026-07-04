@@ -589,6 +589,7 @@ def execute_fresh_min_repro_confirmation(
     seat_factory: Any | None = None,
     customer_llm_factory: Callable[[Path], Any] | None = None,
     timed_notice_recipients: list[str] | None = None,
+    seats_subset: list[str] | None = None,
     confirmation_bundle_runner: Callable[[Path, int, dict[str, Any], str], None] | None = None,
 ) -> dict[str, Any]:
     """Run fresh confirmation bundles for one queued min-repro job.
@@ -623,6 +624,19 @@ def execute_fresh_min_repro_confirmation(
 
     exploration_roots = _matching_run_roots(campaign_root, config)
     exploration_seeds = _seed_values(exploration_roots)
+    reference_source_bundles = list(selected.get("source_bundles") or [])
+    if not reference_source_bundles:
+        reference_source_bundles = [
+            evidence
+            for run_root in exploration_roots
+            if (evidence := _bundle_finding_evidence(campaign_root, run_root, selected_finding))
+        ]
+    expected_signatures = _bucket_signature_set(reference_source_bundles)
+    inferred_seats_subset = _source_bundle_seats(reference_source_bundles)
+    effective_seats_subset = sorted(set(seats_subset or inferred_seats_subset)) if stage == "S2" else None
+    confirmation_config = dict(config)
+    if effective_seats_subset:
+        confirmation_config["seats_subset"] = effective_seats_subset
     fresh_seeds = _fresh_seed_values(seed_start=seed_start, count=confirmation_seeds, excluded=exploration_seeds)
     job_root = campaign_root / "min_repro" / selected_job_id
     runs_root = job_root / "runs"
@@ -633,7 +647,7 @@ def execute_fresh_min_repro_confirmation(
     for seed in fresh_seeds:
         run_root = runs_root / f"{stage.lower()}_{config.get('probe') or 'full_deck'}_confirm_seed{seed}"
         if confirmation_bundle_runner is not None:
-            confirmation_bundle_runner(run_root, seed, config, selected_finding)
+            confirmation_bundle_runner(run_root, seed, confirmation_config, selected_finding)
         else:
             if design is None or corpus is None:
                 raise ValueError("design and corpus are required when no confirmation_bundle_runner is supplied")
@@ -641,7 +655,7 @@ def execute_fresh_min_repro_confirmation(
                 run_root=run_root,
                 design=design,
                 corpus=corpus,
-                config=config,
+                config=confirmation_config,
                 seed=seed,
                 ticks=ticks,
                 model=model,
@@ -650,14 +664,16 @@ def execute_fresh_min_repro_confirmation(
                 seat_factory=seat_factory,
                 customer_llm_factory=customer_llm_factory,
                 timed_notice_recipients=[] if timed_notice_recipients is None else timed_notice_recipients,
+                seats_subset=effective_seats_subset,
             )
         if not (run_root / "triage" / "metrics.json").exists():
             write_triage(run_root)
-        evidence = _bundle_finding_evidence(campaign_root, run_root, selected_finding)
+        evidence = _bundle_finding_evidence(campaign_root, run_root, selected_finding, expected_signatures=expected_signatures)
         if evidence:
             source_bundles.append(evidence)
         meta = _read_json(run_root / "meta.json")
         metrics = _read_json(run_root / "triage" / "metrics.json")
+        raw_finding_count = int(((metrics.get("finding_types") or {}).get(selected_finding)) or 0)
         run_rows.append(
             {
                 "run_root": _relative_path(run_root, campaign_root),
@@ -666,7 +682,8 @@ def execute_fresh_min_repro_confirmation(
                 "probe": meta.get("probe"),
                 "live": meta.get("live"),
                 "backend": meta.get("backend"),
-                "finding_count": int(((metrics.get("finding_types") or {}).get(selected_finding)) or 0),
+                "finding_count": raw_finding_count,
+                "matched_signature_finding_count": int((evidence or {}).get("finding_count") or 0),
             }
         )
 
@@ -682,6 +699,8 @@ def execute_fresh_min_repro_confirmation(
         "threshold": {"min_rate": min_rate, "confirmation_seeds": confirmation_seeds},
         "exploration_seeds": sorted(exploration_seeds),
         "fresh_seeds": fresh_seeds,
+        "expected_bucket_signatures": sorted(expected_signatures),
+        "seats_subset": effective_seats_subset,
         "confirmation_run_count": len(run_rows),
         "source_bundle_count": len(source_bundles),
         "reproduction_rate": reproduction_rate,
@@ -708,6 +727,8 @@ def execute_fresh_min_repro_confirmation(
                     "source_bundle_count": len(source_bundles),
                     "matching_bundle_count": len(source_bundles),
                     "reproduction_rate": reproduction_rate,
+                    "expected_bucket_signatures": sorted(expected_signatures),
+                    "seats_subset": effective_seats_subset,
                     "coverage_cells": manifest["coverage_cells"],
                 }
             )
@@ -724,6 +745,8 @@ def execute_fresh_min_repro_confirmation(
         "manifest_path": _relative_path(manifest_path, campaign_root),
         "source_bundle_count": len(source_bundles),
         "reproduction_rate": reproduction_rate,
+        "expected_bucket_signatures": sorted(expected_signatures),
+        "seats_subset": effective_seats_subset,
         "runs": run_rows,
     }
     (campaign_root / "min_repro_confirmation_results.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -791,6 +814,7 @@ def _run_fresh_confirmation_bundle(
     seat_factory: Any | None,
     customer_llm_factory: Callable[[Path], Any] | None,
     timed_notice_recipients: list[str],
+    seats_subset: list[str] | None,
 ) -> None:
     from .harness import run_s1_episode, run_s2_world
     from .mutations import apply_corpus_mutations, mutation_specs_from_values
@@ -815,7 +839,7 @@ def _run_fresh_confirmation_bundle(
     if config.get("stage") == "S1":
         run_s1_episode(probe_id=str(config.get("probe") or ""), ticks=ticks, **common)
     else:
-        run_s2_world(ticks=ticks, anchor=False, **common)
+        run_s2_world(ticks=ticks, anchor=False, seats_subset=seats_subset, **common)
     write_triage(run_root)
 
 
@@ -868,11 +892,17 @@ def _matching_run_roots(campaign_root: Path, config: dict[str, Any]) -> list[Pat
     return roots
 
 
-def _bundle_finding_evidence(campaign_root: Path, run_root: Path, finding_type: str) -> dict[str, Any] | None:
+def _bundle_finding_evidence(campaign_root: Path, run_root: Path, finding_type: str, *, expected_signatures: set[str] | None = None) -> dict[str, Any] | None:
     metrics = _read_json(run_root / "triage" / "metrics.json")
-    finding_count = int(((metrics.get("finding_types") or {}).get(finding_type)) or 0)
     buckets_payload = _read_json(run_root / "triage" / "buckets.json")
     buckets = [bucket for bucket in (buckets_payload.get("buckets") or []) if bucket.get("finding_type") == finding_type]
+    if expected_signatures is not None:
+        if not expected_signatures:
+            return None
+        buckets = [bucket for bucket in buckets if str(bucket.get("signature") or "") in expected_signatures]
+        finding_count = _bucket_finding_count(buckets)
+    else:
+        finding_count = int(((metrics.get("finding_types") or {}).get(finding_type)) or 0)
     if finding_count <= 0 and not buckets:
         return None
     ticks = _evidence_ticks(run_root, finding_type, buckets)
@@ -881,11 +911,34 @@ def _bundle_finding_evidence(campaign_root: Path, run_root: Path, finding_type: 
         "run_id": run_root.name,
         "run_root": _relative_path(run_root, campaign_root),
         "seed": _read_json(run_root / "meta.json").get("seed"),
-        "finding_count": finding_count or sum(int(bucket.get("count") or 0) for bucket in buckets),
-        "bucket_signatures": [str(bucket.get("signature") or "") for bucket in buckets if bucket.get("signature")],
+        "finding_count": finding_count or _bucket_finding_count(buckets),
+        "bucket_signatures": sorted({str(bucket.get("signature") or "") for bucket in buckets if bucket.get("signature")}),
         "seats": seats,
         "tick_window": {"start": min(ticks), "end": max(ticks)} if ticks else None,
     }
+
+
+def _bucket_finding_count(buckets: list[dict[str, Any]]) -> int:
+    count = sum(max(int(bucket.get("count") or 0), 0) for bucket in buckets)
+    return count if count > 0 else len(buckets)
+
+
+def _bucket_signature_set(source_bundles: list[dict[str, Any]]) -> set[str]:
+    return {
+        str(signature)
+        for bundle in source_bundles
+        for signature in (bundle.get("bucket_signatures") or [])
+        if signature
+    }
+
+
+def _source_bundle_seats(source_bundles: list[dict[str, Any]]) -> list[str]:
+    return sorted({
+        str(seat)
+        for bundle in source_bundles
+        for seat in (bundle.get("seats") or [])
+        if seat
+    })
 
 
 def _evidence_ticks(run_root: Path, finding_type: str, buckets: list[dict[str, Any]]) -> list[int]:

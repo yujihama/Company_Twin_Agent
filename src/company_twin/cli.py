@@ -311,6 +311,7 @@ def min_repro_confirm(
     model: Annotated[str | None, typer.Option("--model")] = None,
     prompt_mode: Annotated[str, typer.Option("--prompt-mode", help="scaffold | measurement")] = "measurement",
     seat_model: Annotated[list[str] | None, typer.Option("--seat-model", help="Per-seat model binding, e.g. emp-A=openrouter:qwen/qwen3.6-flash")] = None,
+    seat_subset: Annotated[list[str] | None, typer.Option("--seat-subset", help="S2 seat id to retain during fresh confirmation; repeat for multiple")] = None,
     timed_notices: Annotated[bool, typer.Option("--timed-notices/--no-timed-notices", help="Deliver timed notices during confirmation runs")] = False,
 ) -> None:
     """Run fresh live confirmation bundles for one queued min-repro job."""
@@ -330,6 +331,7 @@ def min_repro_confirm(
         model=model,
         prompt_mode=prompt_mode,
         model_bindings=_seat_model_bindings(seat_model),
+        seats_subset=seat_subset,
         timed_notice_recipients=None if timed_notices else [],
     )
     _echo_json(payload)
