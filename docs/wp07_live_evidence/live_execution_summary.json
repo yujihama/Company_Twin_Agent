@@ -1,0 +1,15 @@
+{
+  "schema_version": "company_twin.wp07_live_evidence.v1",
+  "campaign_root_name": "control_pair_campaign_20260704_141958",
+  "command": "python -m company_twin.cli control-pair-campaign --manifest runs\\wp07_clarify_elderly_control_pairs.json --probe P-01 --ticks 1 --model openrouter:qwen/qwen3.6-flash",
+  "mutation_id": "clarify_elderly_understanding_all",
+  "k": 5,
+  "condition_run_count": 10,
+  "all_condition_runs_live": true,
+  "seed_bundle_match": true,
+  "attribution_row_count": 3,
+  "headline_result": "any_l0_finding rate was unchanged at 0.2 vs 0.2 (effect_delta 0.0). grounding_gap and version_gap appeared in control at 0.2 and treatment at 0.0, but ICC proxy is 0.0 and rows remain candidate-level, not confirmed findings.",
+  "endpoint_boundary": "This is a one-tick S1 L0 finding-incidence endpoint, not an S0 AMB-02 interpretation-entropy or cluster-shift endpoint.",
+  "follow_up": "WP-07b should add a paired S0 battery for span-role entropy deltas and cluster-distribution shifts before answering whether clarify reduces interpretation branching.",
+  "readiness_boundary": "WP-07 live evidence is not Stage 9 readiness all-pass."
+}

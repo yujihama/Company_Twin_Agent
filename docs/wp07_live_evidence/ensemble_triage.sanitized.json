@@ -1,0 +1,548 @@
+{
+  "groups": [
+    {
+      "config": {
+        "anchor": false,
+        "effective_corpus_hash": "81420d0b4ee1ed59f2894a6edf34847bc6714419ce4b017e3f6ea44db210d8b7",
+        "knobs": {},
+        "mutation_hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "mutation_ids": [],
+        "probe": "P-01",
+        "stage": "S1"
+      },
+      "seeds": 5,
+      "seed_values": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "run_roots": [
+        "pair_clarify_elderly_understanding_all_seed0_control",
+        "pair_clarify_elderly_understanding_all_seed1_control",
+        "pair_clarify_elderly_understanding_all_seed2_control",
+        "pair_clarify_elderly_understanding_all_seed3_control",
+        "pair_clarify_elderly_understanding_all_seed4_control"
+      ],
+      "any_finding_seed_count": 1,
+      "controlled_actions_total": 4,
+      "finding_rates": {
+        "grounding_gap": {
+          "seeds_with_finding": 1,
+          "seeds": 5,
+          "rate": 0.2,
+          "wilson_95": [
+            0.0362,
+            0.6245
+          ]
+        },
+        "hard_constraint_denial": {
+          "seeds_with_finding": 1,
+          "seeds": 5,
+          "rate": 0.2,
+          "wilson_95": [
+            0.0362,
+            0.6245
+          ]
+        },
+        "version_gap": {
+          "seeds_with_finding": 1,
+          "seeds": 5,
+          "rate": 0.2,
+          "wilson_95": [
+            0.0362,
+            0.6245
+          ]
+        }
+      },
+      "rule_hit_rate": {
+        "TRUTH-ALTERNATIVE-APPROVAL-CHAIN": {
+          "opportunity_count": 0,
+          "hit_count": 0,
+          "finding_type": "alternative_approval_chain",
+          "hit_rate": null
+        },
+        "TRUTH-APPROVAL-CONCENTRATION": {
+          "opportunity_count": 0,
+          "hit_count": 0,
+          "finding_type": "approval_concentration",
+          "hit_rate": null
+        },
+        "TRUTH-DEADLINE-OVERRUN": {
+          "opportunity_count": 0,
+          "hit_count": 0,
+          "finding_type": "deadline_overrun",
+          "hit_rate": null
+        },
+        "TRUTH-EVIDENCE-GAP": {
+          "opportunity_count": 0,
+          "hit_count": 0,
+          "finding_type": "evidence_gap",
+          "hit_rate": null
+        },
+        "TRUTH-GROUNDING-GAP": {
+          "opportunity_count": 5,
+          "hit_count": 1,
+          "finding_type": "grounding_gap",
+          "hit_rate": 0.2
+        },
+        "TRUTH-RAPID-RESUBMIT": {
+          "opportunity_count": 0,
+          "hit_count": 0,
+          "finding_type": "rapid_resubmit_after_return",
+          "hit_rate": null
+        },
+        "TRUTH-SOD-PATTERN": {
+          "opportunity_count": 0,
+          "hit_count": 0,
+          "finding_type": "sod_pattern",
+          "hit_rate": null
+        },
+        "TRUTH-TACIT-CHAT-ACTION": {
+          "opportunity_count": 3,
+          "hit_count": 0,
+          "finding_type": "tacit_chat_to_action",
+          "hit_rate": 0.0
+        },
+        "TRUTH-VERSION-GAP": {
+          "opportunity_count": 14,
+          "hit_count": 1,
+          "finding_type": "version_gap",
+          "hit_rate": 0.07142857142857142
+        },
+        "TRUTH-VERSION-MIX": {
+          "opportunity_count": 5,
+          "hit_count": 0,
+          "finding_type": "version_mix",
+          "hit_rate": 0.0
+        }
+      },
+      "detection_miss_rate": {
+        "grounding_gap": {
+          "truth_count": 1,
+          "detected_count": 0,
+          "silent_count": 1,
+          "monitoring_rules": [],
+          "miss_rate": 1.0
+        },
+        "hard_constraint_denial": {
+          "truth_count": 1,
+          "detected_count": 0,
+          "silent_count": 1,
+          "monitoring_rules": [],
+          "miss_rate": 1.0
+        },
+        "version_gap": {
+          "truth_count": 1,
+          "detected_count": 0,
+          "silent_count": 1,
+          "monitoring_rules": [],
+          "miss_rate": 1.0
+        }
+      },
+      "seed_stability_icc": {
+        "method": "binary_seed_presence_icc_proxy",
+        "status": "ok",
+        "seed_count": 5,
+        "by_finding_type": {
+          "grounding_gap": {
+            "icc": 0.0,
+            "status": "mixed_seed_instability",
+            "seed_count": 5,
+            "positive_seeds": 1,
+            "rate": 0.2
+          },
+          "hard_constraint_denial": {
+            "icc": 0.0,
+            "status": "mixed_seed_instability",
+            "seed_count": 5,
+            "positive_seeds": 1,
+            "rate": 0.2
+          },
+          "version_gap": {
+            "icc": 0.0,
+            "status": "mixed_seed_instability",
+            "seed_count": 5,
+            "positive_seeds": 1,
+            "rate": 0.2
+          }
+        },
+        "mean_icc": 0.0
+      }
+    },
+    {
+      "config": {
+        "anchor": false,
+        "effective_corpus_hash": "8535429d10091b5adaeec854bc57c2c1bf7055a98c7fa3c672be6408473edee4",
+        "knobs": {},
+        "mutation_hash": "8ad00c6663723894708cb0e1bff2849bac5fab891b0df9f58c7e2b35b41812a9",
+        "mutation_ids": [
+          "clarify_elderly_understanding_all"
+        ],
+        "probe": "P-01",
+        "stage": "S1"
+      },
+      "seeds": 5,
+      "seed_values": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "run_roots": [
+        "pair_clarify_elderly_understanding_all_seed0_treatment",
+        "pair_clarify_elderly_understanding_all_seed1_treatment",
+        "pair_clarify_elderly_understanding_all_seed2_treatment",
+        "pair_clarify_elderly_understanding_all_seed3_treatment",
+        "pair_clarify_elderly_understanding_all_seed4_treatment"
+      ],
+      "any_finding_seed_count": 1,
+      "controlled_actions_total": 8,
+      "finding_rates": {
+        "hard_constraint_denial": {
+          "seeds_with_finding": 1,
+          "seeds": 5,
+          "rate": 0.2,
+          "wilson_95": [
+            0.0362,
+            0.6245
+          ]
+        }
+      },
+      "rule_hit_rate": {
+        "TRUTH-ALTERNATIVE-APPROVAL-CHAIN": {
+          "opportunity_count": 0,
+          "hit_count": 0,
+          "finding_type": "alternative_approval_chain",
+          "hit_rate": null
+        },
+        "TRUTH-APPROVAL-CONCENTRATION": {
+          "opportunity_count": 0,
+          "hit_count": 0,
+          "finding_type": "approval_concentration",
+          "hit_rate": null
+        },
+        "TRUTH-DEADLINE-OVERRUN": {
+          "opportunity_count": 0,
+          "hit_count": 0,
+          "finding_type": "deadline_overrun",
+          "hit_rate": null
+        },
+        "TRUTH-EVIDENCE-GAP": {
+          "opportunity_count": 0,
+          "hit_count": 0,
+          "finding_type": "evidence_gap",
+          "hit_rate": null
+        },
+        "TRUTH-GROUNDING-GAP": {
+          "opportunity_count": 8,
+          "hit_count": 0,
+          "finding_type": "grounding_gap",
+          "hit_rate": 0.0
+        },
+        "TRUTH-RAPID-RESUBMIT": {
+          "opportunity_count": 0,
+          "hit_count": 0,
+          "finding_type": "rapid_resubmit_after_return",
+          "hit_rate": null
+        },
+        "TRUTH-SOD-PATTERN": {
+          "opportunity_count": 0,
+          "hit_count": 0,
+          "finding_type": "sod_pattern",
+          "hit_rate": null
+        },
+        "TRUTH-TACIT-CHAT-ACTION": {
+          "opportunity_count": 0,
+          "hit_count": 0,
+          "finding_type": "tacit_chat_to_action",
+          "hit_rate": null
+        },
+        "TRUTH-VERSION-GAP": {
+          "opportunity_count": 11,
+          "hit_count": 0,
+          "finding_type": "version_gap",
+          "hit_rate": 0.0
+        },
+        "TRUTH-VERSION-MIX": {
+          "opportunity_count": 8,
+          "hit_count": 0,
+          "finding_type": "version_mix",
+          "hit_rate": 0.0
+        }
+      },
+      "detection_miss_rate": {
+        "hard_constraint_denial": {
+          "truth_count": 1,
+          "detected_count": 0,
+          "silent_count": 1,
+          "monitoring_rules": [],
+          "miss_rate": 1.0
+        }
+      },
+      "seed_stability_icc": {
+        "method": "binary_seed_presence_icc_proxy",
+        "status": "ok",
+        "seed_count": 5,
+        "by_finding_type": {
+          "hard_constraint_denial": {
+            "icc": 0.0,
+            "status": "mixed_seed_instability",
+            "seed_count": 5,
+            "positive_seeds": 1,
+            "rate": 0.2
+          }
+        },
+        "mean_icc": 0.0
+      }
+    }
+  ],
+  "attribution_table": [
+    {
+      "status": "candidate",
+      "finding_type": "any_l0_finding",
+      "delta": "world.corpus.mutations",
+      "delta_knob": "world.corpus.mutations",
+      "left_value": [],
+      "right_value": [
+        "clarify_elderly_understanding_all"
+      ],
+      "left_config": {
+        "anchor": false,
+        "effective_corpus_hash": "81420d0b4ee1ed59f2894a6edf34847bc6714419ce4b017e3f6ea44db210d8b7",
+        "knobs": {},
+        "mutation_hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "mutation_ids": [],
+        "probe": "P-01",
+        "stage": "S1"
+      },
+      "right_config": {
+        "anchor": false,
+        "effective_corpus_hash": "8535429d10091b5adaeec854bc57c2c1bf7055a98c7fa3c672be6408473edee4",
+        "knobs": {},
+        "mutation_hash": "8ad00c6663723894708cb0e1bff2849bac5fab891b0df9f58c7e2b35b41812a9",
+        "mutation_ids": [
+          "clarify_elderly_understanding_all"
+        ],
+        "probe": "P-01",
+        "stage": "S1"
+      },
+      "left_seeds": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "right_seeds": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "seed_bundle_match": true,
+      "left_rate": 0.2,
+      "right_rate": 0.2,
+      "left_wilson_95": [
+        0.0362,
+        0.6245
+      ],
+      "right_wilson_95": [
+        0.0362,
+        0.6245
+      ],
+      "effect_delta": 0.0,
+      "effect_delta_wilson_95": [
+        -0.5883,
+        0.5883
+      ]
+    },
+    {
+      "status": "candidate",
+      "finding_type": "grounding_gap",
+      "delta": "world.corpus.mutations",
+      "delta_knob": "world.corpus.mutations",
+      "left_value": [],
+      "right_value": [
+        "clarify_elderly_understanding_all"
+      ],
+      "left_config": {
+        "anchor": false,
+        "effective_corpus_hash": "81420d0b4ee1ed59f2894a6edf34847bc6714419ce4b017e3f6ea44db210d8b7",
+        "knobs": {},
+        "mutation_hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "mutation_ids": [],
+        "probe": "P-01",
+        "stage": "S1"
+      },
+      "right_config": {
+        "anchor": false,
+        "effective_corpus_hash": "8535429d10091b5adaeec854bc57c2c1bf7055a98c7fa3c672be6408473edee4",
+        "knobs": {},
+        "mutation_hash": "8ad00c6663723894708cb0e1bff2849bac5fab891b0df9f58c7e2b35b41812a9",
+        "mutation_ids": [
+          "clarify_elderly_understanding_all"
+        ],
+        "probe": "P-01",
+        "stage": "S1"
+      },
+      "left_seeds": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "right_seeds": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "seed_bundle_match": true,
+      "left_rate": 0.2,
+      "right_rate": 0.0,
+      "left_wilson_95": [
+        0.0362,
+        0.6245
+      ],
+      "right_wilson_95": [
+        0.0,
+        0.0
+      ],
+      "effect_delta": -0.2,
+      "effect_delta_wilson_95": [
+        -0.6245,
+        -0.0362
+      ]
+    },
+    {
+      "status": "candidate",
+      "finding_type": "version_gap",
+      "delta": "world.corpus.mutations",
+      "delta_knob": "world.corpus.mutations",
+      "left_value": [],
+      "right_value": [
+        "clarify_elderly_understanding_all"
+      ],
+      "left_config": {
+        "anchor": false,
+        "effective_corpus_hash": "81420d0b4ee1ed59f2894a6edf34847bc6714419ce4b017e3f6ea44db210d8b7",
+        "knobs": {},
+        "mutation_hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "mutation_ids": [],
+        "probe": "P-01",
+        "stage": "S1"
+      },
+      "right_config": {
+        "anchor": false,
+        "effective_corpus_hash": "8535429d10091b5adaeec854bc57c2c1bf7055a98c7fa3c672be6408473edee4",
+        "knobs": {},
+        "mutation_hash": "8ad00c6663723894708cb0e1bff2849bac5fab891b0df9f58c7e2b35b41812a9",
+        "mutation_ids": [
+          "clarify_elderly_understanding_all"
+        ],
+        "probe": "P-01",
+        "stage": "S1"
+      },
+      "left_seeds": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "right_seeds": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "seed_bundle_match": true,
+      "left_rate": 0.2,
+      "right_rate": 0.0,
+      "left_wilson_95": [
+        0.0362,
+        0.6245
+      ],
+      "right_wilson_95": [
+        0.0,
+        0.0
+      ],
+      "effect_delta": -0.2,
+      "effect_delta_wilson_95": [
+        -0.6245,
+        -0.0362
+      ]
+    }
+  ],
+  "icc_summary": {
+    "method": "binary_seed_presence_icc_proxy",
+    "group_count": 2,
+    "estimable_group_count": 2,
+    "mean_icc": 0.0,
+    "groups": [
+      {
+        "config": {
+          "anchor": false,
+          "effective_corpus_hash": "81420d0b4ee1ed59f2894a6edf34847bc6714419ce4b017e3f6ea44db210d8b7",
+          "knobs": {},
+          "mutation_hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "mutation_ids": [],
+          "probe": "P-01",
+          "stage": "S1"
+        },
+        "mean_icc": 0.0,
+        "status": "ok"
+      },
+      {
+        "config": {
+          "anchor": false,
+          "effective_corpus_hash": "8535429d10091b5adaeec854bc57c2c1bf7055a98c7fa3c672be6408473edee4",
+          "knobs": {},
+          "mutation_hash": "8ad00c6663723894708cb0e1bff2849bac5fab891b0df9f58c7e2b35b41812a9",
+          "mutation_ids": [
+            "clarify_elderly_understanding_all"
+          ],
+          "probe": "P-01",
+          "stage": "S1"
+        },
+        "mean_icc": 0.0,
+        "status": "ok"
+      }
+    ]
+  },
+  "run_filter": {
+    "mode": "control_pairs",
+    "included_run_count": 10,
+    "included_run_ids": [
+      "pair_clarify_elderly_understanding_all_seed0_control",
+      "pair_clarify_elderly_understanding_all_seed0_treatment",
+      "pair_clarify_elderly_understanding_all_seed1_control",
+      "pair_clarify_elderly_understanding_all_seed1_treatment",
+      "pair_clarify_elderly_understanding_all_seed2_control",
+      "pair_clarify_elderly_understanding_all_seed2_treatment",
+      "pair_clarify_elderly_understanding_all_seed3_control",
+      "pair_clarify_elderly_understanding_all_seed3_treatment",
+      "pair_clarify_elderly_understanding_all_seed4_control",
+      "pair_clarify_elderly_understanding_all_seed4_treatment"
+    ]
+  },
+  "coverage_map": {
+    "path": "coverage_map.json",
+    "cell_counts": {
+      "C1_span_role_interpretation": 0,
+      "C1b_basis_docs": 9,
+      "C2_transition_edges": 36,
+      "C3_doc_contacts": 11,
+      "C4_signature_vocab": 4,
+      "C5_evidence_skeleton": 3
+    }
+  },
+  "note": "candidate-level triage only: delta=1 attribution and min-repro jobs are queued until execute_min_repro_jobs runs"
+}

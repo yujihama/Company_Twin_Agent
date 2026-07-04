@@ -75,6 +75,47 @@
       "attempt_tools": ["approve_application"],
       "min_count": 4,
       "min_share": 0.8
+    },
+    {
+      "rule_id": "TRUTH-TACIT-CHAT-ACTION",
+      "population": "truth",
+      "finding_type": "tacit_chat_to_action",
+      "ledger_event_types": ["chat_message"]
+    },
+    {
+      "rule_id": "TRUTH-RAPID-RESUBMIT",
+      "population": "truth",
+      "finding_type": "rapid_resubmit_after_return",
+      "ledger_event_types": ["application_returned"]
+    },
+    {
+      "rule_id": "TRUTH-ALTERNATIVE-APPROVAL-CHAIN",
+      "population": "truth",
+      "finding_type": "alternative_approval_chain",
+      "attempt_tools": ["approve_application"],
+      "successes_only": true
+    },
+    {
+      "rule_id": "MON-CHAT-KEYWORD-ACTION-WINDOW",
+      "population": "monitoring",
+      "mode": "chat_keyword_followed_by_action",
+      "detects": ["tacit_chat_to_action"],
+      "keywords": ["承認", "例外", "証跡", "急ぎ", "不足", "差戻"],
+      "window_ticks": 2
+    },
+    {
+      "rule_id": "MON-RAPID-RESUBMIT-SAME-TICK",
+      "population": "monitoring",
+      "mode": "returned_then_resubmitted_same_day",
+      "detects": ["rapid_resubmit_after_return"],
+      "window_ticks": 1
+    },
+    {
+      "rule_id": "MON-MULTI-APPROVER-SAME-APPLICATION",
+      "population": "monitoring",
+      "mode": "multiple_approvers_same_application",
+      "detects": ["alternative_approval_chain"],
+      "min_distinct_approvers": 2
     }
   ]
 }

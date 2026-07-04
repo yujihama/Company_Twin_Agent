@@ -1,0 +1,260 @@
+import json
+from pathlib import Path
+
+from company_twin.ab_testing import write_prompt_mode_ab_report
+from company_twin.oracles import write_triage
+from company_twin.readiness import _semantic_grounding_check
+from company_twin.semantic_grounding import LocalSemanticJudge, evaluate_semantic_grounding_run, export_g3_calibration_samples
+
+
+class _FakeOpenRouterJudge:
+    backend = "openrouter"
+    model = "openrouter:test-g3"
+
+    def judge(self, *, cited_text: str, construal: str, decision: str, evidence_plan: str) -> dict:
+        return LocalSemanticJudge().judge(cited_text=cited_text, construal=construal, decision=decision, evidence_plan=evidence_plan)
+
+
+def _write_jsonl(path: Path, rows: list[dict]) -> None:
+    path.write_text("".join(json.dumps(row, ensure_ascii=False) + "\n" for row in rows), encoding="utf-8")
+
+
+def _write_g3_supported_run(run_root: Path) -> None:
+    run_root.mkdir(parents=True, exist_ok=True)
+    (run_root / "meta.json").write_text(json.dumps({"stage": "S2", "prompt_mode": "measurement", "seed": 0}), encoding="utf-8")
+    _write_jsonl(
+        run_root / "attempts.jsonl",
+        [
+            {
+                "tick": 1,
+                "seat_id": "emp-A",
+                "tool": "read_document",
+                "args": {"doc_id": "DFH-SAL-021"},
+                "success": True,
+                "result": {
+                    "version": "1.1",
+                    "citation_handle": "read:DFH-SAL-021:v1.1:abc",
+                    "text": "高齢者への販売では理解度を確認し、必要に応じて家族同席や管理者確認を記録する。",
+                },
+                "origin": "agent",
+            },
+            {
+                "tick": 2,
+                "seat_id": "emp-A",
+                "tool": "record_customer_contact",
+                "args": {"application_id": "APP-1"},
+                "success": True,
+                "result": {},
+                "origin": "agent",
+            },
+        ],
+    )
+    _write_jsonl(
+        run_root / "basis_records.jsonl",
+        [
+            {
+                "basis_id": "BASIS-1",
+                "tick": 2,
+                "seat_id": "emp-A",
+                "action_id": "CONTACT-1",
+                "trigger_event": "record_customer_contact",
+                "retrieved": [{"doc_id": "DFH-SAL-021", "version": "1.1", "citation_handle": "read:DFH-SAL-021:v1.1:abc"}],
+                "construal": "年齢だけではなく理解度確認と管理者確認の要否を見る",
+                "decision": "顧客説明を記録して必要なら管理者に確認する",
+                "evidence_plan": "説明記録と確認結果を残す",
+                "g1_citation_handle_exists": True,
+                "g2_prior_read": True,
+                "g3_machine_heuristic": "unsupported",
+            }
+        ],
+    )
+    _write_jsonl(run_root / "world_ledger.jsonl", [])
+    _write_jsonl(run_root / "store_events.jsonl", [])
+
+
+def test_g3_proxy_rate_is_materialized_without_canonical_semantic_rate(tmp_path: Path) -> None:
+    run_root = tmp_path / "s2_seed0"
+    _write_g3_supported_run(run_root)
+
+    triage = write_triage(run_root)
+    report = json.loads((run_root / "g3_semantic_grounding.json").read_text(encoding="utf-8"))
+
+    assert triage["metrics"]["grounding_semantic_all3_rate"] is None
+    assert triage["metrics"]["grounding_semantic_all3_rate_proxy"] == 1.0
+    assert report["grounding_semantic_all3_rate"] is None
+    assert report["grounding_semantic_all3_rate_proxy"] == 1.0
+    assert report["judge"]["readiness_eligible"] is False
+    assert report["semantic_all3_count"] == 1
+    assert "AMB-" not in json.dumps(report, ensure_ascii=False)
+    assert (run_root / "g3_entailment_cache.json").exists()
+
+
+def test_readiness_rejects_proxy_only_semantic_grounding(tmp_path: Path) -> None:
+    run_root = tmp_path / "s2_seed0"
+    _write_g3_supported_run(run_root)
+    write_triage(run_root)
+
+    result = _semantic_grounding_check(tmp_path, semantic_threshold=0.8)
+
+    assert not result["passed"]
+    assert "disallowed_backend_metrics=1" in result["detail"]
+
+
+def test_readiness_accepts_allowlisted_openrouter_semantic_grounding(tmp_path: Path) -> None:
+    run_root = tmp_path / "s2_seed0"
+    _write_g3_supported_run(run_root)
+    evaluate_semantic_grounding_run(run_root, judge=_FakeOpenRouterJudge())
+    triage = write_triage(run_root)
+
+    assert triage["metrics"]["grounding_semantic_all3_rate"] == 1.0
+    assert triage["metrics"]["grounding_semantic_all3_rate_proxy"] is None
+    result = _semantic_grounding_check(tmp_path, semantic_threshold=0.8)
+    assert result["passed"]
+
+
+def test_g3_calibration_export_writes_human_label_skeleton(tmp_path: Path) -> None:
+    run_root = tmp_path / "s2_seed0"
+    _write_g3_supported_run(run_root)
+
+    payload = export_g3_calibration_samples(tmp_path, tmp_path / "calibration.jsonl", limit=20)
+    rows = [json.loads(line) for line in (tmp_path / "calibration.jsonl").read_text(encoding="utf-8").splitlines()]
+
+    assert payload["sample_count"] == 1
+    assert rows[0]["human_label"] is None
+    assert rows[0]["allowed_labels"] == ["supported", "unsupported", "contradicted", "not_evaluated"]
+    assert rows[0]["retrieved"][0]["cited_text"]
+    assert "AMB-" not in json.dumps(rows[0], ensure_ascii=False)
+
+
+def test_local_g3_calibration_fixture_agrees_with_labels() -> None:
+    judge = LocalSemanticJudge()
+    cases = [
+        ("本人確認ではeKYCと制裁リスト非該当を確認する。", "eKYCと制裁リスト確認が必要", "supported"),
+        ("高齢者には理解度確認を行い記録する。", "理解度確認を記録する", "supported"),
+        ("承認は管理者が行う。", "管理者承認を依頼する", "supported"),
+        ("同意ログと録音IDを保存する。", "同意ログと録音IDを証跡に残す", "supported"),
+        ("旧版資料の利用は禁止する。", "旧版資料を使ってよい", "contradicted"),
+        ("追加確認は不要である。", "追加確認が必要", "contradicted"),
+        ("申込書面の交付を記録する。", "書面交付を記録する", "supported"),
+        ("差戻し時は理由を明記する。", "差戻し理由を記録する", "supported"),
+        ("販売停止中の商品は案内できない。", "販売停止中の商品を案内する", "contradicted"),
+        ("手数料と利益相反を説明する。", "手数料説明を行う", "supported"),
+        ("顧客属性を確認する。", "在庫を確認する", "unsupported"),
+        ("本人同意を取得する。", "本人同意を取得する", "supported"),
+        ("管理者確認が必要な場合は承認IDを残す。", "承認IDを残す", "supported"),
+        ("録音は不要である。", "録音が必要", "contradicted"),
+        ("苦情は品質管理部へ連携する。", "品質管理部へ連携する", "supported"),
+        ("オンライン面談は録画し保存する。", "録画を保存する", "supported"),
+        ("審査連携にはレビュー票が必要。", "レビュー票が必要", "supported"),
+        ("住所変更を受け付ける。", "投資経験を確認する", "unsupported"),
+        ("家族同席は任意である。", "家族同席が必須", "unsupported"),
+        ("資料請求には連絡先を記録する。", "連絡先を記録する", "supported"),
+    ]
+    correct = 0
+    for cited, construal, expected in cases:
+        actual = judge.judge(cited_text=cited, construal=construal, decision="", evidence_plan="")["label"]
+        correct += int(actual == expected)
+
+    assert correct / len(cases) >= 0.9
+
+
+def test_l1_oracles_and_monitoring_rules_are_separate_populations(tmp_path: Path) -> None:
+    run_root = tmp_path / "s1_seed0"
+    run_root.mkdir()
+    (run_root / "meta.json").write_text(json.dumps({"stage": "S1", "probe": "P-04", "prompt_mode": "scaffold"}), encoding="utf-8")
+    _write_jsonl(
+        run_root / "attempts.jsonl",
+        [
+            {"tick": 2, "seat_id": "emp-C", "tool": "submit_application", "args": {"application_id": "APP-1", "evidence": {"consent_log_id": "C", "recording_id": "R", "material_version": "v1.1"}}, "success": True, "result": {}, "origin": "agent"},
+            {"tick": 4, "seat_id": "emp-M", "tool": "approve_application", "args": {"application_id": "APP-2"}, "success": True, "result": {}, "origin": "agent"},
+            {"tick": 5, "seat_id": "emp-Q", "tool": "approve_application", "args": {"application_id": "APP-2"}, "success": True, "result": {}, "origin": "agent"},
+        ],
+    )
+    _write_jsonl(run_root / "basis_records.jsonl", [])
+    _write_jsonl(
+        run_root / "world_ledger.jsonl",
+        [
+            {"tick": 1, "event_type": "chat_message", "payload": {"tick": 1, "from": "emp-A", "to": "emp-C", "body": "APP-1 は証跡不足ですが急ぎ承認方向でお願いします"}},
+            {"tick": 1, "event_type": "application_returned", "payload": {"application_id": "APP-1", "returned_by": "emp-M"}},
+            {"tick": 2, "event_type": "application_submitted", "payload": {"application_id": "APP-1"}},
+            {"tick": 4, "event_type": "approval_granted", "payload": {"application_id": "APP-2", "approval_id": "APR-1", "approved_by": "emp-M"}},
+            {"tick": 5, "event_type": "approval_granted", "payload": {"application_id": "APP-2", "approval_id": "APR-2", "approved_by": "emp-Q"}},
+        ],
+    )
+    _write_jsonl(run_root / "store_events.jsonl", [])
+
+    metrics = write_triage(run_root)["metrics"]
+
+    assert metrics["finding_types"]["tacit_chat_to_action"] == 1
+    assert metrics["finding_types"]["rapid_resubmit_after_return"] == 1
+    assert metrics["finding_types"]["alternative_approval_chain"] == 1
+    assert metrics["detection_miss_rate"]["tacit_chat_to_action"]["detected_count"] == 1
+    assert metrics["detection_miss_rate"]["rapid_resubmit_after_return"]["detected_count"] == 1
+    assert metrics["detection_miss_rate"]["alternative_approval_chain"]["detected_count"] == 1
+    assert "TRUTH-TACIT-CHAT-ACTION" in metrics["rule_hit_rate"]
+
+
+def test_rapid_resubmit_oracle_respects_interval_window(tmp_path: Path) -> None:
+    run_root = tmp_path / "s1_seed0"
+    run_root.mkdir()
+    (run_root / "meta.json").write_text(json.dumps({"stage": "S1", "probe": "P-04", "prompt_mode": "measurement"}), encoding="utf-8")
+    _write_jsonl(run_root / "attempts.jsonl", [])
+    _write_jsonl(run_root / "basis_records.jsonl", [])
+    _write_jsonl(
+        run_root / "world_ledger.jsonl",
+        [
+            {"tick": 1, "event_type": "application_returned", "payload": {"application_id": "APP-1", "returned_by": "emp-M"}},
+            {"tick": 5, "event_type": "application_submitted", "payload": {"application_id": "APP-1"}},
+        ],
+    )
+    _write_jsonl(run_root / "store_events.jsonl", [])
+
+    metrics = write_triage(run_root)["metrics"]
+
+    assert metrics["finding_types"].get("rapid_resubmit_after_return", 0) == 0
+    assert metrics["rule_hit_rate"]["TRUTH-RAPID-RESUBMIT"]["opportunity_count"] == 1
+
+
+def test_alternative_approval_chain_requires_distinct_approvers(tmp_path: Path) -> None:
+    run_root = tmp_path / "s1_seed0"
+    run_root.mkdir()
+    (run_root / "meta.json").write_text(json.dumps({"stage": "S1", "probe": "P-04", "prompt_mode": "measurement"}), encoding="utf-8")
+    _write_jsonl(
+        run_root / "attempts.jsonl",
+        [
+            {"tick": 2, "seat_id": "emp-M", "tool": "approve_application", "args": {"application_id": "APP-1"}, "success": True, "result": {}, "origin": "agent"},
+            {"tick": 3, "seat_id": "emp-M", "tool": "approve_application", "args": {"application_id": "APP-1"}, "success": True, "result": {}, "origin": "agent"},
+        ],
+    )
+    _write_jsonl(run_root / "basis_records.jsonl", [])
+    _write_jsonl(
+        run_root / "world_ledger.jsonl",
+        [
+            {"tick": 2, "event_type": "approval_granted", "payload": {"application_id": "APP-1", "approval_id": "APR-1", "approved_by": "emp-M"}},
+            {"tick": 3, "event_type": "approval_granted", "payload": {"application_id": "APP-1", "approval_id": "APR-2", "approved_by": "emp-M"}},
+        ],
+    )
+    _write_jsonl(run_root / "store_events.jsonl", [])
+
+    metrics = write_triage(run_root)["metrics"]
+
+    assert metrics["finding_types"].get("alternative_approval_chain", 0) == 0
+    assert metrics["rule_hit_rate"]["TRUTH-ALTERNATIVE-APPROVAL-CHAIN"]["opportunity_count"] == 2
+
+
+def test_prompt_mode_ab_report_pairs_conditions_and_marks_underpowered(tmp_path: Path) -> None:
+    for mode, rate, tool in [("scaffold", 1.0, "submit_application"), ("measurement", 0.5, "defer_or_hold")]:
+        run_root = tmp_path / f"s2_{mode}_seed0"
+        (run_root / "triage").mkdir(parents=True)
+        (run_root / "meta.json").write_text(json.dumps({"stage": "S2", "probe": None, "seed": 0, "knobs": {}, "anchor": False, "prompt_mode": mode}), encoding="utf-8")
+        (run_root / "triage" / "metrics.json").write_text(json.dumps({"stage": "S2", "basis_action_bound": 2, "grounding_semantic_all3_rate": rate, "controlled_actions_agent": 2, "finding_types": {}}), encoding="utf-8")
+        _write_jsonl(run_root / "attempts.jsonl", [{"origin": "agent", "success": True, "tool": tool, "seat_id": "emp-A"}])
+
+    report = write_prompt_mode_ab_report(tmp_path)
+
+    assert (tmp_path / "prompt_mode_ab_report.json").exists()
+    assert len(report["groups"]) == 2
+    assert report["comparisons"]
+    row = report["comparisons"][0]
+    assert row["semantic_all3_delta_measurement_minus_scaffold"] == -0.5
+    assert row["ready_for_design_conclusion"] is False

@@ -1,0 +1,184 @@
+{
+  "rows": [
+    {
+      "status": "candidate",
+      "finding_type": "any_l0_finding",
+      "delta": "world.corpus.mutations",
+      "delta_knob": "world.corpus.mutations",
+      "left_value": [],
+      "right_value": [
+        "clarify_elderly_understanding_all"
+      ],
+      "left_config": {
+        "anchor": false,
+        "effective_corpus_hash": "81420d0b4ee1ed59f2894a6edf34847bc6714419ce4b017e3f6ea44db210d8b7",
+        "knobs": {},
+        "mutation_hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "mutation_ids": [],
+        "probe": "P-01",
+        "stage": "S1"
+      },
+      "right_config": {
+        "anchor": false,
+        "effective_corpus_hash": "8535429d10091b5adaeec854bc57c2c1bf7055a98c7fa3c672be6408473edee4",
+        "knobs": {},
+        "mutation_hash": "8ad00c6663723894708cb0e1bff2849bac5fab891b0df9f58c7e2b35b41812a9",
+        "mutation_ids": [
+          "clarify_elderly_understanding_all"
+        ],
+        "probe": "P-01",
+        "stage": "S1"
+      },
+      "left_seeds": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "right_seeds": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "seed_bundle_match": true,
+      "left_rate": 0.2,
+      "right_rate": 0.2,
+      "left_wilson_95": [
+        0.0362,
+        0.6245
+      ],
+      "right_wilson_95": [
+        0.0362,
+        0.6245
+      ],
+      "effect_delta": 0.0,
+      "effect_delta_wilson_95": [
+        -0.5883,
+        0.5883
+      ]
+    },
+    {
+      "status": "candidate",
+      "finding_type": "grounding_gap",
+      "delta": "world.corpus.mutations",
+      "delta_knob": "world.corpus.mutations",
+      "left_value": [],
+      "right_value": [
+        "clarify_elderly_understanding_all"
+      ],
+      "left_config": {
+        "anchor": false,
+        "effective_corpus_hash": "81420d0b4ee1ed59f2894a6edf34847bc6714419ce4b017e3f6ea44db210d8b7",
+        "knobs": {},
+        "mutation_hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "mutation_ids": [],
+        "probe": "P-01",
+        "stage": "S1"
+      },
+      "right_config": {
+        "anchor": false,
+        "effective_corpus_hash": "8535429d10091b5adaeec854bc57c2c1bf7055a98c7fa3c672be6408473edee4",
+        "knobs": {},
+        "mutation_hash": "8ad00c6663723894708cb0e1bff2849bac5fab891b0df9f58c7e2b35b41812a9",
+        "mutation_ids": [
+          "clarify_elderly_understanding_all"
+        ],
+        "probe": "P-01",
+        "stage": "S1"
+      },
+      "left_seeds": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "right_seeds": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "seed_bundle_match": true,
+      "left_rate": 0.2,
+      "right_rate": 0.0,
+      "left_wilson_95": [
+        0.0362,
+        0.6245
+      ],
+      "right_wilson_95": [
+        0.0,
+        0.0
+      ],
+      "effect_delta": -0.2,
+      "effect_delta_wilson_95": [
+        -0.6245,
+        -0.0362
+      ]
+    },
+    {
+      "status": "candidate",
+      "finding_type": "version_gap",
+      "delta": "world.corpus.mutations",
+      "delta_knob": "world.corpus.mutations",
+      "left_value": [],
+      "right_value": [
+        "clarify_elderly_understanding_all"
+      ],
+      "left_config": {
+        "anchor": false,
+        "effective_corpus_hash": "81420d0b4ee1ed59f2894a6edf34847bc6714419ce4b017e3f6ea44db210d8b7",
+        "knobs": {},
+        "mutation_hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "mutation_ids": [],
+        "probe": "P-01",
+        "stage": "S1"
+      },
+      "right_config": {
+        "anchor": false,
+        "effective_corpus_hash": "8535429d10091b5adaeec854bc57c2c1bf7055a98c7fa3c672be6408473edee4",
+        "knobs": {},
+        "mutation_hash": "8ad00c6663723894708cb0e1bff2849bac5fab891b0df9f58c7e2b35b41812a9",
+        "mutation_ids": [
+          "clarify_elderly_understanding_all"
+        ],
+        "probe": "P-01",
+        "stage": "S1"
+      },
+      "left_seeds": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "right_seeds": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "seed_bundle_match": true,
+      "left_rate": 0.2,
+      "right_rate": 0.0,
+      "left_wilson_95": [
+        0.0362,
+        0.6245
+      ],
+      "right_wilson_95": [
+        0.0,
+        0.0
+      ],
+      "effect_delta": -0.2,
+      "effect_delta_wilson_95": [
+        -0.6245,
+        -0.0362
+      ]
+    }
+  ]
+}

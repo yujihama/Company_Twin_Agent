@@ -1,0 +1,109 @@
+﻿{
+    "schema_version":  "company_twin.prompt_mode_ab_report.v1",
+    "campaign_root":  "runs/prompt_ab_k5_tick1_20260704_120201",
+    "groups":  [
+                   {
+                       "config":  {
+                                      "anchor":  false,
+                                      "knobs":  {
+                                                    "K-completion-gate":  false,
+                                                    "K-material-picker":  false
+                                                },
+                                      "probe":  "P-04",
+                                      "prompt_mode":  "measurement",
+                                      "stage":  "S1"
+                                  },
+                       "run_count":  5,
+                       "seeds":  [
+                                     0,
+                                     1,
+                                     2,
+                                     3,
+                                     4
+                                 ],
+                       "basis_action_bound":  5,
+                       "semantic_all3_count":  5,
+                       "semantic_all3_rate":  1.0,
+                       "semantic_all3_wilson_95":  [
+                                                       0.5655,
+                                                       1.0
+                                                   ],
+                       "controlled_actions":  4,
+                       "controlled_tool_distribution":  {
+                                                            "record_customer_contact":  4
+                                                        },
+                       "grounding_gap_findings":  3,
+                       "grounding_gap_rate":  0.6,
+                       "grounding_gap_wilson_95":  [
+                                                       0.2307,
+                                                       0.8824
+                                                   ],
+                       "basis_fabrication_findings":  3
+                   },
+                   {
+                       "config":  {
+                                      "anchor":  false,
+                                      "knobs":  {
+                                                    "K-completion-gate":  false,
+                                                    "K-material-picker":  false
+                                                },
+                                      "probe":  "P-04",
+                                      "prompt_mode":  "scaffold",
+                                      "stage":  "S1"
+                                  },
+                       "run_count":  5,
+                       "seeds":  [
+                                     0,
+                                     1,
+                                     2,
+                                     3,
+                                     4
+                                 ],
+                       "basis_action_bound":  4,
+                       "semantic_all3_count":  4,
+                       "semantic_all3_rate":  1.0,
+                       "semantic_all3_wilson_95":  [
+                                                       0.5101,
+                                                       1.0
+                                                   ],
+                       "controlled_actions":  3,
+                       "controlled_tool_distribution":  {
+                                                            "record_customer_contact":  3
+                                                        },
+                       "grounding_gap_findings":  13,
+                       "grounding_gap_rate":  1.0,
+                       "grounding_gap_wilson_95":  [
+                                                       0.7719,
+                                                       1.0
+                                                   ],
+                       "basis_fabrication_findings":  11
+                   }
+               ],
+    "comparisons":  [
+                        {
+                            "config_without_prompt_mode":  {
+                                                               "anchor":  false,
+                                                               "knobs":  {
+                                                                             "K-completion-gate":  false,
+                                                                             "K-material-picker":  false
+                                                                         },
+                                                               "probe":  "P-04",
+                                                               "stage":  "S1"
+                                                           },
+                            "scaffold_runs":  5,
+                            "measurement_runs":  5,
+                            "semantic_all3_delta_measurement_minus_scaffold":  0.0,
+                            "controlled_actions_delta_measurement_minus_scaffold":  1,
+                            "grounding_gap_delta_measurement_minus_scaffold":  -0.4,
+                            "ready_for_design_conclusion":  true
+                        }
+                    ],
+    "minimum_live_design":  {
+                                "prompt_modes":  [
+                                                     "scaffold",
+                                                     "measurement"
+                                                 ],
+                                "seeds_per_condition":  5
+                            },
+    "note":  "This report is deterministic over existing bundles. It does not by itself prove the K\u003e=5 live A/B milestone was executed."
+}

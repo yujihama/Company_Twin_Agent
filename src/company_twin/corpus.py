@@ -26,6 +26,7 @@ class SearchHit:
 class CorpusDocument:
     meta: DocumentMeta
     text: str
+    visible_roles: tuple[str, ...] | None = None
 
     @property
     def title(self) -> str:
@@ -69,6 +70,9 @@ class Corpus:
     def readable_by(self, doc_id: str, role: str) -> bool:
         """Stale @v1.0 entries exist only in the sales library index; other roles
         can neither retrieve nor open them (version_visibility enforcement)."""
+        doc = self.documents.get(doc_id)
+        if doc is not None and doc.visible_roles is not None:
+            return role in doc.visible_roles
         if "@v1.0" not in doc_id:
             return True
         profile = self.retrieval_profiles.get(role) or {}
@@ -85,7 +89,9 @@ class Corpus:
         for doc in self.documents.values():
             if not doc.text:
                 continue
-            if not _included_for_profile(doc, profile):
+            if not self.readable_by(doc.meta.doc_id, seat_role):
+                continue
+            if not _included_for_profile(doc, profile, seat_role=seat_role):
                 continue
             haystack = doc.text.lower()
             score = sum(haystack.count(term.lower()) for term in terms)
@@ -173,7 +179,9 @@ def _terms(query: str) -> list[str]:
     return [term for term in terms if len(term) >= 2]
 
 
-def _included_for_profile(doc: CorpusDocument, profile: dict) -> bool:
+def _included_for_profile(doc: CorpusDocument, profile: dict, *, seat_role: str = "") -> bool:
+    if doc.visible_roles is not None:
+        return seat_role in doc.visible_roles
     if "@v1.0" in doc.meta.doc_id:
         return profile.get("version_visibility") == "current_plus_role_stale_021_045"
     index_kinds = profile.get("index_kinds") or []

@@ -8,7 +8,7 @@ from collections import Counter
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from .acceptance import run_acceptance
 from .agents import CustomerLLM, SeatFactory, load_role_card, role_system_prompt
@@ -16,6 +16,7 @@ from .corpus import Corpus
 from .design_loader import DesignInputs
 from .env import normalize_openrouter_model
 from .harness import TurnPromptMode, _turn_prompt, run_s0, run_s1_episode, run_s2_world
+from .mutations import apply_corpus_mutations, lint_mutation_catalog, mutation_specs_from_values
 from .oracles import aggregate_ensemble_triage, write_triage
 
 WORLD_PROMPT_BANNED_TERMS = (
@@ -70,6 +71,7 @@ class S0MatrixRow:
 
 
 DEFAULT_S0_COLD_READ_MODELS = ("openrouter:qwen/qwen3.6-flash", "openrouter:qwen/qwen3.5-9b")
+CONTROL_PAIR_CAMPAIGN_SCHEMA_VERSION = "company_twin.control_pair_campaign.v1"
 
 
 def default_s0_models(model_name: str) -> list[str]:
@@ -127,6 +129,7 @@ def run_design_campaign(
     prompt_mode: TurnPromptMode = "scaffold",
     model_bindings: dict[str, str] | None = None,
     scc_switch_tick: int | None = None,
+    mutations: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Live-only campaign: S0 battery -> divergence aggregation -> S1 ensemble -> (optional) S2 + anchor.
 
@@ -145,7 +148,7 @@ def run_design_campaign(
     s0_results: list[dict[str, Any]] = []
     for idx, row in enumerate(selected):
         s0_root = campaign_root / f"s0_{idx:03d}_{row.probe_id}_{row.seat_id}_v{row.variant}"
-        result = run_s0(design=design, corpus=corpus, probe_id=row.probe_id, seat_id=row.seat_id, run_root=s0_root, span_id=row.span_id, model=row.model, variant=row.variant, seat_factory=seat_factory)
+        result = run_s0(design=design, corpus=corpus, probe_id=row.probe_id, seat_id=row.seat_id, run_root=s0_root, span_id=row.span_id, model=row.model, variant=row.variant, mutations=mutations, seat_factory=seat_factory)
         write_triage(s0_root)
         s0_results.append({**asdict(row), **result})
     (campaign_root / "s0_results.json").write_text(json.dumps(s0_results, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -177,6 +180,7 @@ def run_design_campaign(
             prompt_mode=prompt_mode,
             model_bindings=model_bindings,
             scc_switch_tick=scc_switch_tick,
+            mutations=mutations,
         )
         write_triage(s1_root)
         s1_roots.append(str(s1_root))
@@ -199,6 +203,7 @@ def run_design_campaign(
             prompt_mode=prompt_mode,
             model_bindings=model_bindings,
             scc_switch_tick=scc_switch_tick,
+            mutations=mutations,
         )
         write_triage(anchor_path)
         anchor_root = str(anchor_path)
@@ -218,6 +223,7 @@ def run_design_campaign(
                 prompt_mode=prompt_mode,
                 model_bindings=model_bindings,
                 scc_switch_tick=scc_switch_tick,
+                mutations=mutations,
             )
             write_triage(s2_root)
             s2_roots.append(str(s2_root))
@@ -239,12 +245,190 @@ def run_design_campaign(
         "s2_roots": s2_roots,
         "anchor_run": anchor_root,
         "prompt_mode": prompt_mode,
+        "mutations": mutations or [],
     }
     aggregate_ensemble_triage(campaign_root)
     acceptance = run_acceptance(campaign_root=campaign_root, design=design, corpus=corpus, scope="full_world" if with_s2 else "s0_s1")
     summary["acceptance_passed"] = acceptance["passed"]
     (campaign_root / "campaign_summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
     return summary
+
+
+def run_control_pair_campaign(
+    *,
+    root: Path,
+    design: DesignInputs,
+    corpus: Corpus,
+    manifest: dict[str, Any],
+    model: str | None = None,
+    probe: str = "P-01",
+    stage: str = "S1",
+    ticks: int = 6,
+    seat_factory: SeatFactory | None = None,
+    customer_llm: CustomerLLM | None = None,
+    customer_llm_factory: Callable[[Path], CustomerLLM] | None = None,
+    prompt_mode: TurnPromptMode = "measurement",
+    model_bindings: dict[str, str] | None = None,
+    scc_switch_tick: int | None = None,
+    timed_notice_recipients: list[str] | None = None,
+) -> dict[str, Any]:
+    """Execute a pre-registered delta-one control-pair manifest.
+
+    This is the WP-07 live-only path: every pair side becomes an ordinary run
+    bundle, but run metadata marks it as `campaign_mode=control_pairs` so later
+    aggregation can exclude exploratory bundles that happen to sit nearby.
+    """
+    if manifest.get("schema_version") != "company_twin.control_pairs.v1":
+        raise ValueError(f"unexpected control-pair manifest schema: {manifest.get('schema_version')!r}")
+    if stage not in {"S1", "S2"}:
+        raise ValueError("control-pair campaigns currently support stage S1 or S2")
+    if stage == "S1" and probe not in design.probes:
+        raise ValueError(f"unknown probe for S1 control-pair campaign: {probe}")
+    if ticks < 1:
+        raise ValueError("ticks must be >= 1")
+
+    pairs = manifest.get("pairs") or []
+    if not isinstance(pairs, list) or not pairs:
+        raise ValueError("control-pair manifest must contain at least one pair")
+
+    model_name = normalize_openrouter_model(model)
+    campaign_root = root / "runs" / f"control_pair_campaign_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    campaign_root.mkdir(parents=True, exist_ok=True)
+    manifest_path = campaign_root / "control_pair_manifest.json"
+    manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    run_rows: list[dict[str, Any]] = []
+    for pair in pairs:
+        normalized_pair = _validate_control_pair(pair)
+        for condition in ("control", "treatment"):
+            side = normalized_pair[condition]
+            mutation_ids = list(side["mutations"])
+            specs = mutation_specs_from_values(design.root, mutation_ids)
+            mutation_result = apply_corpus_mutations(corpus, specs)
+            run_root = campaign_root / f"{normalized_pair['pair_id']}_{condition}"
+            per_run_customer = customer_llm_factory(run_root) if customer_llm_factory is not None else customer_llm
+            common = {
+                "design": design,
+                "corpus": mutation_result.corpus,
+                "run_root": run_root,
+                "model": model_name,
+                "knobs": side["knobs"],
+                "seed": side["seed"],
+                "seat_factory": seat_factory,
+                "customer_llm": per_run_customer,
+                "prompt_mode": prompt_mode,
+                "model_bindings": model_bindings,
+                "scc_switch_tick": scc_switch_tick,
+                "mutations": mutation_result.applied,
+                "timed_notice_recipients": [] if timed_notice_recipients is None else timed_notice_recipients,
+            }
+            if stage == "S1":
+                result = run_s1_episode(probe_id=probe, ticks=ticks, **common)
+            else:
+                result = run_s2_world(ticks=ticks, anchor=False, **common)
+            _stamp_control_pair_meta(
+                run_root,
+                pair=normalized_pair,
+                condition=condition,
+                mutation_ids=mutation_ids,
+                applied_mutations=mutation_result.applied,
+            )
+            write_triage(run_root)
+            run_rows.append(
+                {
+                    "pair_id": normalized_pair["pair_id"],
+                    "condition": condition,
+                    "run_root": str(run_root),
+                    "seed": side["seed"],
+                    "mutations": mutation_ids,
+                    "mutation_hash": mutation_result.mutation_hash,
+                    "stage": stage,
+                    "probe": probe if stage == "S1" else None,
+                    "result": result,
+                }
+            )
+
+    ensemble = aggregate_ensemble_triage(campaign_root)
+    summary = {
+        "schema_version": CONTROL_PAIR_CAMPAIGN_SCHEMA_VERSION,
+        "campaign_root": str(campaign_root),
+        "manifest_path": str(manifest_path),
+        "stage": stage,
+        "probe": probe if stage == "S1" else None,
+        "ticks": ticks,
+        "model": model_name,
+        "prompt_mode": prompt_mode,
+        "timed_notice_recipients": [] if timed_notice_recipients is None else timed_notice_recipients,
+        "pair_count": len(pairs),
+        "condition_run_count": len(run_rows),
+        "runs": run_rows,
+        "ensemble_triage": {
+            "groups": len(ensemble.get("groups") or []),
+            "attribution_rows": len(ensemble.get("attribution_table") or []),
+            "icc_summary": ensemble.get("icc_summary"),
+        },
+        "note": "WP-07 control-pair execution only; harness acceptance and Stage 9 readiness remain separate gates.",
+    }
+    (campaign_root / "control_pair_campaign_summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
+    return summary
+
+
+def _validate_control_pair(pair: dict[str, Any]) -> dict[str, Any]:
+    pair_id = str(pair.get("pair_id") or "")
+    if not pair_id:
+        raise ValueError("control-pair entry missing pair_id")
+    if pair.get("delta") != "world.corpus.mutations":
+        raise ValueError(f"{pair_id}: unsupported delta {pair.get('delta')!r}")
+    normalized: dict[str, Any] = {
+        "pair_id": pair_id,
+        "delta": "world.corpus.mutations",
+        "shared": pair.get("shared") or {},
+    }
+    seeds: list[int] = []
+    for condition in ("control", "treatment"):
+        side = pair.get(condition) or {}
+        if not isinstance(side, dict):
+            raise ValueError(f"{pair_id}: {condition} side must be an object")
+        seed = int(side.get("seed"))
+        mutations = [str(item) for item in (side.get("mutations") or [])]
+        knobs = {str(key): bool(value) for key, value in (side.get("knobs") or {}).items()}
+        normalized[condition] = {"seed": seed, "mutations": mutations, "knobs": knobs}
+        seeds.append(seed)
+    if len(set(seeds)) != 1 or (pair.get("seed") is not None and int(pair["seed"]) != seeds[0]):
+        raise ValueError(f"{pair_id}: control and treatment must share the same seed")
+    shared = normalized["shared"]
+    if shared and len({int(value) for value in shared.values()}) != 1:
+        raise ValueError(f"{pair_id}: shared seed fields must all match")
+    if normalized["control"]["mutations"]:
+        raise ValueError(f"{pair_id}: control side must not carry mutations")
+    if len(normalized["treatment"]["mutations"]) != 1:
+        raise ValueError(f"{pair_id}: treatment side must carry exactly one mutation for delta-one attribution")
+    normalized["seed"] = seeds[0]
+    return normalized
+
+
+def _stamp_control_pair_meta(
+    run_root: Path,
+    *,
+    pair: dict[str, Any],
+    condition: str,
+    mutation_ids: list[str],
+    applied_mutations: list[dict[str, Any]],
+) -> None:
+    meta_path = run_root / "meta.json"
+    meta = json.loads(meta_path.read_text(encoding="utf-8")) if meta_path.exists() else {}
+    meta["campaign_mode"] = "control_pairs"
+    meta["control_pair"] = {
+        "pair_id": pair["pair_id"],
+        "condition": condition,
+        "delta": pair["delta"],
+        "seed": pair["seed"],
+        "shared": pair.get("shared") or {},
+        "planned_mutation_ids": mutation_ids,
+    }
+    meta["mutation_ids"] = mutation_ids
+    meta["mutations"] = applied_mutations
+    meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 # ---------------------------------------------------------------------------
@@ -437,6 +621,8 @@ def _diverse_s0_rows(matrix: list[S0MatrixRow], *, budget: int) -> list[S0Matrix
 
 def static_world_surface_lint(design: DesignInputs) -> dict[str, Any]:
     failures: list[dict[str, str]] = []
+    for failure in lint_mutation_catalog(design.root):
+        failures.append({"check": "mutation_visible_text_leak", "detail": f"{failure['mutation_id']}: {failure['label']}"})
     for role in ("sales", "application", "manager", "second_line", "audit"):
         card = load_role_card(design.root, role)
         prompt = role_system_prompt(f"emp-X", role, role_card=card).lower()

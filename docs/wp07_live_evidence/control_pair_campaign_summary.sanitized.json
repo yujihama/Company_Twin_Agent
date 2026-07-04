@@ -1,0 +1,255 @@
+{
+  "schema_version": "company_twin.control_pair_campaign.v1",
+  "stage": "S1",
+  "probe": "P-01",
+  "ticks": 1,
+  "model": "openrouter:qwen/qwen3.6-flash",
+  "prompt_mode": "measurement",
+  "timed_notice_recipients": [],
+  "pair_count": 5,
+  "condition_run_count": 10,
+  "ensemble_triage": {
+    "groups": 2,
+    "attribution_rows": 3,
+    "icc_summary": {
+      "method": "binary_seed_presence_icc_proxy",
+      "group_count": 2,
+      "estimable_group_count": 2,
+      "mean_icc": 0.0,
+      "groups": [
+        {
+          "config": {
+            "anchor": false,
+            "effective_corpus_hash": "81420d0b4ee1ed59f2894a6edf34847bc6714419ce4b017e3f6ea44db210d8b7",
+            "knobs": {},
+            "mutation_hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "mutation_ids": [],
+            "probe": "P-01",
+            "stage": "S1"
+          },
+          "mean_icc": 0.0,
+          "status": "ok"
+        },
+        {
+          "config": {
+            "anchor": false,
+            "effective_corpus_hash": "8535429d10091b5adaeec854bc57c2c1bf7055a98c7fa3c672be6408473edee4",
+            "knobs": {},
+            "mutation_hash": "8ad00c6663723894708cb0e1bff2849bac5fab891b0df9f58c7e2b35b41812a9",
+            "mutation_ids": [
+              "clarify_elderly_understanding_all"
+            ],
+            "probe": "P-01",
+            "stage": "S1"
+          },
+          "mean_icc": 0.0,
+          "status": "ok"
+        }
+      ]
+    }
+  },
+  "note": "WP-07 control-pair execution only; harness acceptance and Stage 9 readiness remain separate gates.",
+  "campaign_root_name": "control_pair_campaign_20260704_141958",
+  "runs": [
+    {
+      "pair_id": "pair_clarify_elderly_understanding_all_seed0",
+      "condition": "control",
+      "run_id": "pair_clarify_elderly_understanding_all_seed0_control",
+      "seed": 0,
+      "mutations": [],
+      "mutation_hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "stage": "S1",
+      "probe": "P-01",
+      "result": {
+        "stage": "S1",
+        "agent_turns": 1,
+        "events": 1,
+        "ticks": 1,
+        "anchor": false,
+        "backend": "deepagents",
+        "prompt_mode": "measurement"
+      }
+    },
+    {
+      "pair_id": "pair_clarify_elderly_understanding_all_seed0",
+      "condition": "treatment",
+      "run_id": "pair_clarify_elderly_understanding_all_seed0_treatment",
+      "seed": 0,
+      "mutations": [
+        "clarify_elderly_understanding_all"
+      ],
+      "mutation_hash": "8ad00c6663723894708cb0e1bff2849bac5fab891b0df9f58c7e2b35b41812a9",
+      "stage": "S1",
+      "probe": "P-01",
+      "result": {
+        "stage": "S1",
+        "agent_turns": 1,
+        "events": 1,
+        "ticks": 1,
+        "anchor": false,
+        "backend": "deepagents",
+        "prompt_mode": "measurement"
+      }
+    },
+    {
+      "pair_id": "pair_clarify_elderly_understanding_all_seed1",
+      "condition": "control",
+      "run_id": "pair_clarify_elderly_understanding_all_seed1_control",
+      "seed": 1,
+      "mutations": [],
+      "mutation_hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "stage": "S1",
+      "probe": "P-01",
+      "result": {
+        "stage": "S1",
+        "agent_turns": 2,
+        "events": 1,
+        "ticks": 1,
+        "anchor": false,
+        "backend": "deepagents",
+        "prompt_mode": "measurement"
+      }
+    },
+    {
+      "pair_id": "pair_clarify_elderly_understanding_all_seed1",
+      "condition": "treatment",
+      "run_id": "pair_clarify_elderly_understanding_all_seed1_treatment",
+      "seed": 1,
+      "mutations": [
+        "clarify_elderly_understanding_all"
+      ],
+      "mutation_hash": "8ad00c6663723894708cb0e1bff2849bac5fab891b0df9f58c7e2b35b41812a9",
+      "stage": "S1",
+      "probe": "P-01",
+      "result": {
+        "stage": "S1",
+        "agent_turns": 1,
+        "events": 1,
+        "ticks": 1,
+        "anchor": false,
+        "backend": "deepagents",
+        "prompt_mode": "measurement"
+      }
+    },
+    {
+      "pair_id": "pair_clarify_elderly_understanding_all_seed2",
+      "condition": "control",
+      "run_id": "pair_clarify_elderly_understanding_all_seed2_control",
+      "seed": 2,
+      "mutations": [],
+      "mutation_hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "stage": "S1",
+      "probe": "P-01",
+      "result": {
+        "stage": "S1",
+        "agent_turns": 1,
+        "events": 1,
+        "ticks": 1,
+        "anchor": false,
+        "backend": "deepagents",
+        "prompt_mode": "measurement"
+      }
+    },
+    {
+      "pair_id": "pair_clarify_elderly_understanding_all_seed2",
+      "condition": "treatment",
+      "run_id": "pair_clarify_elderly_understanding_all_seed2_treatment",
+      "seed": 2,
+      "mutations": [
+        "clarify_elderly_understanding_all"
+      ],
+      "mutation_hash": "8ad00c6663723894708cb0e1bff2849bac5fab891b0df9f58c7e2b35b41812a9",
+      "stage": "S1",
+      "probe": "P-01",
+      "result": {
+        "stage": "S1",
+        "agent_turns": 1,
+        "events": 1,
+        "ticks": 1,
+        "anchor": false,
+        "backend": "deepagents",
+        "prompt_mode": "measurement"
+      }
+    },
+    {
+      "pair_id": "pair_clarify_elderly_understanding_all_seed3",
+      "condition": "control",
+      "run_id": "pair_clarify_elderly_understanding_all_seed3_control",
+      "seed": 3,
+      "mutations": [],
+      "mutation_hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "stage": "S1",
+      "probe": "P-01",
+      "result": {
+        "stage": "S1",
+        "agent_turns": 1,
+        "events": 1,
+        "ticks": 1,
+        "anchor": false,
+        "backend": "deepagents",
+        "prompt_mode": "measurement"
+      }
+    },
+    {
+      "pair_id": "pair_clarify_elderly_understanding_all_seed3",
+      "condition": "treatment",
+      "run_id": "pair_clarify_elderly_understanding_all_seed3_treatment",
+      "seed": 3,
+      "mutations": [
+        "clarify_elderly_understanding_all"
+      ],
+      "mutation_hash": "8ad00c6663723894708cb0e1bff2849bac5fab891b0df9f58c7e2b35b41812a9",
+      "stage": "S1",
+      "probe": "P-01",
+      "result": {
+        "stage": "S1",
+        "agent_turns": 1,
+        "events": 1,
+        "ticks": 1,
+        "anchor": false,
+        "backend": "deepagents",
+        "prompt_mode": "measurement"
+      }
+    },
+    {
+      "pair_id": "pair_clarify_elderly_understanding_all_seed4",
+      "condition": "control",
+      "run_id": "pair_clarify_elderly_understanding_all_seed4_control",
+      "seed": 4,
+      "mutations": [],
+      "mutation_hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "stage": "S1",
+      "probe": "P-01",
+      "result": {
+        "stage": "S1",
+        "agent_turns": 1,
+        "events": 1,
+        "ticks": 1,
+        "anchor": false,
+        "backend": "deepagents",
+        "prompt_mode": "measurement"
+      }
+    },
+    {
+      "pair_id": "pair_clarify_elderly_understanding_all_seed4",
+      "condition": "treatment",
+      "run_id": "pair_clarify_elderly_understanding_all_seed4_treatment",
+      "seed": 4,
+      "mutations": [
+        "clarify_elderly_understanding_all"
+      ],
+      "mutation_hash": "8ad00c6663723894708cb0e1bff2849bac5fab891b0df9f58c7e2b35b41812a9",
+      "stage": "S1",
+      "probe": "P-01",
+      "result": {
+        "stage": "S1",
+        "agent_turns": 1,
+        "events": 1,
+        "ticks": 1,
+        "anchor": false,
+        "backend": "deepagents",
+        "prompt_mode": "measurement"
+      }
+    }
+  ]
+}

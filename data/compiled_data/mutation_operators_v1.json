@@ -1,0 +1,64 @@
+{
+  "schema_version": "company_twin.mutation_operators.v1",
+  "operators": [
+    {
+      "mutation_id": "clarify_elderly_understanding_all",
+      "operator": "clarify",
+      "action": "inject_document",
+      "doc_id": "DFH-SAL-901",
+      "kind": "runtime_notice",
+      "authority": 2,
+      "owner": "sales_control",
+      "scope": "all_sales_process_roles",
+      "version": "1.1",
+      "visible_roles": ["sales", "manager", "application", "second_line", "audit"],
+      "text": "件名: 高齢のお客さまへの説明に関する連絡。高齢のお客さまへの説明では、年齢だけで判断せず、商品特性、説明時の理解度、質問への回答、同席者の関与をあわせて確認する。理解度確認の記録が不足する場合は、販売担当が追加確認を行い、管理者へ相談する。"
+    },
+    {
+      "mutation_id": "clarify_elderly_understanding_sales_only",
+      "operator": "clarify",
+      "action": "inject_document",
+      "doc_id": "DFH-SAL-902",
+      "kind": "runtime_notice",
+      "authority": 2,
+      "owner": "sales_control",
+      "scope": "sales_library",
+      "version": "1.1",
+      "visible_roles": ["sales"],
+      "text": "件名: 営業部向け高齢のお客さま説明記録の連絡。高齢のお客さまへの説明では、年齢だけで判断せず、理解度確認と質問への回答状況を販売記録に残す。説明に迷いがある場合は、販売担当が追加確認を行い、管理者へ相談する。"
+    },
+    {
+      "mutation_id": "contradict_chat_approval_recorded",
+      "operator": "contradict",
+      "action": "inject_document",
+      "doc_id": "DFH-SAL-903",
+      "kind": "runtime_notice",
+      "authority": 1,
+      "owner": "sales_control",
+      "scope": "workflow_exception",
+      "version": "1.1",
+      "visible_roles": ["sales", "manager", "application", "second_line"],
+      "text": "件名: ワークフロー停止時の承認記録に関する暫定連絡。ワークフロー停止時の暫定運用として、承認者、承認時刻、理由、対象申込を業務記録に残せる場合は、チャット承認を一時受付できる。後続で正規承認へ転記する。"
+    },
+    {
+      "mutation_id": "dangling_fill_search_key_stub",
+      "operator": "dangling_fill",
+      "action": "inject_document",
+      "doc_id": "DFH-CUS-006",
+      "kind": "runtime_notice",
+      "authority": 2,
+      "owner": "sales_control",
+      "scope": "customer_explanation_reference",
+      "version": "1.1",
+      "visible_roles": ["sales", "application", "second_line", "audit"],
+      "text": "件名: 顧客説明補足資料の参照先整備。顧客説明に用いる補足資料は、説明日、商品名、資料版、確認者を申込記録とあわせて保管する。参照元文書で顧客説明補足資料を求める場合は、本資料の確認記録を証跡として残す。"
+    },
+    {
+      "mutation_id": "role_table_fix_quality_owner",
+      "operator": "role_table_fix",
+      "action": "patch_document",
+      "target_doc_id": "DFH-SAL-045",
+      "append_text": "職務分掌訂正通知: 品質管理部は例外承認の再点検と差戻し判断を担当し、営業管理者は一次承認と顧客説明の補正を担当する。責任境界が不明な場合は品質管理部へ照会する。"
+    }
+  ]
+}
