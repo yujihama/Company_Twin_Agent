@@ -1,0 +1,84 @@
+{
+  "schema_version": "company_twin.wp10b_evidence_summary.v1",
+  "source_campaign": "runs/control_pair_campaign_20260704_141958",
+  "command": "python -m company_twin.cli min-repro-confirm --campaign-root runs\\control_pair_campaign_20260704_141958 --job-id fba3117ae70d473c --confirmation-seeds 5 --seed-start 100 --min-rate 0.2 --ticks 1 --model openrouter:qwen/qwen3.6-flash",
+  "job_id": "fba3117ae70d473c",
+  "finding_type": "version_gap",
+  "stage": "S1",
+  "probe": "P-01",
+  "source_arm": "control",
+  "mutation_ids": [],
+  "expected_bucket_signatures": [
+    "9b95d71285dd959e"
+  ],
+  "threshold": {
+    "min_rate": 0.2,
+    "confirmation_seeds": 5
+  },
+  "pre_registered_confirmation": {
+    "min_rate": 0.2,
+    "confirmation_seeds": 5,
+    "basis": "legacy_queue_rate_inference",
+    "registered_at": "legacy_job_without_explicit_preregistration"
+  },
+  "threshold_override": {
+    "enabled": false,
+    "requested": {
+      "min_rate": 0.2,
+      "confirmation_seeds": 5
+    },
+    "pre_registered": {
+      "min_rate": 0.2,
+      "confirmation_seeds": 5,
+      "basis": "legacy_queue_rate_inference",
+      "registered_at": "legacy_job_without_explicit_preregistration"
+    }
+  },
+  "fresh_seeds": [
+    100,
+    101,
+    102,
+    103,
+    104
+  ],
+  "runs": [
+    {
+      "seed": 100,
+      "finding_count": 0,
+      "matched_signature_finding_count": 0
+    },
+    {
+      "seed": 101,
+      "finding_count": 0,
+      "matched_signature_finding_count": 0
+    },
+    {
+      "seed": 102,
+      "finding_count": 0,
+      "matched_signature_finding_count": 0
+    },
+    {
+      "seed": 103,
+      "finding_count": 0,
+      "matched_signature_finding_count": 0
+    },
+    {
+      "seed": 104,
+      "finding_count": 1,
+      "matched_signature_finding_count": 1
+    }
+  ],
+  "status": "reproduced",
+  "source_bundle_count": 1,
+  "confirmation_successes": 1,
+  "reproduction_rate": 0.2,
+  "reproduction_rate_wilson_95": [
+    0.0362,
+    0.6245
+  ],
+  "confirmed_count": 1,
+  "audit_hypothesis_cards": [
+    "HYP-fba3117ae70d"
+  ],
+  "note": "WP-10b operational confirmation only; this does not claim Stage 9 readiness."
+}

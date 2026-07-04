@@ -344,6 +344,23 @@ def a14_confirmed_requires_fresh_reproduction(campaign_root: Path) -> GateResult
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         if manifest.get("status") != "reproduced":
             problems.append(f"{job_id}: manifest status is not reproduced")
+        pre_registered = manifest.get("pre_registered_confirmation") or {}
+        if not pre_registered:
+            problems.append(f"{job_id}: pre_registered_confirmation missing")
+        threshold_override = manifest.get("threshold_override") or {}
+        if threshold_override.get("enabled"):
+            problems.append(f"{job_id}: confirmation threshold override was used")
+        threshold = manifest.get("threshold") or {}
+        if pre_registered and threshold:
+            pre_min_rate = float(pre_registered.get("min_rate") or 0.0)
+            requested_min_rate = float(threshold.get("min_rate") or 0.0)
+            pre_seeds = int(pre_registered.get("confirmation_seeds") or 0)
+            requested_seeds = int(threshold.get("confirmation_seeds") or 0)
+            if abs(pre_min_rate - requested_min_rate) > 1e-6 or pre_seeds != requested_seeds:
+                problems.append(
+                    f"{job_id}: confirmation threshold differs from preregistered value "
+                    f"(pre={pre_registered}, threshold={threshold})"
+                )
         source_bundles = manifest.get("source_bundles") or []
         if not source_bundles:
             problems.append(f"{job_id}: reproduced source bundles missing")

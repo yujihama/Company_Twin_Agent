@@ -288,6 +288,12 @@ def test_min_repro_collation_never_promotes_confirmed_findings(tmp_path: Path) -
 
     queued = aggregate_ensemble_triage(tmp_path)
     assert queued["min_repro_jobs"][0]["status"] == "pending"
+    assert queued["min_repro_jobs"][0]["pre_registered_confirmation"] == {
+        "min_rate": round(2 / 3, 6),
+        "confirmation_seeds": 3,
+        "basis": "queued_exploration_rate",
+        "registered_at": "ensemble_triage_queue",
+    }
     assert queued["finding_registry"]["confirmed_findings"] == []
 
     executed = execute_min_repro_jobs(tmp_path, min_rate=0.5, min_seeds=3)
@@ -298,6 +304,7 @@ def test_min_repro_collation_never_promotes_confirmed_findings(tmp_path: Path) -
     assert abs(job["evidence_rate"] - 2 / 3) < 1e-9
     manifest = json.loads((tmp_path / job["confirmation_path"]).read_text(encoding="utf-8"))
     assert manifest["status"] == "evidence_collated"
+    assert manifest["pre_registered_confirmation"]["min_rate"] == round(2 / 3, 6)
     assert manifest["reduction_trace"][1]["step"] == "deck_one_card"
 
     registry = json.loads((tmp_path / "finding_registry.json").read_text(encoding="utf-8"))
@@ -365,7 +372,7 @@ def test_fresh_min_repro_confirmation_promotes_reproduced_with_disjoint_live_see
         finding_type="evidence_gap",
         confirmation_seeds=3,
         seed_start=100,
-        min_rate=0.5,
+        min_rate=2 / 3,
         confirmation_bundle_runner=write_confirmation_bundle,
     )
 
@@ -374,18 +381,44 @@ def test_fresh_min_repro_confirmation_promotes_reproduced_with_disjoint_live_see
     assert payload["source_bundle_count"] == 3
     manifest = json.loads((tmp_path / payload["manifest_path"]).read_text(encoding="utf-8"))
     assert manifest["status"] == "reproduced"
+    assert manifest["pre_registered_confirmation"]["min_rate"] == round(2 / 3, 6)
+    assert manifest["threshold_override"]["enabled"] is False
     assert manifest["fresh_seeds"] == [100, 101, 102]
     assert manifest["expected_bucket_signatures"] == ["sig-0", "sig-1"]
+    assert manifest["reproduction_rate_wilson_95"] == [0.4385, 1.0]
     assert all(bundle["run_root"].startswith(f"min_repro/{payload['job_id']}/runs/") for bundle in manifest["source_bundles"])
 
     registry = json.loads((tmp_path / "finding_registry.json").read_text(encoding="utf-8"))
     assert registry["confirmed_findings"][0]["status"] == "reproduced"
+    assert registry["confirmed_findings"][0]["reproduction_rate_wilson_95"] == [0.4385, 1.0]
+    assert registry["audit_hypothesis_cards"][0]["min_repro"]["reproduction_rate_wilson_95"] == [0.4385, 1.0]
     assert registry["audit_hypothesis_cards"]
     assert a14_confirmed_requires_fresh_reproduction(tmp_path).passed
 
 
+def test_fresh_min_repro_confirmation_rejects_threshold_mismatch(tmp_path: Path) -> None:
+    for seed, has_finding in enumerate([True, True, False]):
+        _write_min_repro_source(tmp_path, f"s1_P-04_seed{seed}", seed=seed, has_finding=has_finding)
+    aggregate_ensemble_triage(tmp_path)
+
+    try:
+        execute_fresh_min_repro_confirmation(
+            tmp_path,
+            finding_type="evidence_gap",
+            confirmation_seeds=3,
+            seed_start=100,
+            min_rate=0.5,
+            confirmation_bundle_runner=lambda *_args: None,
+        )
+    except ValueError as exc:
+        assert "pre_registered_confirmation" in str(exc)
+    else:
+        raise AssertionError("threshold mismatch must be rejected by default")
+
+
 def test_fresh_min_repro_confirmation_requires_source_signature_match(tmp_path: Path) -> None:
-    _write_min_repro_source(tmp_path, "s1_P-04_seed0", seed=0, has_finding=True, signature="sig-source")
+    for seed, has_finding in enumerate([True, False, False]):
+        _write_min_repro_source(tmp_path, f"s1_P-04_seed{seed}", seed=seed, has_finding=has_finding, signature="sig-source")
     aggregate_ensemble_triage(tmp_path)
 
     def write_confirmation_bundle(run_root: Path, seed: int, config: dict[str, Any], finding_type: str) -> None:
@@ -408,9 +441,9 @@ def test_fresh_min_repro_confirmation_requires_source_signature_match(tmp_path: 
     payload = execute_fresh_min_repro_confirmation(
         tmp_path,
         finding_type="evidence_gap",
-        confirmation_seeds=1,
+        confirmation_seeds=3,
         seed_start=100,
-        min_rate=0.1,
+        min_rate=1 / 3,
         confirmation_bundle_runner=write_confirmation_bundle,
     )
 
@@ -424,7 +457,8 @@ def test_fresh_min_repro_confirmation_requires_source_signature_match(tmp_path: 
 
 
 def test_s2_fresh_min_repro_confirmation_infers_seats_subset(tmp_path: Path) -> None:
-    _write_min_repro_source(tmp_path, "s2_seed0", seed=0, has_finding=True, stage="S2", probe=None, signature="sig-source", seat_id="emp-C")
+    for seed in range(3):
+        _write_min_repro_source(tmp_path, f"s2_seed{seed}", seed=seed, has_finding=True, stage="S2", probe=None, signature="sig-source", seat_id="emp-C")
     aggregate_ensemble_triage(tmp_path)
     observed_configs: list[dict[str, Any]] = []
 
@@ -449,7 +483,7 @@ def test_s2_fresh_min_repro_confirmation_infers_seats_subset(tmp_path: Path) -> 
     payload = execute_fresh_min_repro_confirmation(
         tmp_path,
         finding_type="evidence_gap",
-        confirmation_seeds=1,
+        confirmation_seeds=3,
         seed_start=100,
         min_rate=1.0,
         confirmation_bundle_runner=write_confirmation_bundle,
@@ -495,7 +529,15 @@ def test_a14_accepts_fresh_live_min_repro_bundle_with_disjoint_seed(tmp_path: Pa
     _write_jsonl(live_root / "world_ledger.jsonl", [])
     manifest_path = tmp_path / "min_repro" / job["job_id"] / "manifest.json"
     manifest_path.write_text(
-        json.dumps({"status": "reproduced", "source_bundles": [{"run_root": f"min_repro/{job['job_id']}/runs/{live_root.name}", "seed": 100}]}),
+        json.dumps(
+            {
+                "status": "reproduced",
+                "threshold": {"min_rate": 1.0, "confirmation_seeds": 3},
+                "pre_registered_confirmation": job["pre_registered_confirmation"],
+                "threshold_override": {"enabled": False},
+                "source_bundles": [{"run_root": f"min_repro/{job['job_id']}/runs/{live_root.name}", "seed": 100}],
+            }
+        ),
         encoding="utf-8",
     )
     (tmp_path / "finding_registry.json").write_text(
@@ -504,3 +546,37 @@ def test_a14_accepts_fresh_live_min_repro_bundle_with_disjoint_seed(tmp_path: Pa
     )
 
     assert a14_confirmed_requires_fresh_reproduction(tmp_path).passed
+
+
+def test_a14_rejects_threshold_override_manifest(tmp_path: Path) -> None:
+    _write_min_repro_source(tmp_path, "s1_P-04_seed0", seed=0, has_finding=True)
+    aggregate_ensemble_triage(tmp_path)
+    job = json.loads((tmp_path / "min_repro_jobs.json").read_text(encoding="utf-8"))["jobs"][0]
+    live_root = tmp_path / "min_repro" / job["job_id"] / "runs" / "s1_P-04_confirm_seed100"
+    live_root.mkdir(parents=True)
+    (live_root / "meta.json").write_text(json.dumps({"stage": "S1", "probe": "P-04", "knobs": {}, "seed": 100, "anchor": False, "live": True}), encoding="utf-8")
+    _write_jsonl(live_root / "attempts.jsonl", [{"seat_id": "emp-C", "tool": "llm_response", "args": {"backend": "deepagents"}, "success": True, "result": {}, "origin": "agent"}])
+    _write_jsonl(live_root / "basis_records.jsonl", [])
+    _write_jsonl(live_root / "world_ledger.jsonl", [])
+    manifest_path = tmp_path / "min_repro" / job["job_id"] / "manifest.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "status": "reproduced",
+                "threshold": {"min_rate": 0.5, "confirmation_seeds": 1},
+                "pre_registered_confirmation": job["pre_registered_confirmation"],
+                "threshold_override": {"enabled": True},
+                "source_bundles": [{"run_root": f"min_repro/{job['job_id']}/runs/{live_root.name}", "seed": 100}],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "finding_registry.json").write_text(
+        json.dumps({"confirmed_findings": [{**job, "status": "reproduced", "confirmation_path": f"min_repro/{job['job_id']}/manifest.json"}], "audit_hypothesis_cards": []}),
+        encoding="utf-8",
+    )
+
+    result = a14_confirmed_requires_fresh_reproduction(tmp_path)
+
+    assert not result.passed
+    assert "threshold override" in result.detail

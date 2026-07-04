@@ -462,6 +462,7 @@ def _min_repro_jobs(groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
     jobs: list[dict[str, Any]] = []
     for group in groups:
         for finding_type, rate in sorted((group.get("finding_rates") or {}).items()):
+            pre_registered = _pre_registered_confirmation_from_rate(rate)
             job = {
                 "status": "pending",
                 "min_repro_status": "pending",
@@ -471,6 +472,7 @@ def _min_repro_jobs(groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "seeds": rate["seeds"],
                 "rate": rate["rate"],
                 "wilson_95": rate["wilson_95"],
+                "pre_registered_confirmation": pre_registered,
                 "confirmation_protocol": ["source_bundle_match", "deck_one_card_if_probe_bound", "tick_back_trim", "seat_shrink"],
             }
             job["job_id"] = _min_repro_job_id(job)
@@ -531,6 +533,7 @@ def execute_min_repro_jobs(campaign_root: Path, *, min_rate: float = 0.5, min_se
         result = _execute_min_repro_job(campaign_root, normalized, min_rate=min_rate, min_seeds=min_seeds)
         updated = {
             **normalized,
+            "pre_registered_confirmation": result["pre_registered_confirmation"],
             "status": result["status"],
             "min_repro_status": result["status"],
             "matching_bundle_count": result["matching_bundle_count"],
@@ -590,6 +593,7 @@ def execute_fresh_min_repro_confirmation(
     customer_llm_factory: Callable[[Path], Any] | None = None,
     timed_notice_recipients: list[str] | None = None,
     seats_subset: list[str] | None = None,
+    allow_threshold_override: bool = False,
     confirmation_bundle_runner: Callable[[Path, int, dict[str, Any], str], None] | None = None,
 ) -> dict[str, Any]:
     """Run fresh confirmation bundles for one queued min-repro job.
@@ -621,6 +625,19 @@ def execute_fresh_min_repro_confirmation(
         raise ValueError(f"fresh min-repro confirmation supports S1/S2 jobs, got stage={stage!r}")
     if stage == "S1" and not config.get("probe"):
         raise ValueError("S1 confirmation job is missing probe")
+    pre_registered = _pre_registered_confirmation_for_job(selected)
+    requested_threshold = {"min_rate": min_rate, "confirmation_seeds": confirmation_seeds}
+    threshold_matches = _confirmation_threshold_matches(pre_registered, requested_threshold)
+    threshold_override = {
+        "enabled": not threshold_matches,
+        "requested": requested_threshold,
+        "pre_registered": pre_registered,
+    }
+    if not threshold_matches and not allow_threshold_override:
+        raise ValueError(
+            "confirmation threshold does not match pre_registered_confirmation; "
+            f"requested={requested_threshold}, pre_registered={pre_registered}"
+        )
 
     exploration_roots = _matching_run_roots(campaign_root, config)
     exploration_seeds = _seed_values(exploration_roots)
@@ -688,6 +705,7 @@ def execute_fresh_min_repro_confirmation(
         )
 
     reproduction_rate = len(source_bundles) / confirmation_seeds
+    reproduction_wilson = _rounded_wilson(len(source_bundles), confirmation_seeds)
     status = "reproduced" if source_bundles and reproduction_rate >= min_rate else "not_reproduced"
     manifest = {
         "schema_version": MIN_REPRO_CONFIRMATION_SCHEMA_VERSION,
@@ -697,13 +715,17 @@ def execute_fresh_min_repro_confirmation(
         "status": status,
         "min_repro_status": status,
         "threshold": {"min_rate": min_rate, "confirmation_seeds": confirmation_seeds},
+        "pre_registered_confirmation": pre_registered,
+        "threshold_override": threshold_override,
         "exploration_seeds": sorted(exploration_seeds),
         "fresh_seeds": fresh_seeds,
         "expected_bucket_signatures": sorted(expected_signatures),
         "seats_subset": effective_seats_subset,
         "confirmation_run_count": len(run_rows),
         "source_bundle_count": len(source_bundles),
+        "confirmation_successes": len(source_bundles),
         "reproduction_rate": reproduction_rate,
+        "reproduction_rate_wilson_95": reproduction_wilson,
         "source_bundles": source_bundles,
         "runs": run_rows,
         "coverage_cells": _coverage_cells_for_finding(campaign_root, selected_finding),
@@ -720,13 +742,18 @@ def execute_fresh_min_repro_confirmation(
         if str(normalized["job_id"]) == selected_job_id:
             normalized.update(
                 {
+                    "pre_registered_confirmation": pre_registered,
                     "status": status,
                     "min_repro_status": status,
                     "confirmation_path": _relative_path(manifest_path, campaign_root),
                     "source_bundles": source_bundles,
                     "source_bundle_count": len(source_bundles),
                     "matching_bundle_count": len(source_bundles),
+                    "confirmation_successes": len(source_bundles),
+                    "confirmation_seeds": confirmation_seeds,
                     "reproduction_rate": reproduction_rate,
+                    "reproduction_rate_wilson_95": reproduction_wilson,
+                    "threshold_override": threshold_override,
                     "expected_bucket_signatures": sorted(expected_signatures),
                     "seats_subset": effective_seats_subset,
                     "coverage_cells": manifest["coverage_cells"],
@@ -744,7 +771,11 @@ def execute_fresh_min_repro_confirmation(
         "confirmed_count": len(registry.get("confirmed_findings") or []),
         "manifest_path": _relative_path(manifest_path, campaign_root),
         "source_bundle_count": len(source_bundles),
+        "confirmation_successes": len(source_bundles),
         "reproduction_rate": reproduction_rate,
+        "reproduction_rate_wilson_95": reproduction_wilson,
+        "pre_registered_confirmation": pre_registered,
+        "threshold_override": threshold_override,
         "expected_bucket_signatures": sorted(expected_signatures),
         "seats_subset": effective_seats_subset,
         "runs": run_rows,
@@ -845,6 +876,7 @@ def _run_fresh_confirmation_bundle(
 
 def _execute_min_repro_job(campaign_root: Path, job: dict[str, Any], *, min_rate: float, min_seeds: int) -> dict[str, Any]:
     finding_type = str(job.get("finding_type") or "")
+    pre_registered = _pre_registered_confirmation_for_job(job)
     matching_roots = _matching_run_roots(campaign_root, job.get("config") or {})
     source_bundles = [
         evidence
@@ -863,6 +895,7 @@ def _execute_min_repro_job(campaign_root: Path, job: dict[str, Any], *, min_rate
         "min_repro_status": status,
         "queued_rate": job.get("rate"),
         "queued_wilson_95": job.get("wilson_95"),
+        "pre_registered_confirmation": pre_registered,
         "threshold": {"min_rate": min_rate, "min_seeds": min_seeds},
         "matching_bundle_count": len(matching_roots),
         "source_bundle_count": len(source_bundles),
@@ -1007,6 +1040,44 @@ def _reduction_trace(job: dict[str, Any], source_bundles: list[dict[str, Any]]) 
     ]
 
 
+def _pre_registered_confirmation_from_rate(rate: dict[str, Any]) -> dict[str, Any]:
+    seeds = max(3, int(rate.get("seeds") or 0))
+    return {
+        "min_rate": round(float(rate.get("rate") or 0.0), 6),
+        "confirmation_seeds": seeds,
+        "basis": "queued_exploration_rate",
+        "registered_at": "ensemble_triage_queue",
+    }
+
+
+def _pre_registered_confirmation_for_job(job: dict[str, Any]) -> dict[str, Any]:
+    plan = job.get("pre_registered_confirmation") or {}
+    if plan:
+        return {
+            "min_rate": round(float(plan.get("min_rate") or 0.0), 6),
+            "confirmation_seeds": int(plan.get("confirmation_seeds") or plan.get("min_seeds") or 0),
+            "basis": str(plan.get("basis") or "unknown"),
+            "registered_at": str(plan.get("registered_at") or "unknown"),
+        }
+    return {
+        **_pre_registered_confirmation_from_rate(job),
+        "basis": "legacy_queue_rate_inference",
+        "registered_at": "legacy_job_without_explicit_preregistration",
+    }
+
+
+def _confirmation_threshold_matches(pre_registered: dict[str, Any], requested: dict[str, Any]) -> bool:
+    return (
+        abs(float(pre_registered.get("min_rate") or 0.0) - float(requested.get("min_rate") or 0.0)) <= 1e-6
+        and int(pre_registered.get("confirmation_seeds") or 0) == int(requested.get("confirmation_seeds") or 0)
+    )
+
+
+def _rounded_wilson(successes: int, total: int) -> list[float]:
+    low, high = wilson_interval(successes, total)
+    return [round(low, 4), round(high, 4)]
+
+
 def _confirmed_finding(job: dict[str, Any]) -> dict[str, Any]:
     return {
         "job_id": job.get("job_id"),
@@ -1014,7 +1085,12 @@ def _confirmed_finding(job: dict[str, Any]) -> dict[str, Any]:
         "config": job.get("config") or {},
         "status": "reproduced",
         "min_repro_status": "reproduced",
+        "pre_registered_confirmation": job.get("pre_registered_confirmation") or {},
+        "threshold_override": job.get("threshold_override") or {"enabled": False},
+        "confirmation_successes": job.get("confirmation_successes"),
+        "confirmation_seeds": job.get("confirmation_seeds"),
         "reproduction_rate": job.get("reproduction_rate"),
+        "reproduction_rate_wilson_95": job.get("reproduction_rate_wilson_95"),
         "source_bundle_count": job.get("source_bundle_count"),
         "matching_bundle_count": job.get("matching_bundle_count"),
         "confirmation_path": job.get("confirmation_path"),
@@ -1034,7 +1110,12 @@ def _audit_hypothesis_card(job: dict[str, Any]) -> dict[str, Any]:
         "min_repro": {
             "job_id": job.get("job_id"),
             "status": "reproduced",
+            "pre_registered_confirmation": job.get("pre_registered_confirmation") or {},
+            "threshold_override": job.get("threshold_override") or {"enabled": False},
+            "confirmation_successes": job.get("confirmation_successes"),
+            "confirmation_seeds": job.get("confirmation_seeds"),
             "reproduction_rate": job.get("reproduction_rate"),
+            "reproduction_rate_wilson_95": job.get("reproduction_rate_wilson_95"),
             "confirmation_path": job.get("confirmation_path"),
         },
         "divergence_cells": job.get("coverage_cells") or [],

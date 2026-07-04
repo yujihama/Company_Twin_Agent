@@ -1,0 +1,169 @@
+{
+  "schema_version": "company_twin.min_repro_confirmation.v1",
+  "job_id": "fba3117ae70d473c",
+  "finding_type": "version_gap",
+  "config": {
+    "anchor": false,
+    "effective_corpus_hash": "81420d0b4ee1ed59f2894a6edf34847bc6714419ce4b017e3f6ea44db210d8b7",
+    "knobs": {},
+    "mutation_hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "mutation_ids": [],
+    "probe": "P-01",
+    "stage": "S1"
+  },
+  "status": "reproduced",
+  "min_repro_status": "reproduced",
+  "threshold": {
+    "min_rate": 0.2,
+    "confirmation_seeds": 5
+  },
+  "pre_registered_confirmation": {
+    "min_rate": 0.2,
+    "confirmation_seeds": 5,
+    "basis": "legacy_queue_rate_inference",
+    "registered_at": "legacy_job_without_explicit_preregistration"
+  },
+  "threshold_override": {
+    "enabled": false,
+    "requested": {
+      "min_rate": 0.2,
+      "confirmation_seeds": 5
+    },
+    "pre_registered": {
+      "min_rate": 0.2,
+      "confirmation_seeds": 5,
+      "basis": "legacy_queue_rate_inference",
+      "registered_at": "legacy_job_without_explicit_preregistration"
+    }
+  },
+  "exploration_seeds": [
+    0,
+    1,
+    2,
+    3,
+    4
+  ],
+  "fresh_seeds": [
+    100,
+    101,
+    102,
+    103,
+    104
+  ],
+  "expected_bucket_signatures": [
+    "9b95d71285dd959e"
+  ],
+  "seats_subset": null,
+  "confirmation_run_count": 5,
+  "source_bundle_count": 1,
+  "confirmation_successes": 1,
+  "reproduction_rate": 0.2,
+  "reproduction_rate_wilson_95": [
+    0.0362,
+    0.6245
+  ],
+  "source_bundles": [
+    {
+      "run_id": "s1_P-01_confirm_seed104",
+      "run_root": "min_repro/fba3117ae70d473c/runs/s1_P-01_confirm_seed104",
+      "seed": 104,
+      "finding_count": 1,
+      "bucket_signatures": [
+        "9b95d71285dd959e"
+      ],
+      "seats": [
+        "emp-A"
+      ],
+      "tick_window": {
+        "start": 1,
+        "end": 1
+      }
+    }
+  ],
+  "runs": [
+    {
+      "run_root": "min_repro/fba3117ae70d473c/runs/s1_P-01_confirm_seed100",
+      "seed": 100,
+      "stage": "S1",
+      "probe": "P-01",
+      "live": true,
+      "backend": "deepagents",
+      "finding_count": 0,
+      "matched_signature_finding_count": 0
+    },
+    {
+      "run_root": "min_repro/fba3117ae70d473c/runs/s1_P-01_confirm_seed101",
+      "seed": 101,
+      "stage": "S1",
+      "probe": "P-01",
+      "live": true,
+      "backend": "deepagents",
+      "finding_count": 0,
+      "matched_signature_finding_count": 0
+    },
+    {
+      "run_root": "min_repro/fba3117ae70d473c/runs/s1_P-01_confirm_seed102",
+      "seed": 102,
+      "stage": "S1",
+      "probe": "P-01",
+      "live": true,
+      "backend": "deepagents",
+      "finding_count": 0,
+      "matched_signature_finding_count": 0
+    },
+    {
+      "run_root": "min_repro/fba3117ae70d473c/runs/s1_P-01_confirm_seed103",
+      "seed": 103,
+      "stage": "S1",
+      "probe": "P-01",
+      "live": true,
+      "backend": "deepagents",
+      "finding_count": 0,
+      "matched_signature_finding_count": 0
+    },
+    {
+      "run_root": "min_repro/fba3117ae70d473c/runs/s1_P-01_confirm_seed104",
+      "seed": 104,
+      "stage": "S1",
+      "probe": "P-01",
+      "live": true,
+      "backend": "deepagents",
+      "finding_count": 1,
+      "matched_signature_finding_count": 1
+    }
+  ],
+  "coverage_cells": [
+    {
+      "cell": "version_gap | basis | 9b95d71285dd959e",
+      "count": 1
+    }
+  ],
+  "reduction_trace": [
+    {
+      "step": "drop_inert_mutations",
+      "status": "not_applicable",
+      "retained_mutations": []
+    },
+    {
+      "step": "deck_one_card",
+      "status": "selected",
+      "probe": "P-01"
+    },
+    {
+      "step": "tick_back_trim",
+      "status": "bounded",
+      "tick_window": {
+        "start": 1,
+        "end": 1
+      }
+    },
+    {
+      "step": "seat_shrink",
+      "status": "bounded",
+      "seats": [
+        "emp-A"
+      ]
+    }
+  ],
+  "note": "fresh confirmation run; reproduced status may promote confirmed findings only through this manifest"
+}
