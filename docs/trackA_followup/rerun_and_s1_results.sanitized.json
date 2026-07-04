@@ -1,0 +1,166 @@
+{
+  "campaign_root": "runs\\design_campaign_20260704_163819",
+  "scope": "s0_s1",
+  "post_merge_pytest": {
+    "command": "git checkout main && git pull --ff-only && pytest -q",
+    "result": "102 passed, 1 skipped"
+  },
+  "old_failure_error_distribution": {
+    "APIStatusError": 70,
+    "GraphRecursionError": 26,
+    "BadRequestError": 1
+  },
+  "old_failure_note": "APIStatusError was dominated by OpenRouter 402 Insufficient credits.",
+  "failed97_rerun": {
+    "backup_root": "runs\\design_campaign_20260704_163819_failed97_backup_20260704_222520",
+    "manifest": "runs\\design_campaign_20260704_163819\\failed97_rerun_manifest.json",
+    "elapsed_s": 3794.6,
+    "summary": {
+      "answered": 90,
+      "recursion_exhausted": 7,
+      "agent_error": 0,
+      "other": 0,
+      "parsed": 83
+    }
+  },
+  "s0_reaggregation": {
+    "s0_rows": 420,
+    "answer_total": 394,
+    "all_answers_live": true,
+    "cell_count": 36,
+    "human_review_queue_count": 3,
+    "acceptance_passed": true,
+    "failed_bundles": 0
+  },
+  "human_review_queue": [
+    {
+      "span_id": "AMB-01",
+      "role": "application",
+      "primary_probe_id": "P-03",
+      "novel_count": 1,
+      "machine_clusters": {
+        "C2": 7,
+        "novel_or_unclassified": 1
+      }
+    },
+    {
+      "span_id": "AMB-04d",
+      "role": "application",
+      "primary_probe_id": "P-04",
+      "novel_count": 1,
+      "machine_clusters": {
+        "C1": 7,
+        "novel_or_unclassified": 1
+      }
+    },
+    {
+      "span_id": "CONTRA-01",
+      "role": "second_line",
+      "primary_probe_id": "P-03",
+      "novel_count": 1,
+      "machine_clusters": {
+        "novel_or_unclassified": 1,
+        "second_line_route": 6,
+        "evidence_first": 1
+      }
+    }
+  ],
+  "step2_promotion": {
+    "probe_id": "P-03",
+    "span_id": "CONTRA-01",
+    "role": "second_line",
+    "reason": "novel_or_unclassified",
+    "entropy": 1.0613,
+    "novel_count": 1,
+    "parsed_rate": 1.0,
+    "answer_count": 8
+  },
+  "pure_entropy_leader": {
+    "span_id": "CONTRA-01",
+    "role": "application",
+    "primary_probe_id": "P-03",
+    "entropy": 1.5613,
+    "clusters": {
+      "evidence_first": 3,
+      "second_line_route": 3,
+      "manager_route": 2
+    }
+  },
+  "no_grounded_answer_cells": [
+    {
+      "span_id": "AMB-02",
+      "role": "sales",
+      "primary_probe_id": "P-10",
+      "no_grounded_answer": 2,
+      "entropy": 1.0138,
+      "clusters": {
+        "second_line_route": 3,
+        "C4": 24,
+        "C3": 1,
+        "no_grounded_answer": 2
+      }
+    },
+    {
+      "span_id": "AMB-08",
+      "role": "sales",
+      "primary_probe_id": "P-01",
+      "no_grounded_answer": 2,
+      "entropy": 1.4591,
+      "clusters": {
+        "manager_route": 6,
+        "second_line_route": 4,
+        "no_grounded_answer": 2
+      }
+    },
+    {
+      "span_id": "AMB-12",
+      "role": "application",
+      "primary_probe_id": "P-06",
+      "no_grounded_answer": 1,
+      "entropy": 0.5917,
+      "clusters": {
+        "no_grounded_answer": 1,
+        "second_line_route": 6
+      }
+    },
+    {
+      "span_id": "CONTRA-01",
+      "role": "sales",
+      "primary_probe_id": "P-03",
+      "no_grounded_answer": 2,
+      "entropy": 1.053,
+      "clusters": {
+        "manager_route": 6,
+        "second_line_route": 22,
+        "no_grounded_answer": 2
+      }
+    }
+  ],
+  "s1": {
+    "run_root": "runs\\design_campaign_20260704_163819\\s1_P-03_seed0",
+    "probe_id": "P-03",
+    "seed": 0,
+    "model": "openrouter:qwen/qwen3.6-flash",
+    "elapsed_s": 626.5,
+    "acceptance_passed": true,
+    "failed_bundles": 0,
+    "metrics": {
+      "controlled_actions_agent": 5,
+      "basis_records_agent": 9,
+      "basis_action_bound": 5,
+      "store_reads_agent": 16,
+      "origin_breakdown": {
+        "customer": 6,
+        "agent": 195
+      }
+    },
+    "error_distribution": {
+      "agent_error.GraphRecursionError": 4,
+      "failed_llm_invoke.GraphRecursionError": 4
+    }
+  },
+  "boundary": {
+    "full_world_acceptance": false,
+    "stage9_readiness_claimed": false
+  }
+}
