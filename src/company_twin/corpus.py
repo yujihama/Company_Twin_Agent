@@ -94,10 +94,7 @@ class Corpus:
             if not _included_for_profile(doc, profile, seat_role=seat_role):
                 continue
             haystack = doc.text.lower()
-            term_score = sum(haystack.count(term.lower()) for term in terms)
-            score = term_score
-            if doc.visible_roles is not None and term_score > 0:
-                score += 100.0
+            score = sum(haystack.count(term.lower()) for term in terms)
             score += _profile_boost(doc, profile, terms)
             if score <= 0:
                 continue

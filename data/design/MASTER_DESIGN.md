@@ -495,6 +495,8 @@ documents. `data/compiled_data/mutation_operators_v1.json` declares five
 runtime entries covering `clarify`, `contradict`, `dangling_fill`, and
 `role_table_fix`; the two `clarify` entries intentionally differ by role
 visibility so retrieval asymmetry can be measured.
+The `dangling_fill` entry materializes the unresolved `DFH-CUS-006` reference
+from STR-01 rather than adding a generic memo.
 
 Execution path:
 
@@ -504,6 +506,10 @@ Execution path:
   `effective_corpus_hash` under `config.json:world.corpus`.
 - World-visible mutation text is linted for experimenter-plane terms and seeded
   span identifiers before application.
+- Runtime mutation documents do not receive a search-ranking boost; they
+  compete under the same retrieval profile as organic corpus documents. If
+  salience is needed later, it must be an explicit, default-off experimental
+  variable such as diegetic timed-notice circulation.
 - `company-twin control-pairs --mutation <mutation_id> --k 5 --output ...`
   writes a WP-07 delta-one manifest with shared seeds. It is a planning
   artifact only; attribution still requires live paired runs and ensemble

@@ -22,6 +22,7 @@ LEAK_PATTERNS: tuple[tuple[str, str], ...] = (
     (r"\bmutation\b", "mutation vocabulary"),
     (r"\bexperiment\b", "experiment vocabulary"),
     (r"\bfuzz", "fuzzing vocabulary"),
+    (r"\bsearch\s+key\b", "search key vocabulary"),
 )
 
 

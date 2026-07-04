@@ -20,6 +20,8 @@ readiness gate passes.
   `data/compiled_data/mutation_operators_v1.json` and can be applied with
   `--mutation <mutation_id>` on S0/S1/S2/campaign commands. Run bundles record
   the applied mutation entries, `mutation_hash`, and effective corpus hash.
+  Mutation documents are not search-boosted; salience must be modeled
+  explicitly if it becomes an experiment variable.
 - Observability: ensemble triage writes candidate attribution, min-repro queues,
   min-repro evidence-collation manifests, rule hit rates, detection-miss rates,
   g3 semantic grounding reports, prompt-mode A/B reports, and a deterministic
