@@ -374,7 +374,7 @@ def _seed_bundle_match(left: dict[str, Any], right: dict[str, Any]) -> bool:
 
 
 def _ensemble_run_roots(campaign_root: Path) -> list[Path]:
-    roots = sorted(path for path in campaign_root.iterdir() if path.is_dir())
+    roots = sorted(path for path in campaign_root.iterdir() if path.is_dir() and not (path / "failed_run.json").exists())
     if not (campaign_root / "control_pair_manifest.json").exists():
         return roots
     return [run_root for run_root in roots if (_read_json(run_root / "meta.json") or {}).get("campaign_mode") == "control_pairs"]
@@ -382,7 +382,8 @@ def _ensemble_run_roots(campaign_root: Path) -> list[Path]:
 
 def _run_filter_metadata(campaign_root: Path, run_roots: list[Path]) -> dict[str, Any]:
     mode = "control_pairs" if (campaign_root / "control_pair_manifest.json").exists() else "all"
-    return {"mode": mode, "included_run_count": len(run_roots), "included_run_ids": [path.name for path in run_roots]}
+    excluded = sorted(path.name for path in campaign_root.iterdir() if path.is_dir() and (path / "failed_run.json").exists())
+    return {"mode": mode, "included_run_count": len(run_roots), "included_run_ids": [path.name for path in run_roots], "excluded_failed_run_ids": excluded}
 
 
 def _config_from_run(run_root: Path, meta: dict[str, Any]) -> dict[str, Any]:

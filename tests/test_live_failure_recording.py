@@ -1,4 +1,5 @@
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -6,10 +7,12 @@ import pytest
 from langgraph.errors import GraphRecursionError
 
 from company_twin import agents
+from company_twin.acceptance import check_bundle
 from company_twin.campaign import aggregate_s0_divergence
 from company_twin.corpus import Corpus
 from company_twin.design_loader import load_design
 from company_twin.harness import run_s0
+from company_twin.oracles import aggregate_ensemble_triage
 from company_twin.recorder import RunRecorder, read_jsonl
 
 
@@ -119,3 +122,45 @@ def test_append_jsonl_flushes_and_fsyncs(monkeypatch: pytest.MonkeyPatch, tmp_pa
 
     assert calls
     assert read_jsonl(tmp_path / "attempts.jsonl") == [{"ok": True}]
+
+
+def test_append_jsonl_serializes_concurrent_unicode_writes(tmp_path) -> None:
+    recorder = RunRecorder(tmp_path, "concurrent")
+    text = "証跡登録と文書検索の同時記録" * 200
+
+    def append_row(idx: int) -> None:
+        recorder.append_jsonl("attempts.jsonl", {"idx": idx, "text": text})
+
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        list(executor.map(append_row, range(40)))
+
+    rows = read_jsonl(tmp_path / "attempts.jsonl")
+    assert sorted(row["idx"] for row in rows) == list(range(40))
+    assert {row["text"] for row in rows} == {text}
+
+
+def test_marked_failed_bundle_reports_failure_without_decoding_jsonl(tmp_path) -> None:
+    run_root = tmp_path / "s2_seed0"
+    run_root.mkdir()
+    (run_root / "meta.json").write_text('{"stage": "S2", "anchor": false}', encoding="utf-8")
+    (run_root / "attempts.jsonl").write_bytes(b"\xa7 not utf8\n")
+    (run_root / "failed_run.json").write_text('{"error_type": "UnicodeDecodeError"}', encoding="utf-8")
+
+    report = check_bundle(run_root)
+
+    assert report.passed is False
+    assert report.results[0].gate == "bundle_completed"
+    assert "UnicodeDecodeError" in report.results[0].detail
+
+
+def test_ensemble_triage_excludes_marked_failed_bundle(tmp_path) -> None:
+    run_root = tmp_path / "s2_seed0"
+    run_root.mkdir()
+    (run_root / "meta.json").write_text('{"stage": "S2", "anchor": false}', encoding="utf-8")
+    (run_root / "attempts.jsonl").write_bytes(b"\xa7 not utf8\n")
+    (run_root / "failed_run.json").write_text('{"error_type": "UnicodeDecodeError"}', encoding="utf-8")
+
+    payload = aggregate_ensemble_triage(tmp_path)
+
+    assert payload["run_filter"]["included_run_count"] == 0
+    assert payload["run_filter"]["excluded_failed_run_ids"] == ["s2_seed0"]

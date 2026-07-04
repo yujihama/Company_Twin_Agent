@@ -15,7 +15,7 @@ from .deck import CustomerEvent, build_customer_deck, event_for_probe
 from .design_loader import DesignInputs
 from .env import normalize_openrouter_model
 from .kernel import KernelProfile, WorldKernel
-from .recorder import RunRecorder
+from .recorder import RunRecorder, read_jsonl
 from .tools import build_role_tools
 from .world_config import build_world_config
 
@@ -462,19 +462,11 @@ def _messages_require_world_action(messages: list[dict[str, Any]]) -> bool:
 
 def _tool_count(run_root: Path, seat_id: str, tools: set[str]) -> int:
     attempts_path = run_root / "attempts.jsonl"
-    if not attempts_path.exists():
-        return 0
-    count = 0
-    for line in attempts_path.read_text(encoding="utf-8").splitlines():
-        if not line.strip():
-            continue
-        try:
-            row = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if row.get("seat_id") == seat_id and row.get("origin") == "agent" and row.get("tool") in tools and row.get("success"):
-            count += 1
-    return count
+    return sum(
+        1
+        for row in read_jsonl(attempts_path)
+        if row.get("seat_id") == seat_id and row.get("origin") == "agent" and row.get("tool") in tools and row.get("success")
+    )
 
 
 def _retime_event(event: CustomerEvent, *, trigger_tick: int, deadline_tick: int) -> CustomerEvent:

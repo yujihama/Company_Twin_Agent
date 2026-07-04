@@ -32,6 +32,14 @@ def test_s0_matrix_covers_roles_spans_and_variants() -> None:
     assert {"AMB-02", "AMB-04d", "CONTRA-01"}.issubset({row.span_id for row in matrix})
 
 
+def test_contra01_registers_split_by_topic_candidate_for_next_batch() -> None:
+    design = load_design(Path.cwd())
+
+    assert design.spans["CONTRA-01"].candidates == {
+        "split_by_topic": "商品説明事項の改定依頼と停止条件該当の一報を論点別に分割し、それぞれ別の主管部署へ接地して送る"
+    }
+
+
 def test_s0_limit_selects_one_probe_span_seat_cell() -> None:
     design = load_design(Path.cwd())
     matrix = build_s0_matrix(design, models=["openrouter:qwen/qwen3.6-flash", "openrouter:qwen/qwen3.5-9b"], variants=2)

@@ -383,10 +383,19 @@ def _config_key_from_meta(meta: dict[str, Any]) -> str:
 
 def check_bundle(run_root: Path, seat_roles: dict[str, str] | None = None) -> BundleReport:
     report = BundleReport(run_root=run_root)
-    report.results.append(a01_no_scripted_origin(run_root))
-    report.results.append(a02_live_required(run_root))
-    report.results.append(a03_inbox_whitelist(run_root))
-    report.results.append(a04_basis_authorship(run_root))
+    failed_path = run_root / "failed_run.json"
+    if failed_path.exists():
+        detail = failed_path.read_text(encoding="utf-8")
+        report.results.append(GateResult("bundle_completed", False, detail[:500]))
+        return report
+    try:
+        report.results.append(a01_no_scripted_origin(run_root))
+        report.results.append(a02_live_required(run_root))
+        report.results.append(a03_inbox_whitelist(run_root))
+        report.results.append(a04_basis_authorship(run_root))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        report.results.append(GateResult("bundle_jsonl_readable", False, f"{type(exc).__name__}: {exc}"))
+        return report
     stage = ""
     meta_path = run_root / "meta.json"
     if meta_path.exists():

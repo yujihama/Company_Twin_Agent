@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import threading
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from contextlib import contextmanager
@@ -19,6 +20,18 @@ def utc_now() -> str:
 # intentionally NOT represented here: any attempt to record under a non-world
 # origin must fail loudly instead of polluting measurements.
 ALLOWED_ORIGINS = frozenset({"system", "agent", "customer"})
+_JSONL_LOCKS: dict[Path, threading.Lock] = {}
+_JSONL_LOCKS_GUARD = threading.Lock()
+
+
+def _jsonl_lock(path: Path) -> threading.Lock:
+    key = path.resolve()
+    with _JSONL_LOCKS_GUARD:
+        lock = _JSONL_LOCKS.get(key)
+        if lock is None:
+            lock = threading.Lock()
+            _JSONL_LOCKS[key] = lock
+        return lock
 
 
 @dataclass
@@ -216,17 +229,22 @@ class RunRecorder:
         (self.run_root / name).write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
     def append_jsonl(self, name: str, payload: dict[str, Any]) -> None:
-        with (self.run_root / name).open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(payload, ensure_ascii=False, sort_keys=True) + "\n")
-            handle.flush()
-            os.fsync(handle.fileno())
+        path = self.run_root / name
+        line = (json.dumps(payload, ensure_ascii=False, sort_keys=True) + "\n").encode("utf-8")
+        with _jsonl_lock(path):
+            with path.open("ab") as handle:
+                handle.write(line)
+                handle.flush()
+                os.fsync(handle.fileno())
 
 
 def read_jsonl(path: Path) -> list[dict[str, Any]]:
     if not path.exists():
         return []
     rows: list[dict[str, Any]] = []
-    for line in path.read_text(encoding="utf-8").splitlines():
+    with _jsonl_lock(path):
+        text = path.read_text(encoding="utf-8")
+    for line in text.splitlines():
         if line.strip():
             rows.append(json.loads(line))
     return rows
