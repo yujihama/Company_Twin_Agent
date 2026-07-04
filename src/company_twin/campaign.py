@@ -625,7 +625,7 @@ def aggregate_s0_divergence(design: DesignInputs, s0_results: list[dict[str, Any
     cells: dict[tuple[str, str], list[dict[str, Any]]] = {}
     all_live = True
     for row in s0_results:
-        if not row.get("response") and row.get("outcome") != "recursion_exhausted":
+        if not row.get("response") and row.get("outcome") != "recursion_exhausted" and row.get("parsed") is not False:
             continue
         meta_path = Path(str(row.get("run_root") or "")) / "meta.json"
         if meta_path.exists():

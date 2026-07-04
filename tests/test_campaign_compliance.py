@@ -150,12 +150,22 @@ def test_s0_divergence_separates_unparsed_from_novel_queue(tmp_path: Path) -> No
                 "response": "not json",
                 "parsed": False,
             },
+            {
+                "probe_id": "P-03",
+                "span_id": "AMB-01",
+                "seat_id": "emp-A",
+                "model": "m2",
+                "variant": 1,
+                "run_root": str(run_root),
+                "response": "",
+                "parsed": False,
+            },
         ],
         campaign_root=tmp_path,
     )
 
     cell = payload["cells"][0]
-    assert cell["clusters"]["unparsed"] == 1
+    assert cell["clusters"]["unparsed"] == 2
     assert cell["novel_count"] == 0
     assert payload["human_review_queue"] == []
 
