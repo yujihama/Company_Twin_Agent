@@ -1,0 +1,153 @@
+{
+  "schema_version": "company_twin.finding_registry.v1",
+  "confirmed_findings": [
+    {
+      "job_id": "fba3117ae70d473c",
+      "finding_type": "version_gap",
+      "config": {
+        "anchor": false,
+        "effective_corpus_hash": "81420d0b4ee1ed59f2894a6edf34847bc6714419ce4b017e3f6ea44db210d8b7",
+        "knobs": {},
+        "mutation_hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "mutation_ids": [],
+        "probe": "P-01",
+        "stage": "S1"
+      },
+      "status": "reproduced",
+      "min_repro_status": "reproduced",
+      "pre_registered_confirmation": {
+        "min_rate": 0.2,
+        "confirmation_seeds": 5,
+        "basis": "legacy_queue_rate_inference",
+        "registered_at": "legacy_job_without_explicit_preregistration"
+      },
+      "threshold_override": {
+        "enabled": false
+      },
+      "confirmation_successes": 1,
+      "confirmation_seeds": 5,
+      "reproduction_rate": 0.2,
+      "reproduction_rate_wilson_95": [
+        0.0362,
+        0.6245
+      ],
+      "source_bundle_count": 1,
+      "matching_bundle_count": 1,
+      "confirmation_path": "min_repro/fba3117ae70d473c/manifest.json",
+      "coverage_cells": [
+        {
+          "cell": "version_gap | basis | 9b95d71285dd959e",
+          "count": 1
+        }
+      ]
+    }
+  ],
+  "exploratory_buckets": [
+    {
+      "finding_type": "grounding_gap",
+      "config": {
+        "anchor": false,
+        "effective_corpus_hash": "81420d0b4ee1ed59f2894a6edf34847bc6714419ce4b017e3f6ea44db210d8b7",
+        "knobs": {},
+        "mutation_hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "mutation_ids": [],
+        "probe": "P-01",
+        "stage": "S1"
+      },
+      "status": "exploratory",
+      "reason": "confirmation_run_not_reproduced",
+      "rate": 0.2,
+      "seeds_with_finding": 1,
+      "seeds": 5
+    },
+    {
+      "finding_type": "hard_constraint_denial",
+      "config": {
+        "anchor": false,
+        "effective_corpus_hash": "81420d0b4ee1ed59f2894a6edf34847bc6714419ce4b017e3f6ea44db210d8b7",
+        "knobs": {},
+        "mutation_hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "mutation_ids": [],
+        "probe": "P-01",
+        "stage": "S1"
+      },
+      "status": "exploratory",
+      "reason": "confirmation_run_not_reproduced",
+      "rate": 0.2,
+      "seeds_with_finding": 1,
+      "seeds": 5
+    },
+    {
+      "finding_type": "hard_constraint_denial",
+      "config": {
+        "anchor": false,
+        "effective_corpus_hash": "8535429d10091b5adaeec854bc57c2c1bf7055a98c7fa3c672be6408473edee4",
+        "knobs": {},
+        "mutation_hash": "8ad00c6663723894708cb0e1bff2849bac5fab891b0df9f58c7e2b35b41812a9",
+        "mutation_ids": [
+          "clarify_elderly_understanding_all"
+        ],
+        "probe": "P-01",
+        "stage": "S1"
+      },
+      "status": "exploratory",
+      "reason": "confirmation_run_not_reproduced",
+      "rate": 0.2,
+      "seeds_with_finding": 1,
+      "seeds": 5
+    }
+  ],
+  "audit_hypothesis_cards": [
+    {
+      "card_id": "HYP-fba3117ae70d",
+      "finding_type": "version_gap",
+      "hypothesis": "version_gap reproduces under S1/P-01 and should be reviewed as a confirmed audit hypothesis.",
+      "min_repro": {
+        "job_id": "fba3117ae70d473c",
+        "status": "reproduced",
+        "pre_registered_confirmation": {
+          "min_rate": 0.2,
+          "confirmation_seeds": 5,
+          "basis": "legacy_queue_rate_inference",
+          "registered_at": "legacy_job_without_explicit_preregistration"
+        },
+        "threshold_override": {
+          "enabled": false
+        },
+        "confirmation_successes": 1,
+        "confirmation_seeds": 5,
+        "reproduction_rate": 0.2,
+        "reproduction_rate_wilson_95": [
+          0.0362,
+          0.6245
+        ],
+        "confirmation_path": "min_repro/fba3117ae70d473c/manifest.json"
+      },
+      "divergence_cells": [
+        {
+          "cell": "version_gap | basis | 9b95d71285dd959e",
+          "count": 1
+        }
+      ],
+      "source_bundles": [
+        {
+          "run_id": "s1_P-01_confirm_seed104",
+          "run_root": "min_repro/fba3117ae70d473c/runs/s1_P-01_confirm_seed104",
+          "seed": 104,
+          "finding_count": 1,
+          "bucket_signatures": [
+            "9b95d71285dd959e"
+          ],
+          "seats": [
+            "emp-A"
+          ],
+          "tick_window": {
+            "start": 1,
+            "end": 1
+          }
+        }
+      ]
+    }
+  ],
+  "note": "Only fresh confirmation runs with status=reproduced may become confirmed findings or audit hypothesis cards. Evidence-collation manifests from exploration bundles are never sufficient."
+}

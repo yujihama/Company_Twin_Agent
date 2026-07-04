@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-from company_twin.campaign import run_control_pair_campaign
+from company_twin.campaign import aggregate_s0_control_pair_attribution, run_control_pair_campaign
 from company_twin.corpus import Corpus
 from company_twin.design_loader import load_design
 from company_twin.mutations import build_delta_one_pair_manifest
@@ -137,3 +137,92 @@ def test_control_pair_campaign_executes_manifest_and_marks_bundles(tmp_path: Pat
         and ((row.get("payload") or {}).get("message") or {}).get("notice") == "campaign_deadline"
     ]
     assert deadline_notices == []
+
+
+def test_s0_control_pair_attribution_measures_entropy_and_cluster_shift(tmp_path: Path) -> None:
+    design = load_design(Path.cwd())
+    candidates = design.spans["AMB-02"].candidates
+
+    rows = []
+    for condition, readings, mutations in [
+        ("control", [candidates["C3"], candidates["C4"]], []),
+        ("treatment", [candidates["C4"], candidates["C4"]], [MUTATION_ID]),
+    ]:
+        for variant, reading in enumerate(readings):
+            run_root = tmp_path / f"{condition}_{variant}"
+            run_root.mkdir()
+            (run_root / "meta.json").write_text(json.dumps({"live": True}), encoding="utf-8")
+            rows.append(
+                {
+                    "condition": condition,
+                    "pair_id": f"pair_{MUTATION_ID}_seed0",
+                    "seed": 0,
+                    "mutations": mutations,
+                    "run_root": str(run_root),
+                    "probe_id": "P-01",
+                    "span_id": "AMB-02",
+                    "seat_id": "emp-A",
+                    "model": "m1" if variant == 0 else "m2",
+                    "variant": variant,
+                    "response": reading,
+                    "likely_reading": reading,
+                    "required_approver_or_evidence": "",
+                    "next_action": "",
+                    "parsed": True,
+                }
+            )
+
+    payload = aggregate_s0_control_pair_attribution(design, rows, campaign_root=tmp_path)
+
+    assert payload["schema_version"] == "company_twin.s0_control_pair_attribution.v1"
+    assert payload["all_answers_live"] is True
+    assert (tmp_path / "s0_attribution_table.json").exists()
+    row = payload["rows"][0]
+    assert row["endpoint"] == "s0_interpretation_entropy_and_cluster_shift"
+    assert row["span_id"] == "AMB-02"
+    assert row["role"] == "sales"
+    assert row["left"]["entropy"] == 1.0
+    assert row["right"]["entropy"] == 0.0
+    assert row["entropy_delta"] == -1.0
+    assert row["cluster_shift_total_variation"] == 0.5
+    assert row["observation_bundle_match"] is True
+    assert row["right_value"] == [MUTATION_ID]
+
+
+def test_control_pair_campaign_executes_s0_endpoint_without_l0_ensemble(tmp_path: Path) -> None:
+    design = load_design(Path.cwd())
+    corpus = Corpus.from_design(design)
+    manifest = build_delta_one_pair_manifest(root=Path.cwd(), mutation_ids=[MUTATION_ID], seeds=1)
+
+    summary = run_control_pair_campaign(
+        root=tmp_path,
+        design=design,
+        corpus=corpus,
+        manifest=manifest,
+        probe="P-01",
+        stage="S0",
+        s0_span="AMB-02",
+        s0_seat="emp-A",
+        s0_models=["fake:model-a", "fake:model-b"],
+        s0_variants=2,
+        seat_factory=fake_seat_factory(),
+    )
+
+    campaign_root = Path(summary["campaign_root"])
+    assert summary["stage"] == "S0"
+    assert summary["condition_run_count"] == 8
+    assert summary["ensemble_triage"] is None
+    assert summary["s0_endpoint"]["span_id"] == "AMB-02"
+    assert summary["s0_endpoint"]["seat_id"] == "emp-A"
+    assert summary["s0_endpoint"]["rows"] == 1
+
+    attribution = json.loads((campaign_root / "s0_attribution_table.json").read_text(encoding="utf-8"))
+    assert attribution["run_filter"]["mode"] == "control_pairs_s0"
+    assert attribution["run_filter"]["included_run_count"] == 8
+    assert attribution["rows"][0]["observation_bundle_match"] is True
+    assert not (campaign_root / "ensemble_triage.json").exists()
+
+    metas = [json.loads(Path(row["run_root"]).joinpath("meta.json").read_text(encoding="utf-8")) for row in summary["runs"]]
+    assert {meta["stage"] for meta in metas} == {"S0"}
+    assert {meta["campaign_mode"] for meta in metas} == {"control_pairs"}
+    assert {meta["control_pair"]["condition"] for meta in metas} == {"control", "treatment"}

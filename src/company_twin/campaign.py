@@ -72,6 +72,7 @@ class S0MatrixRow:
 
 DEFAULT_S0_COLD_READ_MODELS = ("openrouter:qwen/qwen3.6-flash", "openrouter:qwen/qwen3.5-9b")
 CONTROL_PAIR_CAMPAIGN_SCHEMA_VERSION = "company_twin.control_pair_campaign.v1"
+S0_CONTROL_PAIR_ATTRIBUTION_SCHEMA_VERSION = "company_twin.s0_control_pair_attribution.v1"
 
 
 def default_s0_models(model_name: str) -> list[str]:
@@ -271,6 +272,10 @@ def run_control_pair_campaign(
     model_bindings: dict[str, str] | None = None,
     scc_switch_tick: int | None = None,
     timed_notice_recipients: list[str] | None = None,
+    s0_span: str | None = None,
+    s0_seat: str = "emp-A",
+    s0_models: list[str] | None = None,
+    s0_variants: int = 2,
 ) -> dict[str, Any]:
     """Execute a pre-registered delta-one control-pair manifest.
 
@@ -280,10 +285,24 @@ def run_control_pair_campaign(
     """
     if manifest.get("schema_version") != "company_twin.control_pairs.v1":
         raise ValueError(f"unexpected control-pair manifest schema: {manifest.get('schema_version')!r}")
-    if stage not in {"S1", "S2"}:
-        raise ValueError("control-pair campaigns currently support stage S1 or S2")
+    stage = stage.upper()
+    if stage not in {"S0", "S1", "S2"}:
+        raise ValueError("control-pair campaigns currently support stage S0, S1, or S2")
     if stage == "S1" and probe not in design.probes:
         raise ValueError(f"unknown probe for S1 control-pair campaign: {probe}")
+    s0_span_id = ""
+    s0_campaign_models: list[str] = []
+    if stage == "S0":
+        if probe not in design.probes:
+            raise ValueError(f"unknown probe for S0 control-pair campaign: {probe}")
+        s0_span_id = s0_span or (design.probes[probe].binds[0] if design.probes[probe].binds else "")
+        if s0_span_id not in design.s0_question_templates:
+            raise ValueError(f"unknown or untemplated S0 span: {s0_span_id}")
+        if s0_seat not in design.seats:
+            raise ValueError(f"unknown S0 seat: {s0_seat}")
+        if s0_variants < 1:
+            raise ValueError("s0_variants must be >= 1")
+        s0_campaign_models = [normalize_openrouter_model(item) for item in (s0_models or default_s0_models(normalize_openrouter_model(model)))]
     if ticks < 1:
         raise ValueError("ticks must be >= 1")
 
@@ -298,6 +317,7 @@ def run_control_pair_campaign(
     manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
 
     run_rows: list[dict[str, Any]] = []
+    s0_rows: list[dict[str, Any]] = []
     for pair in pairs:
         normalized_pair = _validate_control_pair(pair)
         for condition in ("control", "treatment"):
@@ -305,6 +325,49 @@ def run_control_pair_campaign(
             mutation_ids = list(side["mutations"])
             specs = mutation_specs_from_values(design.root, mutation_ids)
             mutation_result = apply_corpus_mutations(corpus, specs)
+            if stage == "S0":
+                for s0_model in s0_campaign_models:
+                    for variant in range(s0_variants):
+                        run_root = campaign_root / f"{normalized_pair['pair_id']}_{condition}_s0_{_run_slug(s0_model)}_v{variant}"
+                        result = run_s0(
+                            design=design,
+                            corpus=mutation_result.corpus,
+                            probe_id=probe,
+                            seat_id=s0_seat,
+                            run_root=run_root,
+                            span_id=s0_span_id,
+                            model=s0_model,
+                            variant=variant,
+                            mutations=mutation_result.applied,
+                            seat_factory=seat_factory,
+                        )
+                        _stamp_control_pair_meta(
+                            run_root,
+                            pair=normalized_pair,
+                            condition=condition,
+                            mutation_ids=mutation_ids,
+                            applied_mutations=mutation_result.applied,
+                        )
+                        write_triage(run_root)
+                        row = {
+                            "pair_id": normalized_pair["pair_id"],
+                            "condition": condition,
+                            "run_root": str(run_root),
+                            "seed": side["seed"],
+                            "mutations": mutation_ids,
+                            "mutation_hash": mutation_result.mutation_hash,
+                            "stage": stage,
+                            "probe": probe,
+                            "span_id": s0_span_id,
+                            "seat_id": s0_seat,
+                            "model": s0_model,
+                            "variant": variant,
+                            "result": result,
+                            **result,
+                        }
+                        s0_rows.append(row)
+                        run_rows.append(row)
+                continue
             run_root = campaign_root / f"{normalized_pair['pair_id']}_{condition}"
             per_run_customer = customer_llm_factory(run_root) if customer_llm_factory is not None else customer_llm
             common = {
@@ -348,29 +411,51 @@ def run_control_pair_campaign(
                 }
             )
 
-    ensemble = aggregate_ensemble_triage(campaign_root)
+    ensemble: dict[str, Any] = {}
+    s0_endpoint: dict[str, Any] | None = None
+    if stage == "S0":
+        s0_endpoint = aggregate_s0_control_pair_attribution(design, s0_rows, campaign_root=campaign_root)
+    else:
+        ensemble = aggregate_ensemble_triage(campaign_root)
     summary = {
         "schema_version": CONTROL_PAIR_CAMPAIGN_SCHEMA_VERSION,
         "campaign_root": str(campaign_root),
         "manifest_path": str(manifest_path),
         "stage": stage,
-        "probe": probe if stage == "S1" else None,
+        "probe": probe if stage in {"S0", "S1"} else None,
         "ticks": ticks,
         "model": model_name,
         "prompt_mode": prompt_mode,
         "timed_notice_recipients": [] if timed_notice_recipients is None else timed_notice_recipients,
+        "s0_endpoint": {
+            "span_id": s0_span_id,
+            "seat_id": s0_seat,
+            "models": s0_campaign_models,
+            "variants": s0_variants,
+            "rows": len((s0_endpoint or {}).get("rows") or []),
+            "path": "s0_attribution_table.json",
+        }
+        if stage == "S0"
+        else None,
         "pair_count": len(pairs),
         "condition_run_count": len(run_rows),
         "runs": run_rows,
-        "ensemble_triage": {
+        "ensemble_triage": None if stage == "S0" else {
             "groups": len(ensemble.get("groups") or []),
             "attribution_rows": len(ensemble.get("attribution_table") or []),
             "icc_summary": ensemble.get("icc_summary"),
         },
-        "note": "WP-07 control-pair execution only; harness acceptance and Stage 9 readiness remain separate gates.",
+        "note": "WP-07b S0 endpoint only; S1/S2 L0 attribution, harness acceptance, and Stage 9 readiness remain separate gates."
+        if stage == "S0"
+        else "WP-07 control-pair execution only; harness acceptance and Stage 9 readiness remain separate gates.",
     }
     (campaign_root / "control_pair_campaign_summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
     return summary
+
+
+def _run_slug(value: str) -> str:
+    slug = re.sub(r"[^A-Za-z0-9]+", "-", value).strip("-").lower()
+    return slug[:80] or "model"
 
 
 def _validate_control_pair(pair: dict[str, Any]) -> dict[str, Any]:
@@ -435,12 +520,112 @@ def _stamp_control_pair_meta(
 # S0 divergence aggregation (span x role cells over live answers)
 # ---------------------------------------------------------------------------
 
+def aggregate_s0_control_pair_attribution(design: DesignInputs, s0_results: list[dict[str, Any]], *, campaign_root: Path | None = None) -> dict[str, Any]:
+    role_of = {seat_id: seat.role for seat_id, seat in design.seats.items()}
+    observations: dict[tuple[str, str], dict[str, list[dict[str, Any]]]] = {}
+    all_live = True
+    included_run_ids: list[str] = []
+    for row in s0_results:
+        condition = str(row.get("condition") or "")
+        if condition not in {"control", "treatment"}:
+            continue
+        run_root = Path(str(row.get("run_root") or ""))
+        if run_root:
+            included_run_ids.append(run_root.name)
+        meta_path = run_root / "meta.json"
+        if meta_path.exists():
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+            if not meta.get("live"):
+                all_live = False
+        span_id = str(row.get("span_id") or "")
+        role = role_of.get(str(row.get("seat_id") or ""), "unknown")
+        candidates = design.spans[span_id].candidates if span_id in design.spans else {}
+        enriched = {
+            **row,
+            "role": role,
+            "cluster": _s0_cluster(row, candidates),
+            "observation_key": _s0_observation_key(row),
+            "parsed": bool(row.get("parsed")),
+        }
+        observations.setdefault((span_id, role), {"control": [], "treatment": []})[condition].append(enriched)
+
+    rows: list[dict[str, Any]] = []
+    for (span_id, role), by_condition in sorted(observations.items()):
+        left = _s0_condition_summary(by_condition.get("control") or [])
+        right = _s0_condition_summary(by_condition.get("treatment") or [])
+        all_clusters = sorted(set(left["cluster_distribution"]) | set(right["cluster_distribution"]))
+        cluster_delta = {
+            cluster: round(right["cluster_distribution"].get(cluster, 0.0) - left["cluster_distribution"].get(cluster, 0.0), 4)
+            for cluster in all_clusters
+        }
+        total_variation = 0.5 * sum(abs(cluster_delta[cluster]) for cluster in all_clusters)
+        left_keys = sorted(obs["observation_key"] for obs in by_condition.get("control") or [])
+        right_keys = sorted(obs["observation_key"] for obs in by_condition.get("treatment") or [])
+        row = {
+            "status": "candidate",
+            "endpoint": "s0_interpretation_entropy_and_cluster_shift",
+            "delta": "world.corpus.mutations",
+            "left_value": [],
+            "right_value": sorted({mutation for obs in by_condition.get("treatment") or [] for mutation in (obs.get("mutations") or [])}),
+            "span_id": span_id,
+            "role": role,
+            "left": left,
+            "right": right,
+            "entropy_delta": round(right["entropy"] - left["entropy"], 4),
+            "cluster_shift_total_variation": round(total_variation, 4),
+            "cluster_distribution_delta": cluster_delta,
+            "observation_bundle_match": bool(left_keys) and left_keys == right_keys,
+            "left_observation_keys": left_keys,
+            "right_observation_keys": right_keys,
+            "dominant_cluster_shifted": left["dominant_cluster"] != right["dominant_cluster"],
+        }
+        rows.append(row)
+
+    payload = {
+        "schema_version": S0_CONTROL_PAIR_ATTRIBUTION_SCHEMA_VERSION,
+        "endpoint": "s0_interpretation_entropy_and_cluster_shift",
+        "run_filter": {
+            "mode": "control_pairs_s0",
+            "included_run_count": len(included_run_ids),
+            "included_run_ids": included_run_ids,
+        },
+        "all_answers_live": all_live,
+        "rows": rows,
+        "note": "S0 attribution compares interpretation entropy and cluster distributions. It is a screening endpoint and does not confirm S1/S2 action conversion.",
+    }
+    if campaign_root is not None:
+        (campaign_root / "s0_attribution_table.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    return payload
+
+
+def _s0_condition_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    clusters = Counter(str(row.get("cluster") or "novel_or_unclassified") for row in rows)
+    total = sum(clusters.values())
+    distribution = {cluster: round(count / total, 4) for cluster, count in sorted(clusters.items())} if total else {}
+    dominant = clusters.most_common(1)[0][0] if clusters else None
+    return {
+        "answer_count": total,
+        "parsed_answers": sum(1 for row in rows if row.get("parsed")),
+        "parsed_rate": round(sum(1 for row in rows if row.get("parsed")) / total, 4) if total else 0.0,
+        "seed_values": sorted({int(row.get("seed") or 0) for row in rows}),
+        "model_values": sorted({str(row.get("model") or "") for row in rows if row.get("model")}),
+        "variant_values": sorted({int(row.get("variant") or 0) for row in rows}),
+        "clusters": dict(clusters),
+        "cluster_distribution": distribution,
+        "dominant_cluster": dominant,
+        "entropy": round(entropy(clusters), 4),
+    }
+
+
+def _s0_observation_key(row: dict[str, Any]) -> str:
+    return f"seed={int(row.get('seed') or 0)}|model={row.get('model') or ''}|variant={int(row.get('variant') or 0)}"
+
 def aggregate_s0_divergence(design: DesignInputs, s0_results: list[dict[str, Any]], *, campaign_root: Path | None = None) -> dict[str, Any]:
     role_of = {seat_id: seat.role for seat_id, seat in design.seats.items()}
     cells: dict[tuple[str, str], list[dict[str, Any]]] = {}
     all_live = True
     for row in s0_results:
-        if not row.get("response"):
+        if not row.get("response") and row.get("outcome") != "recursion_exhausted":
             continue
         meta_path = Path(str(row.get("run_root") or "")) / "meta.json"
         if meta_path.exists():
@@ -453,7 +638,7 @@ def aggregate_s0_divergence(design: DesignInputs, s0_results: list[dict[str, Any
     out_cells: list[dict[str, Any]] = []
     for (span_id, role), rows in sorted(cells.items()):
         candidates = design.spans[span_id].candidates if span_id in design.spans else {}
-        clusters = Counter(classify_answer(_answer_text(row), candidates) for row in rows)
+        clusters = Counter(_s0_cluster(row, candidates) for row in rows)
         probe_counts = Counter(str(row.get("probe_id") or "") for row in rows if row.get("probe_id"))
         primary_probe_id = probe_counts.most_common(1)[0][0] if probe_counts else ""
         span_consistent = all(str(row.get("span_id_from_run") or row.get("span_id") or "") == span_id for row in rows)
@@ -508,6 +693,12 @@ def _answer_text(row: dict[str, Any]) -> str:
     parts = [str(row.get("likely_reading") or ""), str(row.get("required_approver_or_evidence") or ""), str(row.get("next_action") or "")]
     joined = " ".join(part for part in parts if part)
     return joined or str(row.get("response") or "")
+
+
+def _s0_cluster(row: dict[str, Any], candidates: dict[str, str]) -> str:
+    if row.get("outcome") == "recursion_exhausted":
+        return "no_grounded_answer"
+    return classify_answer(_answer_text(row), candidates)
 
 
 def classify_answer(answer: str, candidates: dict[str, str]) -> str:

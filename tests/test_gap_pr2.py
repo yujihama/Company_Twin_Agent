@@ -7,7 +7,7 @@ from company_twin.campaign import default_s0_models
 from company_twin.corpus import Corpus
 from company_twin.design_loader import load_design
 from company_twin.harness import run_s1_episode, run_s2_world
-from company_twin.oracles import aggregate_ensemble_triage, execute_min_repro_jobs, load_detection_rules, write_triage
+from company_twin.oracles import aggregate_ensemble_triage, execute_fresh_min_repro_confirmation, execute_min_repro_jobs, load_detection_rules, write_triage
 from company_twin.recorder import RunRecorder, read_jsonl
 from conftest import fake_seat_factory
 from test_world_runs import _LateBoundCustomer
@@ -54,6 +54,28 @@ def test_timed_notice_and_scc_switch_are_schedule_driven(tmp_path: Path) -> None
     config = json.loads((run_root / "config.json").read_text(encoding="utf-8"))
     assert config["world"]["schedule"]["approval_due_ticks"] == 2
     assert "emp-Q" in config["world"]["schedule"]["approval_notice_recipients"]
+
+
+def test_s2_seats_subset_trims_world_population(tmp_path: Path) -> None:
+    design = load_design(Path.cwd())
+    corpus = Corpus.from_design(design)
+    run_root = tmp_path / "s2_subset"
+
+    run_s2_world(
+        design=design,
+        corpus=corpus,
+        run_root=run_root,
+        seed=0,
+        ticks=1,
+        seats_subset=["emp-C"],
+        seat_factory=fake_seat_factory(),
+        customer_llm=_LateBoundCustomer(run_root),
+    )
+
+    config = json.loads((run_root / "config.json").read_text(encoding="utf-8"))
+    assert sorted(config["world"]["population"]["seats"]) == ["emp-C"]
+    assert sorted(config["world"]["population"]["binding"]) == ["emp-C"]
+    assert config["runtime_delta"]["seats_subset"] == ["emp-C"]
 
 
 def test_approval_deadline_overrun_delivers_timed_notice(tmp_path: Path) -> None:
@@ -206,22 +228,33 @@ def test_detection_rules_v1_is_rejected(tmp_path: Path) -> None:
         raise AssertionError("v1 detection rules must be rejected")
 
 
-def _write_min_repro_source(campaign_root: Path, name: str, *, seed: int, has_finding: bool) -> None:
+def _write_min_repro_source(
+    campaign_root: Path,
+    name: str,
+    *,
+    seed: int,
+    has_finding: bool,
+    stage: str = "S1",
+    probe: str | None = "P-04",
+    finding_type: str = "evidence_gap",
+    signature: str | None = None,
+    seat_id: str = "emp-C",
+) -> None:
     run_root = campaign_root / name
     (run_root / "triage").mkdir(parents=True)
-    (run_root / "meta.json").write_text(json.dumps({"stage": "S1", "probe": "P-04", "knobs": {}, "seed": seed, "anchor": False}), encoding="utf-8")
+    (run_root / "meta.json").write_text(json.dumps({"stage": stage, "probe": probe, "knobs": {}, "seed": seed, "anchor": False}), encoding="utf-8")
     (run_root / "triage" / "metrics.json").write_text(
-        json.dumps({"controlled_actions_agent": 1, "finding_types": ({"evidence_gap": 1} if has_finding else {})}),
+        json.dumps({"controlled_actions_agent": 1, "finding_types": ({finding_type: 1} if has_finding else {})}),
         encoding="utf-8",
     )
     buckets = [
         {
-            "signature": f"sig-{seed}",
+            "signature": signature or f"sig-{seed}",
             "count": 1,
             "opportunity_denominator": 1,
             "rate": 1.0,
-            "finding_type": "evidence_gap",
-            "seat_id": "emp-C",
+            "finding_type": finding_type,
+            "seat_id": seat_id,
             "anchor_id": "submit_application",
             "phase": "application",
             "example": "missing consent_log_id,recording_id",
@@ -255,6 +288,12 @@ def test_min_repro_collation_never_promotes_confirmed_findings(tmp_path: Path) -
 
     queued = aggregate_ensemble_triage(tmp_path)
     assert queued["min_repro_jobs"][0]["status"] == "pending"
+    assert queued["min_repro_jobs"][0]["pre_registered_confirmation"] == {
+        "min_rate": round(2 / 3, 6),
+        "confirmation_seeds": 3,
+        "basis": "queued_exploration_rate",
+        "registered_at": "ensemble_triage_queue",
+    }
     assert queued["finding_registry"]["confirmed_findings"] == []
 
     executed = execute_min_repro_jobs(tmp_path, min_rate=0.5, min_seeds=3)
@@ -265,6 +304,7 @@ def test_min_repro_collation_never_promotes_confirmed_findings(tmp_path: Path) -
     assert abs(job["evidence_rate"] - 2 / 3) < 1e-9
     manifest = json.loads((tmp_path / job["confirmation_path"]).read_text(encoding="utf-8"))
     assert manifest["status"] == "evidence_collated"
+    assert manifest["pre_registered_confirmation"]["min_rate"] == round(2 / 3, 6)
     assert manifest["reduction_trace"][1]["step"] == "deck_one_card"
 
     registry = json.loads((tmp_path / "finding_registry.json").read_text(encoding="utf-8"))
@@ -273,6 +313,187 @@ def test_min_repro_collation_never_promotes_confirmed_findings(tmp_path: Path) -
     updated_jobs = json.loads((tmp_path / "min_repro_jobs.json").read_text(encoding="utf-8"))["jobs"]
     assert updated_jobs[0]["status"] == "evidence_collated"
     assert a14_confirmed_requires_fresh_reproduction(tmp_path).passed
+
+
+def test_fresh_min_repro_confirmation_promotes_reproduced_with_disjoint_live_seeds(tmp_path: Path) -> None:
+    for seed, has_finding in enumerate([True, True, False]):
+        _write_min_repro_source(tmp_path, f"s1_P-04_seed{seed}", seed=seed, has_finding=has_finding)
+    aggregate_ensemble_triage(tmp_path)
+
+    def write_confirmation_bundle(run_root: Path, seed: int, config: dict[str, Any], finding_type: str) -> None:
+        run_root.mkdir(parents=True)
+        (run_root / "triage").mkdir()
+        (run_root / "meta.json").write_text(
+            json.dumps(
+                {
+                    "stage": config["stage"],
+                    "probe": config["probe"],
+                    "knobs": config.get("knobs") or {},
+                    "seed": seed,
+                    "anchor": False,
+                    "live": True,
+                    "backend": "deepagents",
+                }
+            ),
+            encoding="utf-8",
+        )
+        (run_root / "triage" / "metrics.json").write_text(
+            json.dumps({"controlled_actions_agent": 1, "finding_types": {finding_type: 1}}),
+            encoding="utf-8",
+        )
+        (run_root / "triage" / "buckets.json").write_text(
+            json.dumps(
+                {
+                    "buckets": [
+                        {
+                            "signature": "sig-0",
+                            "finding_type": finding_type,
+                            "seat_id": "emp-C",
+                            "count": 1,
+                        }
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+        _write_jsonl(
+            run_root / "attempts.jsonl",
+            [
+                    {"tick": 1, "seat_id": "emp-C", "tool": "llm_invoke", "args": {"backend": "deepagents"}, "success": True, "result": {}, "origin": "agent"},
+                {"tick": 1, "seat_id": "emp-C", "tool": "submit_application", "args": {"evidence": {"material_version": "v1.1"}}, "success": True, "result": {}, "origin": "agent"},
+            ],
+        )
+        _write_jsonl(run_root / "basis_records.jsonl", [])
+        _write_jsonl(run_root / "world_ledger.jsonl", [])
+        _write_jsonl(run_root / "store_events.jsonl", [])
+
+    payload = execute_fresh_min_repro_confirmation(
+        tmp_path,
+        finding_type="evidence_gap",
+        confirmation_seeds=3,
+        seed_start=100,
+        min_rate=2 / 3,
+        confirmation_bundle_runner=write_confirmation_bundle,
+    )
+
+    assert payload["status"] == "reproduced"
+    assert payload["confirmed_count"] == 1
+    assert payload["source_bundle_count"] == 3
+    manifest = json.loads((tmp_path / payload["manifest_path"]).read_text(encoding="utf-8"))
+    assert manifest["status"] == "reproduced"
+    assert manifest["pre_registered_confirmation"]["min_rate"] == round(2 / 3, 6)
+    assert manifest["threshold_override"]["enabled"] is False
+    assert manifest["fresh_seeds"] == [100, 101, 102]
+    assert manifest["expected_bucket_signatures"] == ["sig-0", "sig-1"]
+    assert manifest["reproduction_rate_wilson_95"] == [0.4385, 1.0]
+    assert all(bundle["run_root"].startswith(f"min_repro/{payload['job_id']}/runs/") for bundle in manifest["source_bundles"])
+
+    registry = json.loads((tmp_path / "finding_registry.json").read_text(encoding="utf-8"))
+    assert registry["confirmed_findings"][0]["status"] == "reproduced"
+    assert registry["confirmed_findings"][0]["reproduction_rate_wilson_95"] == [0.4385, 1.0]
+    assert registry["audit_hypothesis_cards"][0]["min_repro"]["reproduction_rate_wilson_95"] == [0.4385, 1.0]
+    assert registry["audit_hypothesis_cards"]
+    assert a14_confirmed_requires_fresh_reproduction(tmp_path).passed
+
+
+def test_fresh_min_repro_confirmation_rejects_threshold_mismatch(tmp_path: Path) -> None:
+    for seed, has_finding in enumerate([True, True, False]):
+        _write_min_repro_source(tmp_path, f"s1_P-04_seed{seed}", seed=seed, has_finding=has_finding)
+    aggregate_ensemble_triage(tmp_path)
+
+    try:
+        execute_fresh_min_repro_confirmation(
+            tmp_path,
+            finding_type="evidence_gap",
+            confirmation_seeds=3,
+            seed_start=100,
+            min_rate=0.5,
+            confirmation_bundle_runner=lambda *_args: None,
+        )
+    except ValueError as exc:
+        assert "pre_registered_confirmation" in str(exc)
+    else:
+        raise AssertionError("threshold mismatch must be rejected by default")
+
+
+def test_fresh_min_repro_confirmation_requires_source_signature_match(tmp_path: Path) -> None:
+    for seed, has_finding in enumerate([True, False, False]):
+        _write_min_repro_source(tmp_path, f"s1_P-04_seed{seed}", seed=seed, has_finding=has_finding, signature="sig-source")
+    aggregate_ensemble_triage(tmp_path)
+
+    def write_confirmation_bundle(run_root: Path, seed: int, config: dict[str, Any], finding_type: str) -> None:
+        run_root.mkdir(parents=True)
+        (run_root / "triage").mkdir()
+        (run_root / "meta.json").write_text(
+            json.dumps({"stage": config["stage"], "probe": config["probe"], "knobs": {}, "seed": seed, "anchor": False, "live": True, "backend": "deepagents"}),
+            encoding="utf-8",
+        )
+        (run_root / "triage" / "metrics.json").write_text(json.dumps({"finding_types": {finding_type: 1}}), encoding="utf-8")
+        (run_root / "triage" / "buckets.json").write_text(
+            json.dumps({"buckets": [{"signature": "sig-other", "finding_type": finding_type, "seat_id": "emp-C", "count": 1}]}),
+            encoding="utf-8",
+        )
+        _write_jsonl(run_root / "attempts.jsonl", [{"tick": 1, "seat_id": "emp-C", "tool": "llm_invoke", "args": {"backend": "deepagents"}, "success": True, "result": {}, "origin": "agent"}])
+        _write_jsonl(run_root / "basis_records.jsonl", [])
+        _write_jsonl(run_root / "world_ledger.jsonl", [])
+        _write_jsonl(run_root / "store_events.jsonl", [])
+
+    payload = execute_fresh_min_repro_confirmation(
+        tmp_path,
+        finding_type="evidence_gap",
+        confirmation_seeds=3,
+        seed_start=100,
+        min_rate=1 / 3,
+        confirmation_bundle_runner=write_confirmation_bundle,
+    )
+
+    assert payload["status"] == "not_reproduced"
+    assert payload["source_bundle_count"] == 0
+    manifest = json.loads((tmp_path / payload["manifest_path"]).read_text(encoding="utf-8"))
+    assert manifest["runs"][0]["finding_count"] == 1
+    assert manifest["runs"][0]["matched_signature_finding_count"] == 0
+    registry = json.loads((tmp_path / "finding_registry.json").read_text(encoding="utf-8"))
+    assert registry["confirmed_findings"] == []
+
+
+def test_s2_fresh_min_repro_confirmation_infers_seats_subset(tmp_path: Path) -> None:
+    for seed in range(3):
+        _write_min_repro_source(tmp_path, f"s2_seed{seed}", seed=seed, has_finding=True, stage="S2", probe=None, signature="sig-source", seat_id="emp-C")
+    aggregate_ensemble_triage(tmp_path)
+    observed_configs: list[dict[str, Any]] = []
+
+    def write_confirmation_bundle(run_root: Path, seed: int, config: dict[str, Any], finding_type: str) -> None:
+        observed_configs.append(dict(config))
+        run_root.mkdir(parents=True)
+        (run_root / "triage").mkdir()
+        (run_root / "meta.json").write_text(
+            json.dumps({"stage": "S2", "probe": None, "knobs": {}, "seed": seed, "anchor": False, "live": True, "backend": "deepagents"}),
+            encoding="utf-8",
+        )
+        (run_root / "triage" / "metrics.json").write_text(json.dumps({"finding_types": {finding_type: 1}}), encoding="utf-8")
+        (run_root / "triage" / "buckets.json").write_text(
+            json.dumps({"buckets": [{"signature": "sig-source", "finding_type": finding_type, "seat_id": "emp-C", "count": 1}]}),
+            encoding="utf-8",
+        )
+        _write_jsonl(run_root / "attempts.jsonl", [{"tick": 1, "seat_id": "emp-C", "tool": "llm_invoke", "args": {"backend": "deepagents"}, "success": True, "result": {}, "origin": "agent"}])
+        _write_jsonl(run_root / "basis_records.jsonl", [])
+        _write_jsonl(run_root / "world_ledger.jsonl", [])
+        _write_jsonl(run_root / "store_events.jsonl", [])
+
+    payload = execute_fresh_min_repro_confirmation(
+        tmp_path,
+        finding_type="evidence_gap",
+        confirmation_seeds=3,
+        seed_start=100,
+        min_rate=1.0,
+        confirmation_bundle_runner=write_confirmation_bundle,
+    )
+
+    assert payload["status"] == "reproduced"
+    assert observed_configs[0]["seats_subset"] == ["emp-C"]
+    manifest = json.loads((tmp_path / payload["manifest_path"]).read_text(encoding="utf-8"))
+    assert manifest["seats_subset"] == ["emp-C"]
+    assert manifest["reduction_trace"][3]["seats"] == ["emp-C"]
 
 
 def test_a14_rejects_confirmed_findings_without_fresh_live_reproduction(tmp_path: Path) -> None:
@@ -302,13 +523,21 @@ def test_a14_accepts_fresh_live_min_repro_bundle_with_disjoint_seed(tmp_path: Pa
     (live_root / "meta.json").write_text(json.dumps({"stage": "S1", "probe": "P-04", "knobs": {}, "seed": 100, "anchor": False, "live": True}), encoding="utf-8")
     _write_jsonl(
         live_root / "attempts.jsonl",
-        [{"seat_id": "emp-C", "tool": "llm_response", "args": {"backend": "deepagents"}, "success": True, "result": {}, "origin": "agent"}],
+        [{"seat_id": "emp-C", "tool": "llm_invoke", "args": {"backend": "deepagents"}, "success": True, "result": {}, "origin": "agent"}],
     )
     _write_jsonl(live_root / "basis_records.jsonl", [])
     _write_jsonl(live_root / "world_ledger.jsonl", [])
     manifest_path = tmp_path / "min_repro" / job["job_id"] / "manifest.json"
     manifest_path.write_text(
-        json.dumps({"status": "reproduced", "source_bundles": [{"run_root": f"min_repro/{job['job_id']}/runs/{live_root.name}", "seed": 100}]}),
+        json.dumps(
+            {
+                "status": "reproduced",
+                "threshold": {"min_rate": 1.0, "confirmation_seeds": 3},
+                "pre_registered_confirmation": job["pre_registered_confirmation"],
+                "threshold_override": {"enabled": False},
+                "source_bundles": [{"run_root": f"min_repro/{job['job_id']}/runs/{live_root.name}", "seed": 100}],
+            }
+        ),
         encoding="utf-8",
     )
     (tmp_path / "finding_registry.json").write_text(
@@ -317,3 +546,37 @@ def test_a14_accepts_fresh_live_min_repro_bundle_with_disjoint_seed(tmp_path: Pa
     )
 
     assert a14_confirmed_requires_fresh_reproduction(tmp_path).passed
+
+
+def test_a14_rejects_threshold_override_manifest(tmp_path: Path) -> None:
+    _write_min_repro_source(tmp_path, "s1_P-04_seed0", seed=0, has_finding=True)
+    aggregate_ensemble_triage(tmp_path)
+    job = json.loads((tmp_path / "min_repro_jobs.json").read_text(encoding="utf-8"))["jobs"][0]
+    live_root = tmp_path / "min_repro" / job["job_id"] / "runs" / "s1_P-04_confirm_seed100"
+    live_root.mkdir(parents=True)
+    (live_root / "meta.json").write_text(json.dumps({"stage": "S1", "probe": "P-04", "knobs": {}, "seed": 100, "anchor": False, "live": True}), encoding="utf-8")
+    _write_jsonl(live_root / "attempts.jsonl", [{"seat_id": "emp-C", "tool": "llm_invoke", "args": {"backend": "deepagents"}, "success": True, "result": {}, "origin": "agent"}])
+    _write_jsonl(live_root / "basis_records.jsonl", [])
+    _write_jsonl(live_root / "world_ledger.jsonl", [])
+    manifest_path = tmp_path / "min_repro" / job["job_id"] / "manifest.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "status": "reproduced",
+                "threshold": {"min_rate": 0.5, "confirmation_seeds": 1},
+                "pre_registered_confirmation": job["pre_registered_confirmation"],
+                "threshold_override": {"enabled": True},
+                "source_bundles": [{"run_root": f"min_repro/{job['job_id']}/runs/{live_root.name}", "seed": 100}],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "finding_registry.json").write_text(
+        json.dumps({"confirmed_findings": [{**job, "status": "reproduced", "confirmation_path": f"min_repro/{job['job_id']}/manifest.json"}], "audit_hypothesis_cards": []}),
+        encoding="utf-8",
+    )
+
+    result = a14_confirmed_requires_fresh_reproduction(tmp_path)
+
+    assert not result.passed
+    assert "threshold override" in result.detail

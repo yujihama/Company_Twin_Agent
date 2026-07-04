@@ -7,7 +7,7 @@ import re
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import pandas as pd
 
@@ -18,6 +18,7 @@ from .semantic_grounding import READINESS_ALLOWED_JUDGE_BACKENDS, evaluate_seman
 DETECTION_RULE_SCHEMA_VERSION = "company_twin.detection_rules.v2"
 COVERAGE_MAP_SCHEMA_VERSION = "company_twin.coverage_map.v1"
 MIN_REPRO_RESULTS_SCHEMA_VERSION = "company_twin.min_repro_results.v1"
+MIN_REPRO_CONFIRMATION_SCHEMA_VERSION = "company_twin.min_repro_confirmation.v1"
 
 DEFAULT_DETECTION_RULES = {
     "schema_version": DETECTION_RULE_SCHEMA_VERSION,
@@ -461,6 +462,7 @@ def _min_repro_jobs(groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
     jobs: list[dict[str, Any]] = []
     for group in groups:
         for finding_type, rate in sorted((group.get("finding_rates") or {}).items()):
+            pre_registered = _pre_registered_confirmation_from_rate(rate)
             job = {
                 "status": "pending",
                 "min_repro_status": "pending",
@@ -470,6 +472,7 @@ def _min_repro_jobs(groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "seeds": rate["seeds"],
                 "rate": rate["rate"],
                 "wilson_95": rate["wilson_95"],
+                "pre_registered_confirmation": pre_registered,
                 "confirmation_protocol": ["source_bundle_match", "deck_one_card_if_probe_bound", "tick_back_trim", "seat_shrink"],
             }
             job["job_id"] = _min_repro_job_id(job)
@@ -530,6 +533,7 @@ def execute_min_repro_jobs(campaign_root: Path, *, min_rate: float = 0.5, min_se
         result = _execute_min_repro_job(campaign_root, normalized, min_rate=min_rate, min_seeds=min_seeds)
         updated = {
             **normalized,
+            "pre_registered_confirmation": result["pre_registered_confirmation"],
             "status": result["status"],
             "min_repro_status": result["status"],
             "matching_bundle_count": result["matching_bundle_count"],
@@ -571,8 +575,308 @@ def execute_min_repro_jobs(campaign_root: Path, *, min_rate: float = 0.5, min_se
     return payload
 
 
+def execute_fresh_min_repro_confirmation(
+    campaign_root: Path,
+    *,
+    design: Any | None = None,
+    corpus: Any | None = None,
+    job_id: str | None = None,
+    finding_type: str | None = None,
+    confirmation_seeds: int = 3,
+    seed_start: int = 100,
+    min_rate: float = 0.5,
+    ticks: int = 6,
+    model: str | None = None,
+    prompt_mode: str = "measurement",
+    model_bindings: dict[str, str] | None = None,
+    seat_factory: Any | None = None,
+    customer_llm_factory: Callable[[Path], Any] | None = None,
+    timed_notice_recipients: list[str] | None = None,
+    seats_subset: list[str] | None = None,
+    allow_threshold_override: bool = False,
+    confirmation_bundle_runner: Callable[[Path, int, dict[str, Any], str], None] | None = None,
+) -> dict[str, Any]:
+    """Run fresh confirmation bundles for one queued min-repro job.
+
+    Unlike execute_min_repro_jobs(), this is the WP-10b path: it creates new
+    run bundles under min_repro/<job_id>/runs with disjoint seeds, checks the
+    same finding type, and only marks the job reproduced when fresh evidence
+    reaches the pre-registered rate threshold.
+    """
+    if confirmation_seeds < 1:
+        raise ValueError("confirmation_seeds must be >= 1")
+    if ticks < 1:
+        raise ValueError("ticks must be >= 1")
+    if not 0 <= min_rate <= 1:
+        raise ValueError("min_rate must be between 0 and 1")
+    campaign_root = campaign_root.resolve()
+    ensemble = _read_json(campaign_root / "ensemble_triage.json") or aggregate_ensemble_triage(campaign_root)
+    groups = ensemble.get("groups") or []
+    queued_payload = _read_json(campaign_root / "min_repro_jobs.json")
+    jobs = queued_payload.get("jobs") or ensemble.get("min_repro_jobs") or _min_repro_jobs(groups)
+    if not jobs:
+        raise ValueError("no queued min-repro jobs found")
+    selected = _select_min_repro_job(jobs, job_id=job_id, finding_type=finding_type)
+    selected_job_id = str(selected.get("job_id") or _min_repro_job_id(selected))
+    selected_finding = str(selected.get("finding_type") or "")
+    config = selected.get("config") or {}
+    stage = str(config.get("stage") or "")
+    if stage not in {"S1", "S2"}:
+        raise ValueError(f"fresh min-repro confirmation supports S1/S2 jobs, got stage={stage!r}")
+    if stage == "S1" and not config.get("probe"):
+        raise ValueError("S1 confirmation job is missing probe")
+    pre_registered = _pre_registered_confirmation_for_job(selected)
+    requested_threshold = {"min_rate": min_rate, "confirmation_seeds": confirmation_seeds}
+    threshold_matches = _confirmation_threshold_matches(pre_registered, requested_threshold)
+    threshold_override = {
+        "enabled": not threshold_matches,
+        "requested": requested_threshold,
+        "pre_registered": pre_registered,
+    }
+    if not threshold_matches and not allow_threshold_override:
+        raise ValueError(
+            "confirmation threshold does not match pre_registered_confirmation; "
+            f"requested={requested_threshold}, pre_registered={pre_registered}"
+        )
+
+    exploration_roots = _matching_run_roots(campaign_root, config)
+    exploration_seeds = _seed_values(exploration_roots)
+    reference_source_bundles = list(selected.get("source_bundles") or [])
+    if not reference_source_bundles:
+        reference_source_bundles = [
+            evidence
+            for run_root in exploration_roots
+            if (evidence := _bundle_finding_evidence(campaign_root, run_root, selected_finding))
+        ]
+    expected_signatures = _bucket_signature_set(reference_source_bundles)
+    inferred_seats_subset = _source_bundle_seats(reference_source_bundles)
+    effective_seats_subset = sorted(set(seats_subset or inferred_seats_subset)) if stage == "S2" else None
+    confirmation_config = dict(config)
+    if effective_seats_subset:
+        confirmation_config["seats_subset"] = effective_seats_subset
+    fresh_seeds = _fresh_seed_values(seed_start=seed_start, count=confirmation_seeds, excluded=exploration_seeds)
+    job_root = campaign_root / "min_repro" / selected_job_id
+    runs_root = job_root / "runs"
+    runs_root.mkdir(parents=True, exist_ok=True)
+
+    run_rows: list[dict[str, Any]] = []
+    source_bundles: list[dict[str, Any]] = []
+    for seed in fresh_seeds:
+        run_root = runs_root / f"{stage.lower()}_{config.get('probe') or 'full_deck'}_confirm_seed{seed}"
+        if confirmation_bundle_runner is not None:
+            confirmation_bundle_runner(run_root, seed, confirmation_config, selected_finding)
+        else:
+            if design is None or corpus is None:
+                raise ValueError("design and corpus are required when no confirmation_bundle_runner is supplied")
+            _run_fresh_confirmation_bundle(
+                run_root=run_root,
+                design=design,
+                corpus=corpus,
+                config=confirmation_config,
+                seed=seed,
+                ticks=ticks,
+                model=model,
+                prompt_mode=prompt_mode,
+                model_bindings=model_bindings,
+                seat_factory=seat_factory,
+                customer_llm_factory=customer_llm_factory,
+                timed_notice_recipients=[] if timed_notice_recipients is None else timed_notice_recipients,
+                seats_subset=effective_seats_subset,
+            )
+        if not (run_root / "triage" / "metrics.json").exists():
+            write_triage(run_root)
+        evidence = _bundle_finding_evidence(campaign_root, run_root, selected_finding, expected_signatures=expected_signatures)
+        if evidence:
+            source_bundles.append(evidence)
+        meta = _read_json(run_root / "meta.json")
+        metrics = _read_json(run_root / "triage" / "metrics.json")
+        raw_finding_count = int(((metrics.get("finding_types") or {}).get(selected_finding)) or 0)
+        run_rows.append(
+            {
+                "run_root": _relative_path(run_root, campaign_root),
+                "seed": seed,
+                "stage": meta.get("stage"),
+                "probe": meta.get("probe"),
+                "live": meta.get("live"),
+                "backend": meta.get("backend"),
+                "finding_count": raw_finding_count,
+                "matched_signature_finding_count": int((evidence or {}).get("finding_count") or 0),
+            }
+        )
+
+    reproduction_rate = len(source_bundles) / confirmation_seeds
+    reproduction_wilson = _rounded_wilson(len(source_bundles), confirmation_seeds)
+    status = "reproduced" if source_bundles and reproduction_rate >= min_rate else "not_reproduced"
+    manifest = {
+        "schema_version": MIN_REPRO_CONFIRMATION_SCHEMA_VERSION,
+        "job_id": selected_job_id,
+        "finding_type": selected_finding,
+        "config": config,
+        "status": status,
+        "min_repro_status": status,
+        "threshold": {"min_rate": min_rate, "confirmation_seeds": confirmation_seeds},
+        "pre_registered_confirmation": pre_registered,
+        "threshold_override": threshold_override,
+        "exploration_seeds": sorted(exploration_seeds),
+        "fresh_seeds": fresh_seeds,
+        "expected_bucket_signatures": sorted(expected_signatures),
+        "seats_subset": effective_seats_subset,
+        "confirmation_run_count": len(run_rows),
+        "source_bundle_count": len(source_bundles),
+        "confirmation_successes": len(source_bundles),
+        "reproduction_rate": reproduction_rate,
+        "reproduction_rate_wilson_95": reproduction_wilson,
+        "source_bundles": source_bundles,
+        "runs": run_rows,
+        "coverage_cells": _coverage_cells_for_finding(campaign_root, selected_finding),
+        "reduction_trace": _reduction_trace(selected, source_bundles),
+        "note": "fresh confirmation run; reproduced status may promote confirmed findings only through this manifest",
+    }
+    manifest_path = job_root / "manifest.json"
+    manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    updated_jobs = []
+    for job in jobs:
+        normalized = dict(job)
+        normalized.setdefault("job_id", _min_repro_job_id(normalized))
+        if str(normalized["job_id"]) == selected_job_id:
+            normalized.update(
+                {
+                    "pre_registered_confirmation": pre_registered,
+                    "status": status,
+                    "min_repro_status": status,
+                    "confirmation_path": _relative_path(manifest_path, campaign_root),
+                    "source_bundles": source_bundles,
+                    "source_bundle_count": len(source_bundles),
+                    "matching_bundle_count": len(source_bundles),
+                    "confirmation_successes": len(source_bundles),
+                    "confirmation_seeds": confirmation_seeds,
+                    "reproduction_rate": reproduction_rate,
+                    "reproduction_rate_wilson_95": reproduction_wilson,
+                    "threshold_override": threshold_override,
+                    "expected_bucket_signatures": sorted(expected_signatures),
+                    "seats_subset": effective_seats_subset,
+                    "coverage_cells": manifest["coverage_cells"],
+                }
+            )
+        updated_jobs.append(normalized)
+
+    registry = _finding_registry(groups, updated_jobs)
+    payload = {
+        "schema_version": MIN_REPRO_CONFIRMATION_SCHEMA_VERSION,
+        "campaign_root": str(campaign_root),
+        "job_id": selected_job_id,
+        "status": status,
+        "reproduced_count": 1 if status == "reproduced" else 0,
+        "confirmed_count": len(registry.get("confirmed_findings") or []),
+        "manifest_path": _relative_path(manifest_path, campaign_root),
+        "source_bundle_count": len(source_bundles),
+        "confirmation_successes": len(source_bundles),
+        "reproduction_rate": reproduction_rate,
+        "reproduction_rate_wilson_95": reproduction_wilson,
+        "pre_registered_confirmation": pre_registered,
+        "threshold_override": threshold_override,
+        "expected_bucket_signatures": sorted(expected_signatures),
+        "seats_subset": effective_seats_subset,
+        "runs": run_rows,
+    }
+    (campaign_root / "min_repro_confirmation_results.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    (campaign_root / "min_repro_jobs.json").write_text(json.dumps({"jobs": updated_jobs}, ensure_ascii=False, indent=2), encoding="utf-8")
+    (campaign_root / "finding_registry.json").write_text(json.dumps(registry, ensure_ascii=False, indent=2), encoding="utf-8")
+    ensemble["min_repro_jobs"] = updated_jobs
+    ensemble["finding_registry"] = registry
+    ensemble["min_repro_confirmation_results"] = {
+        "path": "min_repro_confirmation_results.json",
+        "schema_version": MIN_REPRO_CONFIRMATION_SCHEMA_VERSION,
+        "reproduced_count": payload["reproduced_count"],
+        "confirmed_count": payload["confirmed_count"],
+    }
+    ensemble["note"] = "fresh min-repro confirmation has run; only jobs with status=reproduced are confirmed"
+    (campaign_root / "ensemble_triage.json").write_text(json.dumps(ensemble, ensure_ascii=False, indent=2), encoding="utf-8")
+    return payload
+
+
+def _select_min_repro_job(jobs: list[dict[str, Any]], *, job_id: str | None, finding_type: str | None) -> dict[str, Any]:
+    matches = []
+    for job in jobs:
+        normalized = dict(job)
+        normalized.setdefault("job_id", _min_repro_job_id(normalized))
+        if job_id and str(normalized["job_id"]) != job_id:
+            continue
+        if finding_type and str(normalized.get("finding_type") or "") != finding_type:
+            continue
+        matches.append(normalized)
+    if not matches:
+        raise ValueError("no queued min-repro job matched the requested selector")
+    matches.sort(key=lambda item: (-float(item.get("rate") or 0.0), str(item.get("finding_type") or ""), str(item.get("job_id") or "")))
+    return matches[0]
+
+
+def _seed_values(run_roots: list[Path]) -> set[int]:
+    values: set[int] = set()
+    for run_root in run_roots:
+        meta = _read_json(run_root / "meta.json")
+        if meta.get("seed") is not None:
+            values.add(int(meta["seed"]))
+    return values
+
+
+def _fresh_seed_values(*, seed_start: int, count: int, excluded: set[int]) -> list[int]:
+    seeds: list[int] = []
+    candidate = seed_start
+    while len(seeds) < count:
+        if candidate not in excluded:
+            seeds.append(candidate)
+        candidate += 1
+    return seeds
+
+
+def _run_fresh_confirmation_bundle(
+    *,
+    run_root: Path,
+    design: Any,
+    corpus: Any,
+    config: dict[str, Any],
+    seed: int,
+    ticks: int,
+    model: str | None,
+    prompt_mode: str,
+    model_bindings: dict[str, str] | None,
+    seat_factory: Any | None,
+    customer_llm_factory: Callable[[Path], Any] | None,
+    timed_notice_recipients: list[str],
+    seats_subset: list[str] | None,
+) -> None:
+    from .harness import run_s1_episode, run_s2_world
+    from .mutations import apply_corpus_mutations, mutation_specs_from_values
+
+    mutation_ids = [str(item) for item in (config.get("mutation_ids") or []) if item]
+    mutation_result = apply_corpus_mutations(corpus, mutation_specs_from_values(design.root, mutation_ids))
+    customer_llm = customer_llm_factory(run_root) if customer_llm_factory is not None else None
+    common = {
+        "design": design,
+        "corpus": mutation_result.corpus,
+        "run_root": run_root,
+        "model": model,
+        "knobs": config.get("knobs") or {},
+        "seed": seed,
+        "seat_factory": seat_factory,
+        "customer_llm": customer_llm,
+        "prompt_mode": prompt_mode,
+        "model_bindings": model_bindings,
+        "mutations": mutation_result.applied,
+        "timed_notice_recipients": timed_notice_recipients,
+    }
+    if config.get("stage") == "S1":
+        run_s1_episode(probe_id=str(config.get("probe") or ""), ticks=ticks, **common)
+    else:
+        run_s2_world(ticks=ticks, anchor=False, seats_subset=seats_subset, **common)
+    write_triage(run_root)
+
+
 def _execute_min_repro_job(campaign_root: Path, job: dict[str, Any], *, min_rate: float, min_seeds: int) -> dict[str, Any]:
     finding_type = str(job.get("finding_type") or "")
+    pre_registered = _pre_registered_confirmation_for_job(job)
     matching_roots = _matching_run_roots(campaign_root, job.get("config") or {})
     source_bundles = [
         evidence
@@ -591,6 +895,7 @@ def _execute_min_repro_job(campaign_root: Path, job: dict[str, Any], *, min_rate
         "min_repro_status": status,
         "queued_rate": job.get("rate"),
         "queued_wilson_95": job.get("wilson_95"),
+        "pre_registered_confirmation": pre_registered,
         "threshold": {"min_rate": min_rate, "min_seeds": min_seeds},
         "matching_bundle_count": len(matching_roots),
         "source_bundle_count": len(source_bundles),
@@ -620,11 +925,17 @@ def _matching_run_roots(campaign_root: Path, config: dict[str, Any]) -> list[Pat
     return roots
 
 
-def _bundle_finding_evidence(campaign_root: Path, run_root: Path, finding_type: str) -> dict[str, Any] | None:
+def _bundle_finding_evidence(campaign_root: Path, run_root: Path, finding_type: str, *, expected_signatures: set[str] | None = None) -> dict[str, Any] | None:
     metrics = _read_json(run_root / "triage" / "metrics.json")
-    finding_count = int(((metrics.get("finding_types") or {}).get(finding_type)) or 0)
     buckets_payload = _read_json(run_root / "triage" / "buckets.json")
     buckets = [bucket for bucket in (buckets_payload.get("buckets") or []) if bucket.get("finding_type") == finding_type]
+    if expected_signatures is not None:
+        if not expected_signatures:
+            return None
+        buckets = [bucket for bucket in buckets if str(bucket.get("signature") or "") in expected_signatures]
+        finding_count = _bucket_finding_count(buckets)
+    else:
+        finding_count = int(((metrics.get("finding_types") or {}).get(finding_type)) or 0)
     if finding_count <= 0 and not buckets:
         return None
     ticks = _evidence_ticks(run_root, finding_type, buckets)
@@ -633,11 +944,34 @@ def _bundle_finding_evidence(campaign_root: Path, run_root: Path, finding_type: 
         "run_id": run_root.name,
         "run_root": _relative_path(run_root, campaign_root),
         "seed": _read_json(run_root / "meta.json").get("seed"),
-        "finding_count": finding_count or sum(int(bucket.get("count") or 0) for bucket in buckets),
-        "bucket_signatures": [str(bucket.get("signature") or "") for bucket in buckets if bucket.get("signature")],
+        "finding_count": finding_count or _bucket_finding_count(buckets),
+        "bucket_signatures": sorted({str(bucket.get("signature") or "") for bucket in buckets if bucket.get("signature")}),
         "seats": seats,
         "tick_window": {"start": min(ticks), "end": max(ticks)} if ticks else None,
     }
+
+
+def _bucket_finding_count(buckets: list[dict[str, Any]]) -> int:
+    count = sum(max(int(bucket.get("count") or 0), 0) for bucket in buckets)
+    return count if count > 0 else len(buckets)
+
+
+def _bucket_signature_set(source_bundles: list[dict[str, Any]]) -> set[str]:
+    return {
+        str(signature)
+        for bundle in source_bundles
+        for signature in (bundle.get("bucket_signatures") or [])
+        if signature
+    }
+
+
+def _source_bundle_seats(source_bundles: list[dict[str, Any]]) -> list[str]:
+    return sorted({
+        str(seat)
+        for bundle in source_bundles
+        for seat in (bundle.get("seats") or [])
+        if seat
+    })
 
 
 def _evidence_ticks(run_root: Path, finding_type: str, buckets: list[dict[str, Any]]) -> list[int]:
@@ -706,6 +1040,44 @@ def _reduction_trace(job: dict[str, Any], source_bundles: list[dict[str, Any]]) 
     ]
 
 
+def _pre_registered_confirmation_from_rate(rate: dict[str, Any]) -> dict[str, Any]:
+    seeds = max(3, int(rate.get("seeds") or 0))
+    return {
+        "min_rate": round(float(rate.get("rate") or 0.0), 6),
+        "confirmation_seeds": seeds,
+        "basis": "queued_exploration_rate",
+        "registered_at": "ensemble_triage_queue",
+    }
+
+
+def _pre_registered_confirmation_for_job(job: dict[str, Any]) -> dict[str, Any]:
+    plan = job.get("pre_registered_confirmation") or {}
+    if plan:
+        return {
+            "min_rate": round(float(plan.get("min_rate") or 0.0), 6),
+            "confirmation_seeds": int(plan.get("confirmation_seeds") or plan.get("min_seeds") or 0),
+            "basis": str(plan.get("basis") or "unknown"),
+            "registered_at": str(plan.get("registered_at") or "unknown"),
+        }
+    return {
+        **_pre_registered_confirmation_from_rate(job),
+        "basis": "legacy_queue_rate_inference",
+        "registered_at": "legacy_job_without_explicit_preregistration",
+    }
+
+
+def _confirmation_threshold_matches(pre_registered: dict[str, Any], requested: dict[str, Any]) -> bool:
+    return (
+        abs(float(pre_registered.get("min_rate") or 0.0) - float(requested.get("min_rate") or 0.0)) <= 1e-6
+        and int(pre_registered.get("confirmation_seeds") or 0) == int(requested.get("confirmation_seeds") or 0)
+    )
+
+
+def _rounded_wilson(successes: int, total: int) -> list[float]:
+    low, high = wilson_interval(successes, total)
+    return [round(low, 4), round(high, 4)]
+
+
 def _confirmed_finding(job: dict[str, Any]) -> dict[str, Any]:
     return {
         "job_id": job.get("job_id"),
@@ -713,7 +1085,12 @@ def _confirmed_finding(job: dict[str, Any]) -> dict[str, Any]:
         "config": job.get("config") or {},
         "status": "reproduced",
         "min_repro_status": "reproduced",
+        "pre_registered_confirmation": job.get("pre_registered_confirmation") or {},
+        "threshold_override": job.get("threshold_override") or {"enabled": False},
+        "confirmation_successes": job.get("confirmation_successes"),
+        "confirmation_seeds": job.get("confirmation_seeds"),
         "reproduction_rate": job.get("reproduction_rate"),
+        "reproduction_rate_wilson_95": job.get("reproduction_rate_wilson_95"),
         "source_bundle_count": job.get("source_bundle_count"),
         "matching_bundle_count": job.get("matching_bundle_count"),
         "confirmation_path": job.get("confirmation_path"),
@@ -733,7 +1110,12 @@ def _audit_hypothesis_card(job: dict[str, Any]) -> dict[str, Any]:
         "min_repro": {
             "job_id": job.get("job_id"),
             "status": "reproduced",
+            "pre_registered_confirmation": job.get("pre_registered_confirmation") or {},
+            "threshold_override": job.get("threshold_override") or {"enabled": False},
+            "confirmation_successes": job.get("confirmation_successes"),
+            "confirmation_seeds": job.get("confirmation_seeds"),
             "reproduction_rate": job.get("reproduction_rate"),
+            "reproduction_rate_wilson_95": job.get("reproduction_rate_wilson_95"),
             "confirmation_path": job.get("confirmation_path"),
         },
         "divergence_cells": job.get("coverage_cells") or [],

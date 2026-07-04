@@ -6,6 +6,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal
 
+from langgraph.errors import GraphRecursionError
+
 from .agents import CustomerLLM, SeatFactory, default_customer_llm, default_seat_factory, recursion_for_budget
 from .corpus import Corpus
 from .customer_agent import CustomerActor, emit_customer_reply, emit_customer_turn
@@ -64,12 +66,18 @@ def run_s0(
     tools = build_role_tools(corpus=corpus, kernel=kernel, recorder=recorder, seat_id=seat_id, seat_role=seat.role, include_workflow=False)
     agent = factory(seat_id=seat_id, role=seat.role, tools=tools, recorder=recorder, recursion_limit=recursion_for_budget(14))
     recorder.write_json("meta.json", {"run_id": recorder.run_id, "stage": "S0", "probe": probe_id, "span": span_id, "seat": seat_id, "model": model_name, "variant": variant, "backend": getattr(agent, "backend", "unknown"), "live": getattr(agent, "backend", "") == "deepagents"})
+    outcome = "answered"
     with recorder.origin("agent"):
         try:
             response = agent.turn(_s0_prompt(design, probe_id, span_id, variant))
+        except GraphRecursionError as exc:
+            recorder.append_ledger("agent_error", {"seat_id": seat_id, "error_type": type(exc).__name__, "message": str(exc)[:500]})
+            response = ""
+            outcome = "recursion_exhausted"
         except Exception as exc:  # noqa: BLE001 - recorded, run continues as failed row
             recorder.append_ledger("agent_error", {"seat_id": seat_id, "error_type": type(exc).__name__, "message": str(exc)[:500]})
             response = ""
+            outcome = "agent_error"
     recorder.append_ledger("s0_agent_response", {"seat_id": seat_id, "probe_id": probe_id, "response": response})
     parsed = _parse_s0_response(response)
     answer_record = {
@@ -80,6 +88,7 @@ def run_s0(
         "model": model_name,
         "variant": variant,
         "response": response,
+        "outcome": outcome,
         **parsed,
     }
     recorder.write_json("s0_answer.json", answer_record)
@@ -177,6 +186,7 @@ def run_s1_episode(
     scc_switch_tick: int | None = None,
     mutations: list[dict[str, Any]] | None = None,
     timed_notice_recipients: list[str] | None = None,
+    seats_subset: list[str] | None = None,
 ) -> dict[str, Any]:
     event = _retime_event(event_for_probe(design, probe_id), trigger_tick=1, deadline_tick=ticks)
     return _run_world(
@@ -199,6 +209,7 @@ def run_s1_episode(
         scc_switch_tick=scc_switch_tick,
         mutations=mutations,
         timed_notice_recipients=timed_notice_recipients,
+        seats_subset=seats_subset,
     )
 
 
@@ -221,6 +232,7 @@ def run_s2_world(
     scc_switch_tick: int | None = None,
     mutations: list[dict[str, Any]] | None = None,
     timed_notice_recipients: list[str] | None = None,
+    seats_subset: list[str] | None = None,
 ) -> dict[str, Any]:
     events = deck if deck is not None else build_customer_deck(design, include_routine=True)
     return _run_world(
@@ -243,6 +255,7 @@ def run_s2_world(
         scc_switch_tick=scc_switch_tick,
         mutations=mutations,
         timed_notice_recipients=timed_notice_recipients,
+        seats_subset=seats_subset,
     )
 
 
@@ -267,11 +280,12 @@ def _run_world(
     scc_switch_tick: int | None = None,
     mutations: list[dict[str, Any]] | None = None,
     timed_notice_recipients: list[str] | None = None,
+    seats_subset: list[str] | None = None,
 ) -> dict[str, Any]:
     model_name = normalize_openrouter_model(model)
     if prompt_mode not in {"scaffold", "measurement"}:
         raise ValueError(f"unknown prompt_mode: {prompt_mode}")
-    recorder = RunRecorder(run_root, run_id=run_root.name, meta={"stage": stage, "probe": probe_id, "model": model_name, "knobs": knobs, "seed": seed, "anchor": anchor, "prompt_mode": prompt_mode})
+    recorder = RunRecorder(run_root, run_id=run_root.name, meta={"stage": stage, "probe": probe_id, "model": model_name, "knobs": knobs, "seed": seed, "anchor": anchor, "prompt_mode": prompt_mode, "seats_subset": seats_subset})
     config = build_world_config(
         design,
         stage=stage,
@@ -286,12 +300,14 @@ def _run_world(
         scc_switch_tick=scc_switch_tick,
         mutations=mutations,
         timed_notice_recipients=timed_notice_recipients,
+        seats_subset=seats_subset,
     )
     write_config_snapshot(run_root, config)
     budgets = config["world"]["population"]["tick_budget"]
     recorder.configure_tick_budgets(budgets)
     schedule = config["world"]["schedule"]
     bindings = config["world"]["population"]["binding"]
+    active_seats = set(bindings)
     kernel = WorldKernel(recorder, kernel_profile(design, knobs=knobs, schedule=schedule, scc_switch_enabled=not anchor, valid_doc_ids=set(corpus.documents)))
     customer = customer_llm or default_customer_llm(model=model_name, recorder=recorder)
     absence: dict[str, list[int]] = config["world"]["population"].get("absence", {})
@@ -342,7 +358,7 @@ def _run_world(
             actors[event.customer_id] = emit_customer_turn(kernel=kernel, recorder=recorder, event=event, tick=tick, customer_llm=customer)
         sweeps = 2 if stage == "S1" else 1
         for _sweep in range(sweeps):  # S1 gets a same-tick follow-up pass; S2 advances across ticks.
-            pending = [seat_id for seat_id in kernel.inbox_nonempty_seats() if seat_id in design.seats]
+            pending = [seat_id for seat_id in kernel.inbox_nonempty_seats() if seat_id in active_seats]
             if not pending:
                 break
             for seat_id in pending:
