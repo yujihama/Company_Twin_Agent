@@ -20,12 +20,15 @@ readiness gate passes.
   min-repro evidence-collation manifests, rule hit rates, detection-miss rates,
   and a deterministic behavior coverage map.
 - Acceptance: harness-safety gates only.
+- Evidence: sanitized WP-01 live evidence is committed under
+  `docs/wp01_live_evidence`; raw run bundles remain under ignored `runs/`.
 - Readiness: Stage 9 gate exists and intentionally fails until the required
   evidence reports are generated and pass.
 
 ## Not Yet Claimed
 
-- No attached live full-world S2 + anchor artifact is claimed by this branch.
+- Raw live full-world S2 + anchor bundles are not committed; only sanitized
+  WP-01 evidence is attached.
 - `grounding_g3_machine_heuristic_rate` is lexical/machine grounding, not the
   Stage 9 semantic entailment oracle.
 - Candidate attribution and default `min-repro` output remain exploratory.

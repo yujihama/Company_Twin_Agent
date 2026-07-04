@@ -1,0 +1,134 @@
+{
+  "wp": "WP-01 live evidence acquisition",
+  "primary_campaign": "runs/design_campaign_20260704_012445",
+  "primary_command": "python -m company_twin.cli campaign --with-s2 --s2-k 1 --s2-ticks 12 --s0-limit 4 --s1-k 1 --s1-probe P-01 --s0-variants 2 --s0-model openrouter:qwen/qwen3.6-flash --s0-model openrouter:qwen/qwen3.6-plus",
+  "primary_result": {
+    "acceptance_passed": true,
+    "scope": "full_world",
+    "passed": true
+  },
+  "verification": {
+    "unit_pytest_before_docs": "71 passed, 1 skipped in 75.14s",
+    "acceptance_cli": "passed=true, scope=full_world",
+    "acceptance_pytest": "1 passed in 1.01s",
+    "readiness_gate": "failed as expected: full_world_harness_acceptance=true; routine/retrieval/leak/semantic/backcasting/SME/holdout reports missing",
+    "unit_pytest_after_docs": "71 passed, 1 skipped in 38.92s"
+  },
+  "s0_divergence": {
+    "cells": [
+      {
+        "span_id": "AMB-02",
+        "role": "sales",
+        "probe_ids": [
+          "P-01"
+        ],
+        "probe_counts": {
+          "P-01": 4
+        },
+        "primary_probe_id": "P-01",
+        "answers": 4,
+        "answer_count": 4,
+        "parsed_answers": 4,
+        "parsed_rate": 1.0,
+        "model_count": 2,
+        "variant_count": 2,
+        "span_specific": true,
+        "clusters": {
+          "C4": 4
+        },
+        "machine_clusters": {
+          "C4": 4
+        },
+        "human_confirmed_class": null,
+        "novel_count": 0,
+        "human_review_required": false,
+        "entropy": -0.0
+      }
+    ],
+    "all_answers_live": true,
+    "answer_total": 4,
+    "human_review_queue": [],
+    "novel_status": "machine_candidate_only_until_human_confirmed"
+  },
+  "model_adherence_observations": {
+    "default_pair_failed_campaign": {
+      "campaign_root": "runs/design_campaign_20260704_002346",
+      "command": "python -m company_twin.cli campaign --with-s2 --s2-k 1 --s2-ticks 12 --s0-limit 4 --s1-k 1 --s1-probe P-01 --s0-variants 2",
+      "acceptance_passed": false,
+      "s0_parse_by_model": [
+        {
+          "model": "openrouter:qwen/qwen3.5-9b",
+          "rows": 2,
+          "parsed": 0,
+          "empty_response": 2,
+          "variants": [
+            0,
+            1
+          ],
+          "parsed_rate": 0.0
+        },
+        {
+          "model": "openrouter:qwen/qwen3.6-flash",
+          "rows": 2,
+          "parsed": 2,
+          "empty_response": 0,
+          "variants": [
+            0,
+            1
+          ],
+          "parsed_rate": 1.0
+        }
+      ],
+      "acceptance_failure": [
+        {
+          "gate": "A-06 s0_divergence_measured",
+          "passed": false,
+          "detail": "measured cells=1, all_answers_live=True, require_multimodel=True, multimodel_cell=False"
+        }
+      ]
+    },
+    "selected_pair_primary_campaign": {
+      "campaign_root": "runs/design_campaign_20260704_012445",
+      "s0_parse_by_model": [
+        {
+          "model": "openrouter:qwen/qwen3.6-flash",
+          "rows": 2,
+          "parsed": 2,
+          "empty_response": 0,
+          "variants": [
+            0,
+            1
+          ],
+          "parsed_rate": 1.0
+        },
+        {
+          "model": "openrouter:qwen/qwen3.6-plus",
+          "rows": 2,
+          "parsed": 2,
+          "empty_response": 0,
+          "variants": [
+            0,
+            1
+          ],
+          "parsed_rate": 1.0
+        }
+      ]
+    },
+    "candidate_probe": {
+      "model": "openrouter:qwen/qwen3.6-plus",
+      "run_root": "runs/model_probe_qwen36plus_P01_v0",
+      "parsed": true
+    }
+  },
+  "scope_boundary": {
+    "claimed": "harness-safety full_world acceptance evidence only",
+    "not_claimed": [
+      "Stage 9 readiness",
+      "semantic grounding oracle readiness",
+      "backcasting",
+      "SME blind review",
+      "holdout validation",
+      "confirmed audit findings"
+    ]
+  }
+}

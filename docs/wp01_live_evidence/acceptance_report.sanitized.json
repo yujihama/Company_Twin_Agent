@@ -1,0 +1,346 @@
+{
+  "campaign_root": "runs/design_campaign_20260704_012445",
+  "scope": "full_world",
+  "passed": true,
+  "bundles": [
+    {
+      "run_root": "runs/design_campaign_20260704_012445/anchor_s2_seed0",
+      "passed": true,
+      "gates": [
+        {
+          "gate": "A-01 no_scripted_origin",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "gate": "A-02 live_required",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "gate": "A-03 inbox_whitelist",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "gate": "A-04 basis_authorship",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "gate": "A-05 grounding_population",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "gate": "A-10 tool_bundle_role_scoped",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "gate": "A-11 stale_visibility",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "gate": "A-08 customer_is_agent",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "gate": "A-12 d4_store_read_before_action",
+          "passed": true,
+          "detail": ""
+        }
+      ]
+    },
+    {
+      "run_root": "runs/design_campaign_20260704_012445/s0_000_P-01_emp-A_v0",
+      "passed": true,
+      "gates": [
+        {
+          "gate": "A-01 no_scripted_origin",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "gate": "A-02 live_required",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "gate": "A-03 inbox_whitelist",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "gate": "A-04 basis_authorship",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "gate": "A-05 grounding_population",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "gate": "A-10 tool_bundle_role_scoped",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "gate": "A-11 stale_visibility",
+          "passed": true,
+          "detail": ""
+        }
+      ]
+    },
+    {
+      "run_root": "runs/design_campaign_20260704_012445/s0_001_P-01_emp-A_v1",
+      "passed": true,
+      "gates": [
+        {
+          "gate": "A-01 no_scripted_origin",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "gate": "A-02 live_required",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "gate": "A-03 inbox_whitelist",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "gate": "A-04 basis_authorship",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "gate": "A-05 grounding_population",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "gate": "A-10 tool_bundle_role_scoped",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "gate": "A-11 stale_visibility",
+          "passed": true,
+          "detail": ""
+        }
+      ]
+    },
+    {
+      "run_root": "runs/design_campaign_20260704_012445/s0_002_P-01_emp-A_v0",
+      "passed": true,
+      "gates": [
+        {
+          "gate": "A-01 no_scripted_origin",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "gate": "A-02 live_required",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "gate": "A-03 inbox_whitelist",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "gate": "A-04 basis_authorship",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "gate": "A-05 grounding_population",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "gate": "A-10 tool_bundle_role_scoped",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "gate": "A-11 stale_visibility",
+          "passed": true,
+          "detail": ""
+        }
+      ]
+    },
+    {
+      "run_root": "runs/design_campaign_20260704_012445/s0_003_P-01_emp-A_v1",
+      "passed": true,
+      "gates": [
+        {
+          "gate": "A-01 no_scripted_origin",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "gate": "A-02 live_required",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "gate": "A-03 inbox_whitelist",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "gate": "A-04 basis_authorship",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "gate": "A-05 grounding_population",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "gate": "A-10 tool_bundle_role_scoped",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "gate": "A-11 stale_visibility",
+          "passed": true,
+          "detail": ""
+        }
+      ]
+    },
+    {
+      "run_root": "runs/design_campaign_20260704_012445/s1_P-01_seed0",
+      "passed": true,
+      "gates": [
+        {
+          "gate": "A-01 no_scripted_origin",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "gate": "A-02 live_required",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "gate": "A-03 inbox_whitelist",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "gate": "A-04 basis_authorship",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "gate": "A-05 grounding_population",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "gate": "A-10 tool_bundle_role_scoped",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "gate": "A-11 stale_visibility",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "gate": "A-08 customer_is_agent",
+          "passed": true,
+          "detail": ""
+        }
+      ]
+    },
+    {
+      "run_root": "runs/design_campaign_20260704_012445/s2_seed0",
+      "passed": true,
+      "gates": [
+        {
+          "gate": "A-01 no_scripted_origin",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "gate": "A-02 live_required",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "gate": "A-03 inbox_whitelist",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "gate": "A-04 basis_authorship",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "gate": "A-05 grounding_population",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "gate": "A-10 tool_bundle_role_scoped",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "gate": "A-11 stale_visibility",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "gate": "A-08 customer_is_agent",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "gate": "A-12 d4_store_read_before_action",
+          "passed": true,
+          "detail": ""
+        }
+      ]
+    }
+  ],
+  "campaign_gates": [
+    {
+      "gate": "A-06 s0_divergence_measured",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "gate": "A-07 stale_content_differs",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "gate": "A-09 anchor_is_live",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "gate": "A-14 confirmed_requires_fresh_reproduction",
+      "passed": true,
+      "detail": "no confirmed findings claimed"
+    },
+    {
+      "gate": "A-13 full_world_evidence",
+      "passed": true,
+      "detail": ""
+    }
+  ]
+}
