@@ -861,6 +861,89 @@ the same `WORLD_PROMPT_BANNED_TERMS`/`PATTERNS`, `LEAK_PATTERNS`, and
 `strip_experimenter_vocabulary` lint already enforced on other customer phrase
 pools.
 
+### 17.8 Round-4 blind SME review: memo content fidelity, sampler pairing, Latin mixing (2026-07-06 follow-up)
+
+Round 4 of the blind SME review, run against the categorized-gate world from
+§17.6, found two mechanical (customer-side) language-mixing flags and one
+content/structural finding in the internal-share memo. Both mechanical flags
+were language mixing in a CUSTOMER utterance, one of them Latin-script
+("お Busy だと思いますが") that `customer_agent.detect_non_japanese_tokens`
+did not yet check for. The structural finding was in
+`sme_blind_review._summarize_inbox_customer_share`: every "連絡事項の共有" memo
+rendered from one fixed skeleton
+("お客様より{product}の申込希望あり。期日は{date}。"), so ~20 memos differed only
+in product/date -- and the skeleton unconditionally asserted an application
+request even for a customer whose event was only at the
+consultation/hesitation stage, an internal-record content-fidelity bug
+(misstating what the customer actually said), not just a style problem.
+Separately, the reviewer packet still paired each sampled customer utterance
+with its own inbox-share memo about the same underlying event (~20
+utterance+memo pairs), because round 2's dedupe (§17.3) works on normalized
+*text* and the two excerpts are no longer textually identical after that
+fix -- they were still the same underlying event sampled twice.
+
+Fixed as world-surface + sampler changes, with experimental parameters
+frozen:
+
+- **Content fidelity (root cause).** `deck.CustomerEvent` gains
+  `customer_stage` ("consultation" | "application_intent" |
+  "procedural_request"), a genuine structured field -- not invented content
+  for the memo -- that also drives the routine deck's own `world_visible`
+  text (`deck._ROUTINE_WORLD_VISIBLE_BY_STAGE`), deterministically seeded per
+  `event_id` (`deck._seeded_stage`, same stable-hash pattern as
+  `identity.display_name_for_seat`, independent of any world `seed` since
+  `build_customer_deck` takes none). Previously every one of the 28 routine
+  events carried the identical "...申込の手続を進めたいと考えている。" text; now
+  the deck genuinely spans all three stages. The 10 probe events (P-01..P-10)
+  keep their existing, deliberately authored `world_visible` narratives
+  untouched and are classified `application_intent`/`procedural_request` from
+  their existing content (`deck._PROBE_STAGE_OVERRIDES` for P-08/P-09/P-10;
+  never `consultation`, since none of those fixed scenarios describe an
+  undecided customer).
+- **Memo renderer.** `sme_blind_review._summarize_inbox_customer_share` now
+  selects a stage-appropriate skeleton from
+  `_SHARE_MEMO_SKELETONS_BY_STAGE` (4 skeletons per stage) -- never asserting
+  "申込希望" for a `consultation`-stage event -- chosen deterministically from
+  (customer_id, event_id, receiving seat) via a seeded hash index, so memos
+  are not byte-identical clones across the deck. The receiving seat is read
+  from the ledger payload's own `to_seat` field (sibling to `message`,
+  already written by `recorder.record_inbox`) rather than being added to the
+  world-visible message itself: `customer_agent.world_visible_message` gained
+  `customer_stage` (added to `kernel.INBOX_ALLOWED_KEYS["customer_utterance"]`
+  as ordinary business-facing content) but deliberately did NOT add
+  `primary_seat`, which stays on `kernel.FORBIDDEN_INBOX_KEYS` as experimenter-plane
+  routing metadata under the P2 two-plane-separation guard.
+- **Sampler pairing.** `sme_blind_review.sample_run_bundle_excerpts` now
+  tracks the underlying `CustomerEvent.event_id` a `customer_utterance` row or
+  a customer-share `inbox_delivered` row derives from
+  (`_linked_customer_event_id`) and samples at most one excerpt per event_id
+  among that pair of kinds (this also collapses an utterance against its own
+  later reply, which shares the same event_id); a later, still-available
+  excerpt of any kind backfills the freed slot so packet size is not silently
+  reduced by the rule.
+- **Latin-mixing detector.** `customer_agent.detect_non_japanese_tokens`
+  gained a standalone-Latin-word check (`_LATIN_WORD_PATTERN`) alongside the
+  existing Simplified-Chinese-character/whole-token checks, with an
+  evidence-based allowlist (`_LATIN_TOKEN_ALLOWLIST` = `eKYC`/`CRM`/`FAQ`/
+  `KPI`/`KRI`/`BtoB`, plus the `DFH-SAL-\d+` document-id family matched
+  separately) built from citations actually found in this world's own
+  role-card/compiled-corpus text (role_cards/application.md's "本人確認
+  （eKYC）", second_line.md's "KPI/KRI"/"現場FAQ", sales.md's "現場FAQ",
+  manifest_v2.json's "eKYC、CRM", deck_v2.json's "加盟店BtoB"). `PC` was
+  considered (per the task's example list) but not added: no occurrence was
+  found anywhere in the searched corpus/design-doc text, so it would be a
+  guess rather than evidence. The retry-once-record-honestly semantics from
+  §17.5 are unchanged, and this remains customer-path only (wired through
+  `agents.DeepAgentCustomer.__call__`) -- seat-authored text is the
+  measurement subject and is never filtered or retried on this basis.
+
+Residual, deliberately not fixed: a semantically-odd-but-still-Japanese
+phrase (e.g. "手放しの範囲" used in a context where it does not quite fit) has
+no script/vocabulary signal to key on and remains an accepted, undetectable
+residual risk -- the same category of irreducible flag §17.6 already
+classifies as `design_content`/`statistical_structure` rather than
+`mechanical_generation`.
+
 ## 18. WP-12 parallel world-run executor (並列実行、2026-07-05)
 
 Phase-3 experiments run batches of independent S0/S1/S2/control-pair worlds

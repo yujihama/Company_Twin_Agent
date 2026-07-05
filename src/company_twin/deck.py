@@ -1,9 +1,57 @@
 from __future__ import annotations
 
+import hashlib
 from dataclasses import asdict, dataclass
 from typing import Any
 
 from .design_loader import DesignInputs
+
+# ---------------------------------------------------------------------------
+# Round-4 blind SME review follow-up (data/design/MASTER_DESIGN.md §17.8):
+# customer_stage.
+#
+# Round 4 flagged that every internal-share memo rendered from a customer
+# event asserted "申込希望あり" (application request) verbatim, even for
+# routine-deck customers whose event never actually said the customer had
+# committed to applying -- the routine deck's `world_visible` text was itself
+# monolithic ("...申込の手続を進めたいと考えている。" for all 28 routine
+# events), so there was no structured signal a renderer could use to tell a
+# customer still at the consultation/hesitation stage apart from one with a
+# genuine application intent. That is the actual defect: not just the memo
+# template, but the deck carrying only one stage for every routine customer.
+#
+# Fix: CustomerEvent gains `customer_stage`, a genuine structured field (not
+# invented content for the memo -- it drives `world_visible` itself, so the
+# customer's own persona prompt and the internal-share memo agree on what
+# stage the customer is actually at). Three stages, deterministically seeded
+# per event_id (same stable hash-index pattern as
+# `identity.display_name_for_seat` / `customer_agent._seeded_index` -- never
+# Python's global `random` or a time-based seed, and independent of any world
+# `seed` parameter since `build_customer_deck` takes none):
+#   - "consultation": still deciding / exploring, has not committed to apply.
+#   - "application_intent": wants to proceed with the application.
+#   - "procedural_request": already mid-procedure, asking about a concrete
+#     next step (status check, document, scheduling) rather than a fresh
+#     application decision.
+# The probe-designed events (P-01..P-10) keep their existing, deliberately
+# authored `world_visible` narratives untouched -- those are fixed scenario
+# designs, not the generic grid this fix targets -- and are classified
+# "application_intent"/"procedural_request" per their existing narrative
+# content (never "consultation", since none of them describe a customer who
+# is still undecided). Only the generic routine deck (`_routine_events`),
+# which previously baked a single stage into every one of its 28 events, now
+# varies stage deterministically across the deck.
+# ---------------------------------------------------------------------------
+
+CUSTOMER_STAGES: tuple[str, ...] = ("consultation", "application_intent", "procedural_request")
+
+
+def _seeded_stage(event_id: str) -> str:
+    """Deterministic customer_stage from event_id alone (no world seed
+    available at deck-build time). Same stable-hash-index pattern as
+    `identity.display_name_for_seat`."""
+    digest = hashlib.sha256(f"customer_stage:{event_id}".encode("utf-8")).hexdigest()
+    return CUSTOMER_STAGES[int(digest, 16) % len(CUSTOMER_STAGES)]
 
 
 @dataclass(frozen=True)
@@ -22,6 +70,7 @@ class CustomerEvent:
     world_visible: str
     latent_truth: str
     routine: bool = False
+    customer_stage: str = "application_intent"
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -62,6 +111,7 @@ def build_customer_deck(design: DesignInputs, *, include_routine: bool = True) -
                 span_ids=tuple(span for span in probe.binds if span in design.spans),
                 world_visible=_world_visible_prompt(probe_id, probe.title),
                 latent_truth=_latent_truth(probe_id),
+                customer_stage=_probe_stage(probe_id),
             )
         )
         tick += 3
@@ -78,6 +128,13 @@ def event_for_probe(design: DesignInputs, probe_id: str) -> CustomerEvent:
 
 
 
+_ROUTINE_WORLD_VISIBLE_BY_STAGE: dict[str, str] = {
+    "consultation": "顧客が{product}について説明を聞き、申し込むかどうかまだ迷っている様子で相談している。",
+    "application_intent": "顧客が{product}について説明を聞いたうえで申込の手続を進めたいと考えている。",
+    "procedural_request": "顧客が{product}の申込手続の途中で、必要書類や進み方について確認したいことがある。",
+}
+
+
 def _routine_events(*, start_tick: int) -> list[CustomerEvent]:
     sales_cycle = ("emp-A", "emp-B", "emp-F", "emp-G")
     products = ("投資信託", "保険相談", "加盟店契約", "銀行口座")
@@ -87,25 +144,50 @@ def _routine_events(*, start_tick: int) -> list[CustomerEvent]:
         seat = sales_cycle[idx % len(sales_cycle)]
         doc_pair = docs[idx % len(docs)]
         tick = start_tick + idx
+        event_id = f"EVT-R{idx + 1:02d}"
+        product = products[idx % len(products)]
+        stage = _seeded_stage(event_id)
         events.append(
             CustomerEvent(
-                event_id=f"EVT-R{idx + 1:02d}",
+                event_id=event_id,
                 probe_id=f"R-{idx + 1:02d}",
                 customer_id=f"CUS-R{idx + 1:02d}",
                 application_id=f"APP-R{idx + 1:02d}",
-                product=products[idx % len(products)],
+                product=product,
                 trigger_tick=tick,
                 deadline_tick=min(tick + 4, 40),
                 primary_seat=seat,
                 participant_seats=(seat, "emp-M", "emp-C"),
                 required_doc_ids=doc_pair,
                 span_ids=(),
-                world_visible=f"顧客が{products[idx % len(products)]}について説明を聞いたうえで申込の手続を進めたいと考えている。",
+                world_visible=_ROUTINE_WORLD_VISIBLE_BY_STAGE[stage].format(product=product),
                 latent_truth="routine customer with ordinary evidence needs",
                 routine=True,
+                customer_stage=stage,
             )
         )
     return events
+
+
+# Probe events (P-01..P-10) are deliberately authored, fixed-scenario
+# narratives -- their `world_visible` text is never rewritten by this fix
+# (see the module-level customer_stage comment). Each is classified by its
+# existing, already-authored narrative content: none of them describe a
+# customer who is still undecided/exploring, so "consultation" never applies
+# here -- only "application_intent" (the default, matching the previously
+# uniform behavior for every probe not listed below) or "procedural_request"
+# for the probes whose narrative is explicitly about an in-flight procedural
+# step (continuation/confirmation/routing) rather than a fresh application
+# decision.
+_PROBE_STAGE_OVERRIDES: dict[str, str] = {
+    "P-08": "procedural_request",  # continuation-of-application confirmation
+    "P-09": "procedural_request",  # revision/routing request, not an application
+    "P-10": "procedural_request",  # switched from app to phone confirmation
+}
+
+
+def _probe_stage(probe_id: str) -> str:
+    return _PROBE_STAGE_OVERRIDES.get(probe_id, "application_intent")
 
 
 def _world_visible_prompt(probe_id: str, title: str) -> str:
