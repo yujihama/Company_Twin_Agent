@@ -119,37 +119,66 @@ def sample_run_bundle_excerpts(run_root: Path, *, limit: int = 10) -> list[dict[
     (empty formulaic entries are themselves a tell that nothing was actually
     recorded). Dropping keeps every emitted excerpt honestly distinguishable
     instead of padding the packet with repeated placeholders.
+
+    Round-2 blind SME review (data/design/MASTER_DESIGN.md §17.3) additionally
+    flagged 20 content-duplicate pairs: an `inbox_delivered` ledger row
+    delivering a customer's own `customer_utterance` message to their primary
+    seat's inbox was being summarized the same way as an internal colleague
+    share -- "連絡事項の共有: <customer's first-person text, copied
+    verbatim>" -- which is byte-identical to the "顧客とのやり取り: <same
+    text>" excerpt already sampled from the `customer_utterance` ledger row.
+    Two fixes close this: (1) `_summarize_ledger_payload` now renders an
+    `inbox_delivered` row whose nested message is itself a customer_utterance
+    as a natural third-person business summary derived from structured
+    fields (product/deadline/application_id), never by echoing the utterance
+    text; (2) as defense in depth, every excerpt's *normalized* content
+    (labels and whitespace stripped) is deduped across the whole excerpt list
+    -- not just within the ledger loop and not just on exact string match --
+    so one underlying event can never surface twice under two different
+    labels.
     """
     chat_rows = read_jsonl(run_root / "chat_channel.jsonl")
     ledger_rows = read_jsonl(run_root / "world_ledger.jsonl")
     excerpts: list[dict[str, Any]] = []
+    seen_normalized: set[str] = set()
+
+    def _try_add(excerpt_id: str, kind: str, text: str) -> None:
+        normalized = _normalize_excerpt_content(text)
+        if not normalized or normalized in seen_normalized:
+            return
+        seen_normalized.add(normalized)
+        excerpts.append({"excerpt_id": excerpt_id, "kind": kind, "text": text})
+
     for row in chat_rows:
         body = str(row.get("body") or "").strip()
         if not body:
             continue
-        excerpts.append(
-            {
-                "excerpt_id": f"chat_{len(excerpts)}",
-                "kind": "chat_message",
-                "text": body,
-            }
-        )
-    seen_summaries: set[str] = set()
+        _try_add(f"chat_{len(excerpts)}", "chat_message", body)
     for row in ledger_rows:
         event_type = str(row.get("event_type") or "")
         phrasing = _LEDGER_EVENT_PHRASING.get(event_type)
         if phrasing is None:
             continue
         payload = row.get("payload") or {}
-        summary = _summarize_ledger_payload(phrasing, payload)
-        if not summary or summary in seen_summaries:
+        summary = _summarize_ledger_payload(event_type, phrasing, payload)
+        if not summary:
             continue
-        seen_summaries.add(summary)
-        excerpts.append({"excerpt_id": f"ledger_{len(excerpts)}", "kind": "business_event", "text": summary})
+        _try_add(f"ledger_{len(excerpts)}", "business_event", summary)
     return excerpts[:limit]
 
 
-def _summarize_ledger_payload(phrasing: str, payload: dict[str, Any]) -> str:
+def _summarize_ledger_payload(event_type: str, phrasing: str, payload: dict[str, Any]) -> str:
+    if event_type == "inbox_delivered":
+        nested = payload.get("message") or {}
+        if isinstance(nested, dict) and str(nested.get("kind") or "") == "customer_utterance":
+            # A customer's own message being delivered to their primary
+            # seat's inbox is not an internal colleague share -- render it as
+            # a natural third-person business summary derived from the
+            # structured fields (product/deadline/application_id), never by
+            # copying the customer's first-person utterance text (that
+            # would duplicate the "顧客とのやり取り" excerpt sampled from the
+            # customer_utterance ledger row for the same event).
+            return _summarize_inbox_customer_share(nested)
     body = str(payload.get("body") or payload.get("utterance") or "").strip()
     if not body:
         # inbox_delivered rows nest the actual message under "message"
@@ -162,6 +191,38 @@ def _summarize_ledger_payload(phrasing: str, payload: dict[str, Any]) -> str:
     # No distinguishing content available -- an honest caller should drop
     # this rather than emit bare, repeatable boilerplate.
     return ""
+
+
+def _summarize_inbox_customer_share(message: dict[str, Any]) -> str:
+    """Render a customer_utterance inbox delivery as a natural internal-share
+    summary built only from whitelisted structured fields (never the
+    customer's own words) -- e.g. "連絡事項の共有: お客様より投資信託の申込希望あり。
+    期日は4月3日。". Deterministic: same fields always render the same text.
+    """
+    product = str(message.get("product") or "").strip()
+    deadline_display = str(message.get("deadline_display") or "").strip()
+    if not product and not deadline_display:
+        return ""
+    parts = [f"お客様より{product}の申込希望あり。" if product else "お客様より申込希望あり。"]
+    if deadline_display:
+        deadline_text = deadline_display[:-2] if deadline_display.endswith("まで") else deadline_display
+        parts.append(f"期日は{deadline_text}。")
+    return f"連絡事項の共有: {''.join(parts)}"
+
+
+_WHITESPACE_RE = re.compile(r"\s+")
+_LABEL_PREFIX_RE = re.compile(r"^[^:：]{1,20}[:：]\s*")
+
+
+def _normalize_excerpt_content(text: str) -> str:
+    """Normalize excerpt text for duplicate detection: strip a leading
+    "label: " prefix (e.g. "顧客とのやり取り: ", "連絡事項の共有: ") and collapse
+    whitespace, so the same underlying content sampled under two different
+    labels collapses to the same key. This is a content-dedup key only, never
+    shown to a reviewer.
+    """
+    stripped = _LABEL_PREFIX_RE.sub("", text.strip())
+    return _WHITESPACE_RE.sub("", stripped)
 
 
 _LEADING_BOUNDARY_RE = re.compile(r"^\\b")

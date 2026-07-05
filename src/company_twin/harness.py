@@ -358,7 +358,7 @@ def _run_world(
                 continue
             emit_customer_reply(kernel=kernel, recorder=recorder, actor=actor, to_seat=contact["seat_id"], staff_message=contact["summary"], tick=tick)
         for event in events_by_tick.get(tick, []):
-            actors[event.customer_id] = emit_customer_turn(kernel=kernel, recorder=recorder, event=event, tick=tick, customer_llm=customer)
+            actors[event.customer_id] = emit_customer_turn(kernel=kernel, recorder=recorder, event=event, tick=tick, customer_llm=customer, persona_seed=seed)
         sweeps = 2 if stage == "S1" else 1
         for _sweep in range(sweeps):  # S1 gets a same-tick follow-up pass; S2 advances across ticks.
             pending = [seat_id for seat_id in kernel.inbox_nonempty_seats() if seat_id in active_seats]

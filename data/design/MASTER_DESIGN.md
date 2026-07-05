@@ -590,3 +590,34 @@ campaign data recorded under the pre-fix world stays valid for its own era
 run is required before re-submitting to SME blind review -- the 11/39 pass
 rate belongs to the old world version and cannot be blended with post-fix
 results.
+
+### 17.3 Round-2 blind SME review: verbatim rebroadcast + template-grid fix (2026-07-05 follow-up)
+
+Round 2 of the blind SME review found two further structural findings.
+First, a customer's own `customer_utterance` message, when delivered to its
+primary seat's inbox, was independently re-summarized by
+`sme_blind_review._summarize_ledger_payload` as an internal colleague share
+labeled "連絡事項の共有" with the customer's first-person text copied
+verbatim -- byte-identical to the "顧客とのやり取り" excerpt already sampled
+from the same event, producing 20 content-duplicate pairs in the packet.
+Second, all 38 customers spoke with one skeleton (product name + completion
+deadline + a literal control-condition declaration such as "通常どおりで結構
+です"), letting the reviewer read the 4-products x near-sequential-deadlines
+design grid straight off the packet.
+
+Both are fixed as world-surface changes, with experimental parameters frozen:
+`_summarize_ledger_payload` now renders an `inbox_delivered` row nesting a
+customer_utterance as a natural third-person business summary built only
+from structured fields (product/deadline_display), never by echoing the
+utterance text, and `sample_run_bundle_excerpts` additionally dedupes every
+excerpt by normalized (label-stripped) content so one underlying event can
+never surface twice under two labels. `company_twin.customer_agent` gained
+seeded paraphrase pools (opening, deadline mention-or-omission,
+control-condition omission/indirect phrasing, closing) selected by a
+deterministic function of world seed + `customer_id` (the same
+sum/hash-index pattern `identity.display_name_for_seat` already uses, never
+Python's global `random` or a time-based seed); `CustomerEvent`'s structured
+fields (product, deadlines, latent_truth/elderly/complication flags, event
+timing) are untouched by this change -- only the surface phrasing fed to the
+customer LLM is diversified, verified by asserting the full 38-event deck's
+`to_dict()` output is unchanged before/after phrasing is rendered.
