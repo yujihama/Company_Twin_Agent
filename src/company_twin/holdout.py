@@ -29,6 +29,17 @@ offline harness for that gate:
 - write_holdout_inputs()/write_holdout_report(): write the readiness-facing
   evidence files in the schema_version envelope used across Stage 9 reports.
 
+2026-07-05 approved recalibration (MASTER_DESIGN.md section 17.5): every
+injection also carries an `arm` ("positive_control" | "benign_control",
+sealed into plan_hash) and the plan seals `control_run_roots` (designated
+no-mutation control run roots). `positive_control` strict detection is
+delta-aware -- an expected finding_type must exceed the no-mutation control
+baseline, not merely be present (see _score_injection/_compute_control_baseline).
+`benign_control` injections (role_table_fix by default -- a corrective
+operator, not one expected to introduce a new anomaly) are excluded from the
+positive-control denominator and instead scored by score_benign_controls on
+whether nothing went newly wrong, reported in their own section.
+
 This module never calls an LLM or external API. Detection-rate measurement
 against live campaign data happens later, by pointing compute_holdout_detection_rate
 at real run bundles; this module only supplies the plan/measurement machinery
@@ -48,12 +59,39 @@ HOLDOUT_INPUTS_SCHEMA_VERSION = "company_twin.holdout_inputs.v1"
 HOLDOUT_DETECTION_TARGET = 0.80
 
 
+ARM_POSITIVE_CONTROL = "positive_control"
+ARM_BENIGN_CONTROL = "benign_control"
+INJECTION_ARMS: tuple[str, ...] = (ARM_POSITIVE_CONTROL, ARM_BENIGN_CONTROL)
+
+# Default arm assignment by operator family (MASTER_DESIGN.md section 17,
+# 2026-07-05 approved recalibration). role_table_fix is a corrective/
+# de-ambiguating operator -- the mutation catalog row itself frames it as
+# "帰属矛盾の解消は誤宛先報告を減らすか" (does resolving attribution ambiguity
+# REDUCE misdirected reports), and world_config_v2.yaml/FUZZING_HARNESS_DESIGN
+# mutation_space frame it the same way -- so it is not expected to produce an
+# approval/SoD anomaly finding the way clarify/contradict/dangling_fill are;
+# it is scored as a benign_control (a run where nothing should go newly
+# wrong), not a positive_control (a run where a specific anomaly should be
+# newly detected). All other catalogued operators default to positive_control.
+_ARM_BY_OPERATOR: dict[str, str] = {
+    "clarify": ARM_POSITIVE_CONTROL,
+    "contradict": ARM_POSITIVE_CONTROL,
+    "dangling_fill": ARM_POSITIVE_CONTROL,
+    "role_table_fix": ARM_BENIGN_CONTROL,
+}
+
+
+def _default_arm_for_operator(operator: str) -> str:
+    return _ARM_BY_OPERATOR.get(operator, ARM_POSITIVE_CONTROL)
+
+
 def build_holdout_injection_plan(
     root: Path,
     *,
     mutation_ids: list[str] | None = None,
     run_roots: list[str] | None = None,
     planned_ticks: int = 0,
+    control_run_roots: list[str] | None = None,
 ) -> dict[str, Any]:
     """Build a WP-14 holdout injection plan from the WP-06 mutation catalog.
 
@@ -67,6 +105,17 @@ def build_holdout_injection_plan(
     compatibility with plans built before this field existed) is the expected
     world_ledger tick coverage a live S2 bundle attributed to this injection
     must reach; see holdout.verify_holdout_bundles/write_holdout_report.
+
+    Each injection gains an `arm` field ("positive_control" | "benign_control",
+    see `_ARM_BY_OPERATOR`/`_default_arm_for_operator`), sealed as part of
+    `plan_hash` -- an arm cannot be silently swapped after the plan is built.
+    `control_run_roots` (designated no-mutation control run-root names, e.g.
+    the campaign's anchor/plain S2 bundles) are likewise RECORDED IN THE PLAN
+    (sealed into `plan_hash`) so the delta-aware detection basis in
+    `compute_holdout_detection_rate` and the benign-control baseline check in
+    `score_benign_controls` both compare against the exact control set that
+    was pre-registered at plan-build time, not one chosen post-hoc at scoring
+    time.
     """
     catalog = load_mutation_catalog(root)
     if not catalog:
@@ -85,6 +134,7 @@ def build_holdout_injection_plan(
                 "expected_finding_types mapping; add one to _EXPECTED_FINDING_TYPES_BY_OPERATOR before "
                 "it can be scored"
             )
+        operator = str(spec.get("operator") or "")
         injections.append(
             {
                 "injection_id": f"holdout_{mutation_id}",
@@ -96,6 +146,7 @@ def build_holdout_injection_plan(
                 "spec_hash": _json_hash(spec),
                 "planned_run_roots": list(run_roots or []),
                 "planned_ticks": int(planned_ticks),
+                "arm": _default_arm_for_operator(operator),
             }
         )
     payload = {
@@ -106,7 +157,8 @@ def build_holdout_injection_plan(
         "mutation_catalog_path": "data/compiled_data/mutation_operators_v1.json",
         "injection_count": len(injections),
         "injections": injections,
-        "plan_hash": _json_hash(injections),
+        "control_run_roots": list(control_run_roots or []),
+        "plan_hash": _json_hash({"injections": injections, "control_run_roots": list(control_run_roots or [])}),
         "note": "Planning artifact only. Execution and scoring require live run bundles scored by compute_holdout_detection_rate.",
     }
     return payload
@@ -181,6 +233,18 @@ def _expected_finding_types(spec: dict[str, Any]) -> list[str]:
     return list(_EXPECTED_FINDING_TYPES_BY_OPERATOR.get(operator, []))
 
 
+def _injection_arm(injection: dict[str, Any]) -> str:
+    """Resolve an injection's arm with backward compatibility: a plan built
+    before the `arm` field existed (no `arm` key at all) treats every
+    injection as `positive_control` -- the old behavior, and the strictest
+    interpretation (nothing is quietly exempted from the positive
+    denominator just because the plan predates arms)."""
+    arm = injection.get("arm")
+    if arm in INJECTION_ARMS:
+        return arm
+    return ARM_POSITIVE_CONTROL
+
+
 def compute_holdout_detection_rate(
     campaign_root: Path,
     injection_plan: dict[str, Any],
@@ -205,8 +269,21 @@ def compute_holdout_detection_rate(
     - ``strict``: only L0 finding_types / L1-detected finding_types that
       appear in the injection's pre-registered ``expected_finding_types``
       (frozen at plan-build time by ``build_holdout_injection_plan`` /
-      ``_expected_finding_types``) count as detected. This is the official
-      acceptance basis (``detection_rate_basis: "strict"``).
+      ``_expected_finding_types``) AND exceed the no-mutation control
+      baseline (``compute_holdout_detection_rate``'s delta-aware gating --
+      see ``_score_injection``/``_compute_control_baseline``) count as
+      detected. This is the official acceptance basis
+      (``detection_rate_basis: "strict"``).
+
+    Only ``positive_control``-arm injections count toward the official
+    ``detection_rate``/``detected_count``/``injection_count`` (and therefore
+    the pass/fail gate): a ``benign_control``-arm injection (e.g.
+    role_table_fix, a corrective/de-ambiguating operator that is not expected
+    to produce a NEW anomaly finding) is scored separately by
+    ``score_benign_controls`` and reported under its own section, never
+    folded into the positive-control denominator. A plan built before the
+    ``arm`` field existed has every injection default to ``positive_control``
+    (old behavior, strictest -- see ``_injection_arm``).
 
     Every mutation's evidence is itemized so the readiness check can reject
     an unsupported claim.
@@ -225,23 +302,35 @@ def compute_holdout_detection_rate(
                 "holdout scoring requires every injection to carry a pre-registered expected-detection spec "
                 "so strict_detection_rate cannot be chosen post-hoc"
             )
+    control_run_roots = list(injection_plan.get("control_run_roots") or [])
     per_injection: list[dict[str, Any]] = []
     lenient_detected_count = 0
     strict_detected_count = 0
+    positive_control_count = 0
     for injection in injections:
         mutation_id = str(injection.get("mutation_id") or "")
         expected_finding_types = list(injection.get("expected_finding_types") or [])
+        arm = _injection_arm(injection)
         run_roots = _resolve_run_roots(campaign_root, injection, run_lookup=run_lookup)
-        evidence = _score_injection(campaign_root, mutation_id, run_roots, expected_finding_types=expected_finding_types)
-        if evidence["lenient_detected"]:
-            lenient_detected_count += 1
-        if evidence["strict_detected"]:
-            strict_detected_count += 1
+        evidence = _score_injection(
+            campaign_root,
+            mutation_id,
+            run_roots,
+            expected_finding_types=expected_finding_types,
+            control_run_roots=control_run_roots,
+        )
+        if arm == ARM_POSITIVE_CONTROL:
+            positive_control_count += 1
+            if evidence["lenient_detected"]:
+                lenient_detected_count += 1
+            if evidence["strict_detected"]:
+                strict_detected_count += 1
         per_injection.append(
             {
                 "injection_id": injection.get("injection_id"),
                 "mutation_id": mutation_id,
                 "spec_hash": injection.get("spec_hash"),
+                "arm": arm,
                 "expected_finding_types": expected_finding_types,
                 # Backward-compatible alias: "detected"/"reason" reflect the
                 # official strict basis, matching the top-level passed field.
@@ -250,7 +339,7 @@ def compute_holdout_detection_rate(
                 **evidence,
             }
         )
-    total = len(injections)
+    total = positive_control_count
     lenient_detection_rate = lenient_detected_count / total if total else 0.0
     strict_detection_rate = strict_detected_count / total if total else 0.0
     target = float(injection_plan.get("detection_target") or HOLDOUT_DETECTION_TARGET)
@@ -261,7 +350,12 @@ def compute_holdout_detection_rate(
         "plan_hash": injection_plan.get("plan_hash"),
         "detection_target": target,
         "detection_rate_basis": "strict",
+        # injection_count/detected_count/detection_rate are POSITIVE-CONTROL
+        # ONLY -- benign_control-arm injections are excluded from this
+        # denominator (see score_benign_controls for their own reporting).
         "injection_count": total,
+        "total_injection_count": len(injections),
+        "benign_control_count": len(injections) - positive_control_count,
         # Official fields (strict basis) -- these are what gates acceptance.
         "detected_count": strict_detected_count,
         "detection_rate": strict_detection_rate,
@@ -303,14 +397,79 @@ def _matching_mutation_run_roots(campaign_root: Path, mutation_id: str) -> list[
     return roots
 
 
+def _run_finding_type_rates(run_root: Path) -> dict[str, dict[str, Any]]:
+    """Per-finding_type opportunity-normalized rate for one run bundle.
+
+    L1 finding_types (mapped via rule_hit_rate's recorded finding_type) carry
+    a genuine opportunity denominator (rule_hit_rate's `opportunity_count`),
+    so their rate is `hit_count / opportunity_count`. L0 finding_types
+    (triage/metrics.json `finding_types` counts) have no such denominator
+    recorded on the bundle; their rate is instead the raw count as a
+    presence-weighted proxy (denominator=1, i.e. rate == count), which is
+    only ever used for a same-run-shape control-vs-mutated *comparison*
+    (never presented as a probability). Every finding_type present on the
+    run at all is included, with rate 0.0 for hit_count==0 entries kept only
+    if population is still explicitly present in the metrics.
+    """
+    metrics = _read_json(run_root / "triage" / "metrics.json")
+    finding_types = metrics.get("finding_types") or {}
+    rule_hit = metrics.get("rule_hit_rate") or {}
+    rates: dict[str, dict[str, Any]] = {}
+    for finding_type, count in finding_types.items():
+        rates[str(finding_type)] = {"rate": float(count or 0), "opportunity_count": None, "hit_count": int(count or 0), "source": "l0"}
+    for row in rule_hit.values():
+        finding_type = str(row.get("finding_type") or "")
+        if not finding_type:
+            continue
+        opportunity_count = int(row.get("opportunity_count") or 0)
+        hit_count = int(row.get("hit_count") or 0)
+        rate = (hit_count / opportunity_count) if opportunity_count else float(hit_count)
+        existing = rates.get(finding_type)
+        if existing is None or rate > existing["rate"]:
+            rates[finding_type] = {"rate": rate, "opportunity_count": opportunity_count, "hit_count": hit_count, "source": "l1"}
+    return rates
+
+
+def _compute_control_baseline(campaign_root: Path, control_run_roots: list[str], finding_types: set[str]) -> dict[str, dict[str, Any]]:
+    """Per-finding_type no-mutation control baseline, across the sealed
+    `control_run_roots` recorded in the plan.
+
+    For each finding_type, records whether it ever fired on any control run
+    (`present_in_any_control`) and the maximum opportunity-normalized rate
+    observed across the control runs (`max_rate`, 0.0 if absent everywhere).
+    An empty `control_run_roots` list yields an all-absent baseline for every
+    finding_type (max_rate=0.0, present_in_any_control=False) -- the honest
+    "no controls supplied" case, which makes any presence in the mutated run
+    exceed baseline (presence-suffices semantics), never silently pass.
+    """
+    baseline: dict[str, dict[str, Any]] = {
+        finding_type: {"present_in_any_control": False, "max_rate": 0.0, "per_control_rate": {}} for finding_type in finding_types
+    }
+    for name in control_run_roots:
+        control_root = campaign_root / name
+        control_rates = _run_finding_type_rates(control_root)
+        for finding_type in finding_types:
+            row = control_rates.get(finding_type)
+            rate = float(row["rate"]) if row else 0.0
+            entry = baseline[finding_type]
+            entry["per_control_rate"][name] = rate
+            if rate > 0.0:
+                entry["present_in_any_control"] = True
+            entry["max_rate"] = max(entry["max_rate"], rate)
+    return baseline
+
+
 def _score_injection(
     campaign_root: Path,
     mutation_id: str,
     run_roots: list[Path],
     *,
     expected_finding_types: list[str],
+    control_run_roots: list[str] | None = None,
 ) -> dict[str, Any]:
     expected = set(expected_finding_types)
+    control_run_roots = list(control_run_roots or [])
+    baseline = _compute_control_baseline(campaign_root, control_run_roots, expected)
     if not run_roots:
         return {
             "lenient_detected": False,
@@ -321,6 +480,8 @@ def _score_injection(
             "l1_monitoring_rules": [],
             "l1_finding_types": [],
             "matched_expected_finding_types": [],
+            "baseline_confounded_finding_types": [],
+            "control_baseline": baseline,
             "runs": [],
             "lenient_reason": "no matching run bundles for this mutation_id",
             "strict_reason": "no matching run bundles for this mutation_id",
@@ -330,6 +491,7 @@ def _score_injection(
     l1_finding_types: set[str] = set()
     l0_finding_count = 0
     run_rows: list[dict[str, Any]] = []
+    combined_rates: dict[str, float] = {finding_type: 0.0 for finding_type in expected}
     for run_root in run_roots:
         metrics = _read_json(run_root / "triage" / "metrics.json")
         finding_types = metrics.get("finding_types") or {}
@@ -364,6 +526,10 @@ def _score_injection(
         l1_rules |= set(run_l1_rules)
         l1_finding_types |= set(run_l1_finding_types)
         l0_finding_count += run_l0_count
+        run_rates = _run_finding_type_rates(run_root)
+        for finding_type in expected:
+            rate = float(run_rates.get(finding_type, {}).get("rate") or 0.0)
+            combined_rates[finding_type] = max(combined_rates[finding_type], rate)
         run_rows.append(
             {
                 "run_root": run_root.name,
@@ -375,11 +541,38 @@ def _score_injection(
             }
         )
     lenient_detected = l0_finding_count > 0 or bool(l1_rules)
-    matched_expected = (l0_finding_types | l1_finding_types) & expected
+    observed_expected = (l0_finding_types | l1_finding_types) & expected
+
+    # Delta-aware strict detection (2026-07-05 approved recalibration,
+    # MASTER_DESIGN.md section 17): an expected finding_type firing on the
+    # mutated run is only a genuine hit if it EXCEEDS the no-mutation control
+    # baseline. If the type never fires in any control, mere presence on the
+    # mutated run suffices (nothing to exceed). If it does fire in controls
+    # (baseline noise), the mutated run's rate must exceed the max control
+    # rate; a type that fires but does not clear that bar is
+    # `baseline_confounded`, not detected -- because the no-mutation controls
+    # showed the same finding types firing on unmutated runs, so presence
+    # alone cannot distinguish mutation-caused signal from baseline noise.
+    matched_expected: set[str] = set()
+    baseline_confounded: set[str] = set()
+    for finding_type in observed_expected:
+        entry = baseline.get(finding_type, {"present_in_any_control": False, "max_rate": 0.0})
+        if not entry["present_in_any_control"]:
+            matched_expected.add(finding_type)
+        elif combined_rates.get(finding_type, 0.0) > entry["max_rate"]:
+            matched_expected.add(finding_type)
+        else:
+            baseline_confounded.add(finding_type)
     strict_detected = bool(matched_expected)
     lenient_reason = "" if lenient_detected else "matching run bundles produced no L0 findings or L1 monitoring hits"
     if strict_detected:
         strict_reason = ""
+    elif baseline_confounded:
+        strict_reason = (
+            f"expected_finding_types {sorted(baseline_confounded)} fired on the mutated run but did not "
+            "exceed the no-mutation control baseline (baseline_confounded) -- "
+            f"control_baseline={ {ft: baseline[ft] for ft in sorted(baseline_confounded)} }"
+        )
     elif lenient_detected:
         strict_reason = (
             "matching run bundles produced L0/L1 signals but none matched the pre-registered "
@@ -397,6 +590,8 @@ def _score_injection(
         "l1_monitoring_rules": sorted(l1_rules),
         "l1_finding_types": sorted(l1_finding_types),
         "matched_expected_finding_types": sorted(matched_expected),
+        "baseline_confounded_finding_types": sorted(baseline_confounded),
+        "control_baseline": baseline,
         "runs": run_rows,
         "lenient_reason": lenient_reason,
         "strict_reason": strict_reason,
@@ -521,6 +716,14 @@ def verify_holdout_bundles(campaign_root: Path, injection_plan: dict[str, Any], 
     a matching mutation_id (_matching_mutation_run_roots) -- that implicit
     scanning path can attribute a run that merely happens to share a
     mutation_id, so it is recorded as exploration-mode and cannot verify.
+
+    Only ``positive_control``-arm injections are counted in
+    ``injection_count``/``verified_count``/``all_verified`` (this is what
+    gates write_holdout_report's pass/fail); ``benign_control``-arm
+    injections are still verified and included in ``per_injection`` for
+    visibility, but their bundle verification is gated separately inside
+    ``score_benign_controls``, not here -- a benign_control bundle problem
+    must not block the positive-control gate.
     """
     injections = injection_plan.get("injections") or []
     per_injection: list[dict[str, Any]] = []
@@ -537,16 +740,19 @@ def verify_holdout_bundles(campaign_root: Path, injection_plan: dict[str, Any], 
         else:
             resolution_mode = "exploration"
             run_roots = _matching_mutation_run_roots(campaign_root, str(injection.get("mutation_id") or ""))
-        per_injection.append(_verify_one_injection_bundle(campaign_root, injection, run_roots=run_roots, resolution_mode=resolution_mode))
-    verified_count = sum(1 for row in per_injection if row["verified"])
-    total = len(per_injection)
+        row = _verify_one_injection_bundle(campaign_root, injection, run_roots=run_roots, resolution_mode=resolution_mode)
+        row["arm"] = _injection_arm(injection)
+        per_injection.append(row)
+    positive_rows = [row for row in per_injection if row["arm"] == ARM_POSITIVE_CONTROL]
+    verified_count = sum(1 for row in positive_rows if row["verified"])
+    total = len(positive_rows)
     return {
         "kind": "holdout_bundle_verification",
         "plan_hash": injection_plan.get("plan_hash"),
         "injection_count": total,
         "verified_count": verified_count,
         "all_verified": total > 0 and verified_count == total,
-        "any_exploration_mode": any(row["resolution_mode"] == "exploration" for row in per_injection),
+        "any_exploration_mode": any(row["resolution_mode"] == "exploration" for row in positive_rows),
         "per_injection": per_injection,
     }
 
@@ -596,6 +802,124 @@ def score_holdout_controls(campaign_root: Path, injection_plan: dict[str, Any], 
     }
 
 
+# ---------------------------------------------------------------------------
+# Benign-control arm scoring (2026-07-05 approved recalibration)
+# ---------------------------------------------------------------------------
+#
+# role_table_fix is a corrective/de-ambiguating operator (MASTER_DESIGN.md
+# mutation-operator-catalog row: "帰属矛盾の解消は誤宛先報告を減らすか"), not one
+# expected to introduce a NEW approval/SoD anomaly the way clarify/contradict/
+# dangling_fill are. Scoring it against the positive-control expected-finding
+# machinery (as the pre-#26-world campaign did) produced exactly one miss,
+# and that miss had zero approval events at all (opportunity_count=0 for
+# every expected type on every run) -- i.e. the holdout code's
+# approval-anomaly expectation contradicted the design intent for this
+# operator. benign_control injections are therefore scored on a different,
+# honest question: "did nothing go NEWLY wrong", not "did the pre-registered
+# anomaly appear".
+def score_benign_controls(
+    campaign_root: Path,
+    injection_plan: dict[str, Any],
+    *,
+    run_lookup: dict[str, Path] | None = None,
+) -> dict[str, Any] | None:
+    """Score every benign_control-arm injection against its own pass
+    criterion: (i) bundle verification passes (same structural checks as a
+    positive_control injection -- spec_hash consistency, stage S2, tick
+    coverage, no failure marker, explicit resolution), (ii) NONE of the
+    anomaly types previously expected for it (its own pre-registered
+    `expected_finding_types` -- sod_pattern/approval_concentration/
+    alternative_approval_chain for role_table_fix) fire as findings on its
+    run (no false alarm), and (iii) for each of those anomaly types, the
+    run's opportunity-normalized rate is at or below the sealed no-mutation
+    control baseline (`control_run_roots` recorded in the plan) -- a
+    machine-checkable "did not get NEWLY worse than baseline" comparison.
+
+    Returns ``None`` when the plan has no benign_control-arm injections
+    (nothing to score) so a positive-control-only plan's report is
+    unaffected. The result NEVER folds into the positive-control strict
+    denominator (compute_holdout_detection_rate excludes benign_control arm
+    injections entirely) and is reported in its own section.
+    """
+    injections = [injection for injection in (injection_plan.get("injections") or []) if _injection_arm(injection) == ARM_BENIGN_CONTROL]
+    if not injections:
+        return None
+    control_run_roots = list(injection_plan.get("control_run_roots") or [])
+    per_injection: list[dict[str, Any]] = []
+    passed_count = 0
+    for injection in injections:
+        injection_id = str(injection.get("injection_id") or "")
+        mutation_id = str(injection.get("mutation_id") or "")
+        expected_finding_types = list(injection.get("expected_finding_types") or [])
+        run_roots = _resolve_run_roots(campaign_root, injection, run_lookup=run_lookup)
+        explicit_lookup = run_lookup is not None and injection_id in run_lookup
+        declared_roots = list(injection.get("planned_run_roots") or [])
+        resolution_mode = "explicit" if (explicit_lookup or declared_roots) else "exploration"
+        verification = _verify_one_injection_bundle(campaign_root, injection, run_roots=run_roots, resolution_mode=resolution_mode)
+        bundle_ok = bool(verification["verified"])
+
+        baseline = _compute_control_baseline(campaign_root, control_run_roots, set(expected_finding_types))
+        false_alarm_finding_types: list[str] = []
+        at_or_below_baseline_finding_types: list[str] = []
+        above_baseline_finding_types: list[str] = []
+        for finding_type in expected_finding_types:
+            observed_rate = 0.0
+            for run_root in run_roots:
+                run_rates = _run_finding_type_rates(run_root)
+                observed_rate = max(observed_rate, float(run_rates.get(finding_type, {}).get("rate") or 0.0))
+            if observed_rate > 0.0:
+                false_alarm_finding_types.append(finding_type)
+            max_control_rate = baseline.get(finding_type, {}).get("max_rate", 0.0)
+            if observed_rate <= max_control_rate:
+                at_or_below_baseline_finding_types.append(finding_type)
+            else:
+                above_baseline_finding_types.append(finding_type)
+        no_false_alarm = not false_alarm_finding_types
+        at_or_below_baseline = not above_baseline_finding_types
+        benign_ok = bool(run_roots) and bundle_ok and no_false_alarm and at_or_below_baseline
+        if benign_ok:
+            passed_count += 1
+        problems: list[str] = []
+        if not run_roots:
+            problems.append("no run bundles attributed to this benign_control injection")
+        if not bundle_ok:
+            problems.append(f"bundle verification failed: {verification['detail']}")
+        if not no_false_alarm:
+            problems.append(f"false alarm: expected_finding_types {false_alarm_finding_types} fired on this run (none should)")
+        if not at_or_below_baseline:
+            problems.append(f"exceeded no-mutation control baseline for {above_baseline_finding_types}")
+        per_injection.append(
+            {
+                "injection_id": injection_id,
+                "mutation_id": mutation_id,
+                "arm": ARM_BENIGN_CONTROL,
+                "expected_finding_types": expected_finding_types,
+                "bundle_verification_passed": bundle_ok,
+                "false_alarm_finding_types": false_alarm_finding_types,
+                "at_or_below_baseline_finding_types": at_or_below_baseline_finding_types,
+                "above_baseline_finding_types": above_baseline_finding_types,
+                "control_baseline": baseline,
+                "passed": benign_ok,
+                "detail": "" if benign_ok else "; ".join(problems),
+            }
+        )
+    total = len(injections)
+    return {
+        "kind": "benign_control_scoring",
+        "injection_count": total,
+        "passed_count": passed_count,
+        "all_passed": total > 0 and passed_count == total,
+        "per_injection": per_injection,
+        "note": (
+            "benign_control-arm injections (e.g. role_table_fix, a corrective/de-ambiguating operator) are "
+            "scored on whether nothing went NEWLY wrong: bundle verification passes, none of the anomaly "
+            "types previously expected for the operator fire as a false alarm, and the run's rate for each "
+            "of those types is at or below the sealed no-mutation control baseline. Never folded into the "
+            "positive-control strict denominator; reported here in its own section."
+        ),
+    }
+
+
 def write_holdout_report(
     campaign_root: Path,
     *,
@@ -622,6 +946,18 @@ def write_holdout_report(
     campaign's anchor/plain S2 runs) are scored with the same detectors for a
     false-alarm profile; a missing controls section is a warning, not a
     failure -- see score_holdout_controls.
+
+    2026-07-05 approved recalibration (MASTER_DESIGN.md section 17):
+    `benign_control`-arm injections (see build_holdout_injection_plan's
+    `arm` field) are excluded from the positive-control strict denominator
+    (compute_holdout_detection_rate) and from the positive bundle-
+    verification gate (verify_holdout_bundles); they are instead scored by
+    `score_benign_controls` and reported in their own `benign_controls`
+    section. A `control_run_roots` list is preferred from the sealed plan
+    (`holdout_inputs.json`'s `control_run_roots`, part of `plan_hash`); the
+    `control_run_roots` parameter here is additionally unioned in for the
+    pre-existing `score_holdout_controls` false-alarm-profile section (kept
+    as a caller convenience, not part of the sealed plan).
     """
     inputs_path = campaign_root / "holdout_inputs.json"
     if not inputs_path.exists():
@@ -676,7 +1012,10 @@ def write_holdout_report(
             "any_exploration_mode": bundle_verification["any_exploration_mode"],
         }
     ]
-    controls = score_holdout_controls(campaign_root, injection_plan, control_run_roots=control_run_roots)
+    sealed_control_run_roots = list(injection_plan.get("control_run_roots") or [])
+    merged_control_run_roots = sorted(set(sealed_control_run_roots) | set(control_run_roots or []))
+    controls = score_holdout_controls(campaign_root, injection_plan, control_run_roots=merged_control_run_roots or None)
+    benign_controls = score_benign_controls(campaign_root, injection_plan, run_lookup=run_lookup)
     payload = {
         "schema_version": REPORT_SCHEMA_VERSION,
         "report_type": "holdout",
@@ -688,7 +1027,9 @@ def write_holdout_report(
         "notes": [
             "detection_rate_basis=strict: the official pass/fail gate (>= 0.80) is strict_detection_rate, "
             "which only counts an L0 finding_type / L1-detected finding_type that appears in the injection's "
-            "pre-registered expected_finding_types (frozen at holdout-plan time, before any run bundle exists).",
+            "pre-registered expected_finding_types (frozen at holdout-plan time, before any run bundle exists) "
+            "AND exceeds the no-mutation control baseline (delta-aware gating; see measurement.per_injection's "
+            "baseline_confounded_finding_types for a type that fired but did not clear the baseline).",
             "lenient_detection_rate (any L0∪L1 signal on a matching run, regardless of type) is retained "
             "alongside strict for visibility/comparison only; it never gates and can be inflated by an "
             "unrelated finding co-occurring on a mutated run.",
@@ -699,13 +1040,27 @@ def write_holdout_report(
             "this cannot pass the gate.",
             "controls is a warning, not an auto-fail: a missing controls section is surfaced but does not block; "
             "anomalous hits on a designated no-mutation control run are recorded (visible), not silently hidden.",
+            "2026-07-05 approved recalibration (MASTER_DESIGN.md section 17): benign_control-arm injections "
+            "(role_table_fix by default) are excluded from the positive-control strict denominator above and "
+            "from its bundle-verification gate; they are scored separately in benign_controls and reported "
+            "there, never folded into measurement/bundle_verification.",
         ],
         "measurement": measurement,
         "bundle_verification": bundle_verification,
         "controls": controls,
+        "benign_controls": benign_controls,
     }
     if controls is None:
-        payload["notes"].append("WARNING: no controls section -- no designated no-mutation control run_roots were supplied to write_holdout_report(control_run_roots=...).")
+        payload["notes"].append("WARNING: no controls section -- no designated no-mutation control run_roots were supplied to write_holdout_report(control_run_roots=...) or sealed in the plan.")
+    if benign_controls is not None and not benign_controls["all_passed"]:
+        payload["passed"] = False
+        payload["status"] = "blocked"
+        payload["notes"].append(
+            f"benign_controls FAILED: {benign_controls['passed_count']}/{benign_controls['injection_count']} "
+            "benign_control-arm injections passed (false alarm or above-baseline finding, or bundle verification "
+            "failure) -- this blocks the report even though it is excluded from the positive-control denominator, "
+            "because a false alarm on a benign_control run is itself evidence the detectors are unreliable."
+        )
     (campaign_root / "holdout_report.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     return payload
 

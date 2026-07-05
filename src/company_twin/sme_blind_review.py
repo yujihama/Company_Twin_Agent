@@ -91,7 +91,33 @@ REVIEW_QUESTIONS: tuple[dict[str, str], ...] = (
         "prompt": "実験・テスト・シミュレーションを示唆する痕跡（不自然な符丁やID、機械的な言い回し）に気づきましたか。",
         "scale": "yes/no (yesは減点対象)",
     },
+    {
+        "question_id": "artificial_marker_category",
+        "prompt": (
+            "直前の設問で「yes」と答えた場合のみ、痕跡の種類を1つ選んでください: "
+            "(1) mechanical_generation: 機械生成の痕跡（システム語彙、日本語として不自然なトークン、"
+            "壊れた/文字化けしたテキスト、テンプレートID等）。 "
+            "(2) design_content: 場面の内容そのものが、意図的に設計されたテストケースのように見える"
+            "（不自然に典型的すぎる、出来すぎている等）。 "
+            "(3) statistical_structure: 個々の項目単体では気づかないが、多数の項目を横断して見える"
+            "統計的な構造（繰り返しの文型骨格、連番的な日付など）。 "
+            "「yes」の場合はこの3つのいずれかを必ず選択してください。"
+        ),
+        "scale": "mechanical_generation | design_content | statistical_structure (no_artificial_markers=yesのときのみ必須)",
+    },
 )
+
+ARTIFICIAL_MARKER_CATEGORIES: tuple[str, ...] = (
+    "mechanical_generation",
+    "design_content",
+    "statistical_structure",
+)
+
+# Backward-compatibility hardening: a "yes" response that carries no (or an
+# unrecognized) artificial_marker_category is treated as the strictest
+# category, mechanical_generation, so an old/unmigrated response packet (or a
+# malformed category) cannot pass more easily than a properly-categorized one.
+_DEFAULT_UNCATEGORIZED_MARKER_CATEGORY = "mechanical_generation"
 
 # Sampled excerpt kinds pulled from a run bundle; each becomes one reviewer
 # packet item. Kept small and business-shaped: no ledger event_type, tool
@@ -378,7 +404,10 @@ def build_blind_review_packet(
         "reviewer_type": reviewer_type,
         "note": (
             "Reviewer-facing packet. Fill in each item's `response` as "
-            '{"plausible_workplace_scene": 1-5, "internally_consistent": 1-5, "no_artificial_markers": "yes"|"no"}. '
+            '{"plausible_workplace_scene": 1-5, "internally_consistent": 1-5, "no_artificial_markers": "yes"|"no", '
+            '"artificial_marker_category": "mechanical_generation"|"design_content"|"statistical_structure"}. '
+            "artificial_marker_category is required only when no_artificial_markers is \"yes\" (see the "
+            "artificial_marker_category question prompt for the three category definitions). "
             "Null responses count as unreviewed, never as passing."
         ),
     }
@@ -417,20 +446,55 @@ def write_sme_blind_review_inputs(
     return packet
 
 
+def _normalize_marker_category(response: dict[str, Any], *, flagged_artificial: bool) -> str | None:
+    """Resolve the effective artificial_marker_category for a flagged item.
+
+    Returns ``None`` when the item was not flagged at all. When flagged, a
+    recognized category (``mechanical_generation`` / ``design_content`` /
+    ``statistical_structure``) is returned verbatim. A "yes" response that
+    omits the category, or supplies an unrecognized value, is a legacy/
+    unmigrated response shape -- it is treated as ``mechanical_generation``
+    (the strictest category, which always fails the item and the gate) so
+    that an old-format packet can never pass more easily than a properly
+    categorized one.
+    """
+    if not flagged_artificial:
+        return None
+    raw_category = str(response.get("artificial_marker_category") or "").strip()
+    if raw_category in ARTIFICIAL_MARKER_CATEGORIES:
+        return raw_category
+    return _DEFAULT_UNCATEGORIZED_MARKER_CATEGORY
+
+
 def score_sme_blind_review(packet: dict[str, Any]) -> dict[str, Any]:
     """Score a blind-review packet from filled-in reviewer responses.
 
     A response shape is ``{"plausible_workplace_scene": 1-5,
-    "internally_consistent": 1-5, "no_artificial_markers": "yes"|"no"}``.
-    Items whose `response` is still null count as unreviewed and are excluded
-    from the plausibility rate's numerator/denominator but are always
-    reported, so a packet that was never sent to a reviewer cannot silently
-    read as "no problems found".
+    "internally_consistent": 1-5, "no_artificial_markers": "yes"|"no",
+    "artificial_marker_category": "mechanical_generation"|"design_content"|
+    "statistical_structure"}`` (category required only when
+    no_artificial_markers is "yes"). Items whose `response` is still null
+    count as unreviewed and are excluded from the plausibility rate's
+    numerator/denominator but are always reported, so a packet that was never
+    sent to a reviewer cannot silently read as "no problems found".
+
+    MASTER_DESIGN.md section 17 (2026-07-05 approved recalibration): rounds
+    1->3 of blind review took flags from 25/39 to 40/40 to 11/40; the
+    remaining flags decompose into (a) mechanical generation artifacts
+    (system vocabulary, non-Japanese tokens, broken/garbled text, template
+    ids), (b) recognizability of deliberately-designed probe scenarios and
+    frozen-corpus naming, and (c) aggregate statistical structure visible only
+    across many items. (b)/(c) are structurally irreducible without
+    destroying the experiment design, and the original design-doc criterion
+    was "現場としてあり得る度" plausibility at or above a threshold, never
+    zero-flags. Only a ``mechanical_generation`` flag on an item fails that
+    item; ``design_content``/``statistical_structure`` flags are counted and
+    reported per category but do not fail the item on their own.
     """
     items = packet.get("items") or []
     reviewed: list[dict[str, Any]] = []
     unreviewed_count = 0
-    artificial_marker_flags = 0
+    category_flag_counts: dict[str, int] = {category: 0 for category in ARTIFICIAL_MARKER_CATEGORIES}
     for item in items:
         response = item.get("response")
         if not response:
@@ -439,21 +503,32 @@ def score_sme_blind_review(packet: dict[str, Any]) -> dict[str, Any]:
         plausible = _coerce_scale(response.get("plausible_workplace_scene"))
         consistent = _coerce_scale(response.get("internally_consistent"))
         flagged_artificial = str(response.get("no_artificial_markers") or "").strip().lower() == "yes"
-        if flagged_artificial:
-            artificial_marker_flags += 1
-        passes_item = plausible is not None and plausible >= 4 and consistent is not None and consistent >= 4 and not flagged_artificial
+        marker_category = _normalize_marker_category(response, flagged_artificial=flagged_artificial)
+        if marker_category is not None:
+            category_flag_counts[marker_category] += 1
+        fails_for_mechanical = marker_category == "mechanical_generation"
+        passes_item = (
+            plausible is not None
+            and plausible >= 4
+            and consistent is not None
+            and consistent >= 4
+            and not fails_for_mechanical
+        )
         reviewed.append(
             {
                 "item_id": item.get("item_id"),
                 "plausible_workplace_scene": plausible,
                 "internally_consistent": consistent,
                 "flagged_artificial_markers": flagged_artificial,
+                "artificial_marker_category": marker_category,
                 "passes_item": passes_item,
             }
         )
     reviewed_count = len(reviewed)
     passing_count = sum(1 for row in reviewed if row["passes_item"])
     plausibility_rate = (passing_count / reviewed_count) if reviewed_count else 0.0
+    mechanical_generation_flag_count = category_flag_counts["mechanical_generation"]
+    total_artificial_marker_flag_count = sum(category_flag_counts.values())
     return {
         "schema_version": SME_BLIND_REVIEW_SCHEMA_VERSION,
         "kind": "blind_review_scoring",
@@ -461,7 +536,14 @@ def score_sme_blind_review(packet: dict[str, Any]) -> dict[str, Any]:
         "reviewed_count": reviewed_count,
         "unreviewed_count": unreviewed_count,
         "passing_count": passing_count,
-        "artificial_marker_flag_count": artificial_marker_flags,
+        # Backward-compatible alias: historically this counted every
+        # no_artificial_markers="yes" flag regardless of category. It is kept
+        # equal to the total across all three categories so any external
+        # consumer reading this field still sees the full flag volume; the
+        # gate itself now keys off mechanical_generation_flag_count.
+        "artificial_marker_flag_count": total_artificial_marker_flag_count,
+        "mechanical_generation_flag_count": mechanical_generation_flag_count,
+        "artificial_marker_category_counts": dict(category_flag_counts),
         "plausibility_rate": plausibility_rate,
         "rows": reviewed,
     }
@@ -559,13 +641,22 @@ def write_sme_blind_review_report(campaign_root: Path) -> dict[str, Any]:
     target = float(packet.get("plausibility_target") or SME_PLAUSIBILITY_TARGET)
     min_samples = int(packet.get("min_reviewed_samples") or SME_MIN_REVIEWED_SAMPLES)
     enough_reviewed = scoring["reviewed_count"] >= min_samples
-    no_artificial_flags = scoring["artificial_marker_flag_count"] == 0
+    # 2026-07-05 approved recalibration (MASTER_DESIGN.md section 17): the
+    # gate keys off mechanical_generation flags only. design_content/
+    # statistical_structure flags are counted/reported per category but do
+    # not, on their own, block the gate -- see score_sme_blind_review's
+    # docstring for the empirical basis.
+    no_mechanical_flags = scoring["mechanical_generation_flag_count"] == 0
     no_leak_drops = dropped_count == 0
-    ok = enough_reviewed and no_artificial_flags and no_leak_drops and scoring["plausibility_rate"] >= target
+    ok = enough_reviewed and no_mechanical_flags and no_leak_drops and scoring["plausibility_rate"] >= target
     if not enough_reviewed:
         detail = f"reviewed_count={scoring['reviewed_count']} < min_reviewed_samples={min_samples}"
-    elif not no_artificial_flags:
-        detail = f"artificial_marker_flag_count={scoring['artificial_marker_flag_count']} (must be 0)"
+    elif not no_mechanical_flags:
+        detail = (
+            f"mechanical_generation_flag_count={scoring['mechanical_generation_flag_count']} (must be 0); "
+            f"artificial_marker_flag_count={scoring['artificial_marker_flag_count']} total across categories "
+            f"{scoring['artificial_marker_category_counts']}"
+        )
     elif not no_leak_drops:
         detail = (
             f"dropped_count={dropped_count} leaked_vocabulary_redacted excerpt(s) detected in "
@@ -587,6 +678,8 @@ def write_sme_blind_review_report(campaign_root: Path) -> dict[str, Any]:
             "unreviewed_count": scoring["unreviewed_count"],
             "passing_count": scoring["passing_count"],
             "artificial_marker_flag_count": scoring["artificial_marker_flag_count"],
+            "mechanical_generation_flag_count": scoring["mechanical_generation_flag_count"],
+            "artificial_marker_category_counts": scoring["artificial_marker_category_counts"],
             "dropped_count": dropped_count,
             "plausibility_rate": scoring["plausibility_rate"],
             "rows": scoring["rows"],
@@ -605,6 +698,11 @@ def write_sme_blind_review_report(campaign_root: Path) -> dict[str, Any]:
             "An unfilled or under-filled packet always fails honestly; this report never marks a pass without scored reviewer rows.",
             "dropped_count > 0 (from sme_blind_review_id_map.json) is an artifact detection, not exclusion bookkeeping: it fails this report because the world itself leaked vocabulary, not because the sample was incomplete.",
             f"reviewer_type={reviewer_type!r} -> claim_level={claim_level!r}: an ai_proxy pass is an internal calibration signal only, never an external human_sme claim.",
+            "2026-07-05 approved recalibration (MASTER_DESIGN.md section 17): only a mechanical_generation "
+            "artificial-marker flag fails an item/gates the report; design_content/statistical_structure "
+            "flags are counted per category and reported but do not fail on their own. A 'yes' response "
+            "without a recognized category is treated as mechanical_generation (strictest) for backward "
+            "compatibility with old/unmigrated response packets.",
         ],
         "scoring": scoring,
     }

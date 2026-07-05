@@ -23,9 +23,12 @@ from company_twin.backcasting import (
 from company_twin.cli import app
 from company_twin.design_loader import load_design
 from company_twin.holdout import (
+    ARM_BENIGN_CONTROL,
+    ARM_POSITIVE_CONTROL,
     HOLDOUT_DETECTION_TARGET,
     build_holdout_injection_plan,
     compute_holdout_detection_rate,
+    score_benign_controls,
     score_holdout_controls,
     verify_holdout_bundles,
     write_holdout_inputs,
@@ -34,6 +37,7 @@ from company_twin.holdout import (
 from company_twin.mutations import load_mutation_catalog
 from company_twin.readiness import REPORT_SCHEMA_VERSION, run_readiness_gate, write_readiness_reports
 from company_twin.sme_blind_review import (
+    ARTIFICIAL_MARKER_CATEGORIES,
     REVIEW_QUESTIONS,
     SME_PLAUSIBILITY_TARGET,
     build_blind_review_packet,
@@ -319,7 +323,9 @@ def test_holdout_report_fails_honestly_below_target_and_passes_above(tmp_path: P
         ],
     )
     write_holdout_inputs(tmp_path, plan)
-    # Only one of five mutations produces a run bundle with findings -> 0.2 < 0.80 target.
+    # Only one of four positive-control mutations produces a run bundle with
+    # findings -> 0.25 < 0.80 target. (role_table_fix_quality_owner is
+    # benign_control and excluded from this denominator.)
     _run_bundle_with_findings(tmp_path / "s1_run0", finding_types={"grounding_gap": 1})
     (tmp_path / "s1_run0" / "meta.json").write_text(
         json.dumps({"stage": "S1", "mutation_ids": ["clarify_elderly_understanding_all"]}), encoding="utf-8"
@@ -331,16 +337,23 @@ def test_holdout_report_fails_honestly_below_target_and_passes_above(tmp_path: P
     assert failing["measurement"]["strict_detection_rate"] < HOLDOUT_DETECTION_TARGET
     assert failing["detection_rate_basis"] == "strict"
 
-    # Now supply matching run bundles for all five mutations, each producing a
-    # finding_type that is actually in that mutation's own pre-registered
-    # expected_finding_types (not a blanket grounding_gap) -> strict rate 1.0,
-    # AND each bundle is verified (stage S2, config.json mutation entry
+    # Now supply matching run bundles for all five mutations. The four
+    # positive_control mutations each produce a finding_type that is actually
+    # in that mutation's own pre-registered expected_finding_types (not a
+    # blanket grounding_gap) -> strict rate 1.0. The benign_control
+    # (role_table_fix_quality_owner) gets a CLEAN bundle (no findings at all)
+    # -- a benign_control injection is expected to produce nothing new, so a
+    # clean bundle is what "passing" looks like for it, not an injected
+    # finding. Every bundle is verified (stage S2, config.json mutation entry
     # matching spec_hash, adequate tick coverage, no failure marker).
     run_lookup = {}
     for idx, injection in enumerate(plan["injections"]):
         run_root = tmp_path / f"s2_holdout_{idx}"
-        finding_type = injection["expected_finding_types"][0]
-        _verified_s2_bundle(run_root, injection=injection, finding_types={finding_type: 1})
+        if injection["arm"] == "benign_control":
+            _verified_s2_bundle(run_root, injection=injection, finding_types={})
+        else:
+            finding_type = injection["expected_finding_types"][0]
+            _verified_s2_bundle(run_root, injection=injection, finding_types={finding_type: 1})
         run_lookup[injection["injection_id"]] = run_root
 
     passing = write_holdout_report(tmp_path, run_lookup=run_lookup)
@@ -348,8 +361,11 @@ def test_holdout_report_fails_honestly_below_target_and_passes_above(tmp_path: P
     assert passing["measurement"]["detection_rate"] == 1.0
     assert passing["measurement"]["strict_detection_rate"] == 1.0
     assert passing["measurement"]["lenient_detection_rate"] == 1.0
-    assert len(passing["checks"][0]["per_injection"]) == 5
+    assert passing["measurement"]["injection_count"] == 4  # positive_control only
+    assert len(passing["checks"][0]["per_injection"]) == 5  # all arms still itemized
     assert passing["bundle_verification"]["all_verified"] is True
+    assert passing["benign_controls"]["all_passed"] is True
+    assert passing["benign_controls"]["injection_count"] == 1
     assert passing["plan_hash"] == plan["plan_hash"]
 
 
@@ -514,6 +530,284 @@ def test_holdout_plan_and_score_cli(tmp_path: Path) -> None:
     score_result = runner.invoke(app, ["holdout-score", "--campaign-root", str(tmp_path)])
     assert score_result.exit_code == 1  # honest fail: no matching run bundles
     assert (tmp_path / "holdout_report.json").exists()
+
+
+# ---------------------------------------------------------------------------
+# 2026-07-05 approved recalibration: holdout arms + delta-based detection (part 2)
+# ---------------------------------------------------------------------------
+
+
+def test_build_holdout_injection_plan_assigns_default_arms() -> None:
+    plan = build_holdout_injection_plan(
+        Path.cwd(),
+        mutation_ids=[
+            "clarify_elderly_understanding_all",
+            "contradict_chat_approval_recorded",
+            "dangling_fill_search_key_stub",
+            "role_table_fix_quality_owner",
+        ],
+    )
+
+    arms_by_mutation = {injection["mutation_id"]: injection["arm"] for injection in plan["injections"]}
+    assert arms_by_mutation["clarify_elderly_understanding_all"] == ARM_POSITIVE_CONTROL
+    assert arms_by_mutation["contradict_chat_approval_recorded"] == ARM_POSITIVE_CONTROL
+    assert arms_by_mutation["dangling_fill_search_key_stub"] == ARM_POSITIVE_CONTROL
+    assert arms_by_mutation["role_table_fix_quality_owner"] == ARM_BENIGN_CONTROL
+
+
+def test_holdout_plan_arm_is_sealed_in_plan_hash() -> None:
+    plan_a = build_holdout_injection_plan(Path.cwd(), mutation_ids=["clarify_elderly_understanding_all"])
+    plan_b = json.loads(json.dumps(plan_a))
+    plan_b["injections"][0]["arm"] = ARM_BENIGN_CONTROL
+
+    # plan_hash was computed over the ORIGINAL arm; recomputing it over the
+    # tampered copy's injections must differ, i.e. plan_hash is sensitive to
+    # the arm field (it is part of what plan_hash seals).
+    from company_twin.world_config import _json_hash as world_json_hash
+
+    original_hash = world_json_hash({"injections": plan_a["injections"], "control_run_roots": plan_a["control_run_roots"]})
+    tampered_hash = world_json_hash({"injections": plan_b["injections"], "control_run_roots": plan_b["control_run_roots"]})
+    assert original_hash == plan_a["plan_hash"]
+    assert tampered_hash != plan_a["plan_hash"]
+
+
+def test_holdout_plan_control_run_roots_sealed_in_plan_hash() -> None:
+    plan_no_controls = build_holdout_injection_plan(Path.cwd(), mutation_ids=["clarify_elderly_understanding_all"])
+    plan_with_controls = build_holdout_injection_plan(
+        Path.cwd(), mutation_ids=["clarify_elderly_understanding_all"], control_run_roots=["s2_anchor"]
+    )
+
+    assert plan_no_controls["control_run_roots"] == []
+    assert plan_with_controls["control_run_roots"] == ["s2_anchor"]
+    assert plan_no_controls["plan_hash"] != plan_with_controls["plan_hash"]
+
+
+def test_compute_holdout_detection_rate_excludes_benign_control_from_denominator(tmp_path: Path) -> None:
+    plan = build_holdout_injection_plan(
+        Path.cwd(),
+        mutation_ids=["clarify_elderly_understanding_all", "role_table_fix_quality_owner"],
+    )
+    # Only the positive_control mutation gets a matching, detected run bundle.
+    _run_bundle_with_findings(tmp_path / "s1_run0", finding_types={"grounding_gap": 1})
+
+    measurement = compute_holdout_detection_rate(tmp_path, plan)
+
+    assert measurement["injection_count"] == 1  # positive_control only
+    assert measurement["total_injection_count"] == 2
+    assert measurement["benign_control_count"] == 1
+    assert measurement["detected_count"] == 1
+    assert measurement["detection_rate"] == 1.0
+    assert measurement["passed"] is True
+    # Both arms still show up in the itemized per_injection list.
+    assert len(measurement["per_injection"]) == 2
+    arms = {row["mutation_id"]: row["arm"] for row in measurement["per_injection"]}
+    assert arms["role_table_fix_quality_owner"] == ARM_BENIGN_CONTROL
+
+
+def test_backward_compat_plan_without_arm_field_defaults_all_positive_control(tmp_path: Path) -> None:
+    plan = build_holdout_injection_plan(Path.cwd(), mutation_ids=["clarify_elderly_understanding_all", "role_table_fix_quality_owner"])
+    # Simulate an old plan built before the `arm` field existed.
+    for injection in plan["injections"]:
+        del injection["arm"]
+    _run_bundle_with_findings(tmp_path / "s1_run0", finding_types={"grounding_gap": 1})
+
+    measurement = compute_holdout_detection_rate(tmp_path, plan)
+
+    # Old behavior: every injection (including what would now be
+    # role_table_fix's benign_control) counts toward the positive denominator.
+    assert measurement["injection_count"] == 2
+    assert measurement["total_injection_count"] == 2
+    assert measurement["benign_control_count"] == 0
+    assert all(row["arm"] == ARM_POSITIVE_CONTROL for row in measurement["per_injection"])
+
+
+def test_delta_detection_baseline_confounded_when_control_fires_equally(tmp_path: Path) -> None:
+    """A run bundle where the expected finding_type fires, but a designated
+    no-mutation control run fires the SAME finding_type at an equal or higher
+    rate, must NOT count as a strict hit -- it is baseline_confounded, since
+    presence alone cannot distinguish mutation-caused signal from baseline
+    noise (pre-#26-world campaign found grounding_gap/version_gap/
+    tacit_chat_to_action false alarms on unmutated control runs)."""
+    plan = build_holdout_injection_plan(
+        Path.cwd(),
+        mutation_ids=["clarify_elderly_understanding_all"],
+        control_run_roots=["s2_control_anchor"],
+    )
+    write_holdout_inputs(tmp_path, plan)
+    injection = plan["injections"][0]
+    _verified_s2_bundle(tmp_path / "s2_holdout_0", injection=injection, finding_types={"grounding_gap": 1})
+    # Control run: same finding_type fires at the SAME rate (both are raw L0
+    # counts, so equal counts -> equal rate) with no mutation applied.
+    control_root = tmp_path / "s2_control_anchor"
+    control_root.mkdir(parents=True, exist_ok=True)
+    (control_root / "triage").mkdir(exist_ok=True)
+    (control_root / "triage" / "metrics.json").write_text(
+        json.dumps({"stage": "S2", "finding_types": {"grounding_gap": 1}, "rule_hit_rate": {}, "detection_miss_rate": {}}),
+        encoding="utf-8",
+    )
+
+    report = write_holdout_report(tmp_path, run_lookup={injection["injection_id"]: tmp_path / "s2_holdout_0"})
+
+    row = report["measurement"]["per_injection"][0]
+    assert row["strict_detected"] is False
+    assert "grounding_gap" in row["baseline_confounded_finding_types"]
+    assert "baseline_confounded" in report["measurement"]["per_injection"][0]["strict_reason"]
+    assert report["passed"] is False
+
+
+def test_delta_detection_exceeding_baseline_counts_as_detected(tmp_path: Path) -> None:
+    """When the mutated run's rate for an expected finding_type EXCEEDS the
+    max control-run rate for that same type, it is a genuine strict hit."""
+    plan = build_holdout_injection_plan(
+        Path.cwd(),
+        mutation_ids=["clarify_elderly_understanding_all"],
+        control_run_roots=["s2_control_anchor"],
+    )
+    write_holdout_inputs(tmp_path, plan)
+    injection = plan["injections"][0]
+    # Mutated run: 3 grounding_gap findings.
+    _verified_s2_bundle(tmp_path / "s2_holdout_0", injection=injection, finding_types={"grounding_gap": 3})
+    # Control run: only 1 grounding_gap finding (lower rate) -- baseline noise
+    # that the mutated run clearly exceeds.
+    control_root = tmp_path / "s2_control_anchor"
+    control_root.mkdir(parents=True, exist_ok=True)
+    (control_root / "triage").mkdir(exist_ok=True)
+    (control_root / "triage" / "metrics.json").write_text(
+        json.dumps({"stage": "S2", "finding_types": {"grounding_gap": 1}, "rule_hit_rate": {}, "detection_miss_rate": {}}),
+        encoding="utf-8",
+    )
+
+    report = write_holdout_report(tmp_path, run_lookup={injection["injection_id"]: tmp_path / "s2_holdout_0"})
+
+    row = report["measurement"]["per_injection"][0]
+    assert row["strict_detected"] is True
+    assert "grounding_gap" in row["matched_expected_finding_types"]
+    assert row["baseline_confounded_finding_types"] == []
+    assert report["measurement"]["strict_detection_rate"] == 1.0
+
+
+def test_delta_detection_presence_suffices_when_absent_in_all_controls(tmp_path: Path) -> None:
+    """When an expected finding_type never fires in ANY control run, mere
+    presence on the mutated run suffices (nothing to exceed) -- this
+    reproduces the pre-recalibration strict-detection behavior for a type
+    with a clean (zero) control baseline."""
+    plan = build_holdout_injection_plan(
+        Path.cwd(),
+        mutation_ids=["clarify_elderly_understanding_all"],
+        control_run_roots=["s2_control_anchor"],
+    )
+    write_holdout_inputs(tmp_path, plan)
+    injection = plan["injections"][0]
+    _verified_s2_bundle(tmp_path / "s2_holdout_0", injection=injection, finding_types={"grounding_gap": 1})
+    # Control run: completely clean, no findings of any kind.
+    control_root = tmp_path / "s2_control_anchor"
+    control_root.mkdir(parents=True, exist_ok=True)
+    (control_root / "triage").mkdir(exist_ok=True)
+    (control_root / "triage" / "metrics.json").write_text(
+        json.dumps({"stage": "S2", "finding_types": {}, "rule_hit_rate": {}, "detection_miss_rate": {}}), encoding="utf-8"
+    )
+
+    report = write_holdout_report(tmp_path, run_lookup={injection["injection_id"]: tmp_path / "s2_holdout_0"})
+
+    row = report["measurement"]["per_injection"][0]
+    assert row["strict_detected"] is True
+    assert row["control_baseline"]["grounding_gap"]["present_in_any_control"] is False
+    assert report["passed"] is True
+
+
+def test_benign_control_clean_and_at_baseline_passes(tmp_path: Path) -> None:
+    plan = build_holdout_injection_plan(
+        Path.cwd(), mutation_ids=["clarify_elderly_understanding_all", "role_table_fix_quality_owner"], control_run_roots=[]
+    )
+    write_holdout_inputs(tmp_path, plan)
+    positive = next(i for i in plan["injections"] if i["arm"] == ARM_POSITIVE_CONTROL)
+    benign = next(i for i in plan["injections"] if i["arm"] == ARM_BENIGN_CONTROL)
+    _verified_s2_bundle(tmp_path / "s2_positive", injection=positive, finding_types={positive["expected_finding_types"][0]: 1})
+    # Benign control: clean bundle, no anomaly findings at all.
+    _verified_s2_bundle(tmp_path / "s2_benign", injection=benign, finding_types={})
+    run_lookup = {positive["injection_id"]: tmp_path / "s2_positive", benign["injection_id"]: tmp_path / "s2_benign"}
+
+    benign_result = score_benign_controls(tmp_path, plan, run_lookup=run_lookup)
+
+    assert benign_result is not None
+    assert benign_result["all_passed"] is True
+    assert benign_result["injection_count"] == 1
+    assert benign_result["per_injection"][0]["passed"] is True
+    assert benign_result["per_injection"][0]["false_alarm_finding_types"] == []
+
+    report = write_holdout_report(tmp_path, run_lookup=run_lookup)
+    assert report["passed"] is True
+    assert report["benign_controls"]["all_passed"] is True
+
+
+def test_benign_control_false_alarm_fails(tmp_path: Path) -> None:
+    """A benign_control (role_table_fix) run that DOES fire one of its
+    previously-expected anomaly types is a false alarm and must fail --
+    unlike a positive_control, nothing new should appear here."""
+    plan = build_holdout_injection_plan(
+        Path.cwd(), mutation_ids=["clarify_elderly_understanding_all", "role_table_fix_quality_owner"], control_run_roots=[]
+    )
+    write_holdout_inputs(tmp_path, plan)
+    positive = next(i for i in plan["injections"] if i["arm"] == ARM_POSITIVE_CONTROL)
+    benign = next(i for i in plan["injections"] if i["arm"] == ARM_BENIGN_CONTROL)
+    _verified_s2_bundle(tmp_path / "s2_positive", injection=positive, finding_types={positive["expected_finding_types"][0]: 1})
+    # Benign control fires its own expected finding_type -- a false alarm.
+    _verified_s2_bundle(tmp_path / "s2_benign", injection=benign, finding_types={benign["expected_finding_types"][0]: 1})
+    run_lookup = {positive["injection_id"]: tmp_path / "s2_positive", benign["injection_id"]: tmp_path / "s2_benign"}
+
+    benign_result = score_benign_controls(tmp_path, plan, run_lookup=run_lookup)
+
+    assert benign_result["all_passed"] is False
+    assert benign_result["per_injection"][0]["passed"] is False
+    assert benign["expected_finding_types"][0] in benign_result["per_injection"][0]["false_alarm_finding_types"]
+
+    report = write_holdout_report(tmp_path, run_lookup=run_lookup)
+    # Even though positive_control's own strict_detection_rate clears target,
+    # the benign_control false alarm blocks the overall report -- a false
+    # alarm on a benign_control run is evidence the detectors are unreliable.
+    assert report["passed"] is False
+    assert any("benign_controls FAILED" in note for note in report["notes"])
+
+
+def test_positive_control_denominator_excludes_benign_arm_end_to_end(tmp_path: Path) -> None:
+    plan = build_holdout_injection_plan(
+        Path.cwd(),
+        mutation_ids=[
+            "clarify_elderly_understanding_all",
+            "clarify_elderly_understanding_sales_only",
+            "contradict_chat_approval_recorded",
+            "dangling_fill_search_key_stub",
+            "role_table_fix_quality_owner",
+        ],
+    )
+    positive_injections = [i for i in plan["injections"] if i["arm"] == ARM_POSITIVE_CONTROL]
+    assert len(positive_injections) == 4
+    benign_injections = [i for i in plan["injections"] if i["arm"] == ARM_BENIGN_CONTROL]
+    assert len(benign_injections) == 1
+
+    measurement = compute_holdout_detection_rate(tmp_path, plan)
+    assert measurement["injection_count"] == 4
+    assert measurement["total_injection_count"] == 5
+
+
+def test_holdout_plan_cli_records_control_run_roots(tmp_path: Path) -> None:
+    runner = CliRunner()
+    plan_result = runner.invoke(
+        app,
+        [
+            "holdout-plan",
+            "--campaign-root",
+            str(tmp_path),
+            "--mutation",
+            "clarify_elderly_understanding_all",
+            "--control-run-root",
+            "s2_anchor",
+        ],
+    )
+    assert plan_result.exit_code == 0, plan_result.output
+    plan = json.loads((tmp_path / "holdout_inputs.json").read_text(encoding="utf-8"))
+    assert plan["control_run_roots"] == ["s2_anchor"]
+    assert plan["injections"][0]["arm"] == ARM_POSITIVE_CONTROL
 
 
 # ---------------------------------------------------------------------------
@@ -719,6 +1013,188 @@ def test_sme_blind_review_report_fails_on_artificial_marker_flag(tmp_path: Path)
 
     assert payload["passed"] is False
     assert "artificial_marker_flag_count" in payload["checks"][0]["detail"]
+
+
+# ---------------------------------------------------------------------------
+# 2026-07-05 approved recalibration: artificial_marker_category (part 1)
+# ---------------------------------------------------------------------------
+
+
+def test_review_questions_include_artificial_marker_category_prompt() -> None:
+    question_ids = {question["question_id"] for question in REVIEW_QUESTIONS}
+    assert "artificial_marker_category" in question_ids
+    category_question = next(q for q in REVIEW_QUESTIONS if q["question_id"] == "artificial_marker_category")
+    for category in ARTIFICIAL_MARKER_CATEGORIES:
+        assert category in category_question["prompt"]
+
+
+def test_score_sme_blind_review_mechanical_generation_flag_fails_item() -> None:
+    packet = {
+        "items": [
+            {
+                "item_id": "a",
+                "response": {
+                    "plausible_workplace_scene": 5,
+                    "internally_consistent": 5,
+                    "no_artificial_markers": "yes",
+                    "artificial_marker_category": "mechanical_generation",
+                },
+            }
+        ]
+    }
+
+    scoring = score_sme_blind_review(packet)
+
+    assert scoring["rows"][0]["passes_item"] is False
+    assert scoring["rows"][0]["artificial_marker_category"] == "mechanical_generation"
+    assert scoring["mechanical_generation_flag_count"] == 1
+    assert scoring["artificial_marker_flag_count"] == 1
+    assert scoring["artificial_marker_category_counts"]["mechanical_generation"] == 1
+    assert scoring["plausibility_rate"] == 0.0
+
+
+def test_score_sme_blind_review_design_content_flag_can_still_pass_item() -> None:
+    # A design_content or statistical_structure flag is counted per category
+    # but does not, on its own, fail the item -- these are the structurally
+    # irreducible flags (recognizability of a designed probe scenario /
+    # aggregate statistical structure) that round-3 blind review left behind,
+    # per MASTER_DESIGN.md section 17's approved recalibration.
+    packet = {
+        "items": [
+            {
+                "item_id": "a",
+                "response": {
+                    "plausible_workplace_scene": 5,
+                    "internally_consistent": 5,
+                    "no_artificial_markers": "yes",
+                    "artificial_marker_category": "design_content",
+                },
+            },
+            {
+                "item_id": "b",
+                "response": {
+                    "plausible_workplace_scene": 5,
+                    "internally_consistent": 5,
+                    "no_artificial_markers": "yes",
+                    "artificial_marker_category": "statistical_structure",
+                },
+            },
+        ]
+    }
+
+    scoring = score_sme_blind_review(packet)
+
+    assert scoring["rows"][0]["passes_item"] is True
+    assert scoring["rows"][1]["passes_item"] is True
+    assert scoring["mechanical_generation_flag_count"] == 0
+    assert scoring["artificial_marker_flag_count"] == 2
+    assert scoring["artificial_marker_category_counts"] == {
+        "mechanical_generation": 0,
+        "design_content": 1,
+        "statistical_structure": 1,
+    }
+    assert scoring["plausibility_rate"] == 1.0
+
+
+def test_score_sme_blind_review_uncategorized_yes_treated_as_mechanical_strictest() -> None:
+    # Backward compatibility hardening: a "yes" response with no category (an
+    # old/unmigrated response packet) must be treated as mechanical_generation
+    # -- the strictest category -- so it cannot pass more easily than a
+    # properly categorized response.
+    packet = {
+        "items": [
+            {
+                "item_id": "a",
+                "response": {"plausible_workplace_scene": 5, "internally_consistent": 5, "no_artificial_markers": "yes"},
+            }
+        ]
+    }
+
+    scoring = score_sme_blind_review(packet)
+
+    assert scoring["rows"][0]["artificial_marker_category"] == "mechanical_generation"
+    assert scoring["rows"][0]["passes_item"] is False
+    assert scoring["mechanical_generation_flag_count"] == 1
+
+
+def test_score_sme_blind_review_unrecognized_category_treated_as_mechanical() -> None:
+    packet = {
+        "items": [
+            {
+                "item_id": "a",
+                "response": {
+                    "plausible_workplace_scene": 5,
+                    "internally_consistent": 5,
+                    "no_artificial_markers": "yes",
+                    "artificial_marker_category": "not_a_real_category",
+                },
+            }
+        ]
+    }
+
+    scoring = score_sme_blind_review(packet)
+
+    assert scoring["rows"][0]["artificial_marker_category"] == "mechanical_generation"
+    assert scoring["rows"][0]["passes_item"] is False
+
+
+def test_sme_blind_review_report_passes_with_only_design_content_flags(tmp_path: Path) -> None:
+    run_root = _fixture_run_bundle(tmp_path / "run1")
+    packet, id_map = build_blind_review_packet([run_root], samples_per_run=10)
+    for item in packet["items"]:
+        item["response"] = {"plausible_workplace_scene": 5, "internally_consistent": 5, "no_artificial_markers": "no"}
+    packet["items"][0]["response"] = {
+        "plausible_workplace_scene": 5,
+        "internally_consistent": 5,
+        "no_artificial_markers": "yes",
+        "artificial_marker_category": "design_content",
+    }
+    write_sme_blind_review_inputs(tmp_path, packet, id_map)
+
+    payload = write_sme_blind_review_report(tmp_path)
+
+    assert payload["passed"] is True
+    assert payload["scoring"]["mechanical_generation_flag_count"] == 0
+    assert payload["scoring"]["artificial_marker_category_counts"]["design_content"] == 1
+
+
+def test_sme_blind_review_report_fails_on_mechanical_generation_category(tmp_path: Path) -> None:
+    run_root = _fixture_run_bundle(tmp_path / "run1")
+    packet, id_map = build_blind_review_packet([run_root], samples_per_run=10)
+    for item in packet["items"]:
+        item["response"] = {"plausible_workplace_scene": 5, "internally_consistent": 5, "no_artificial_markers": "no"}
+    packet["items"][0]["response"] = {
+        "plausible_workplace_scene": 5,
+        "internally_consistent": 5,
+        "no_artificial_markers": "yes",
+        "artificial_marker_category": "mechanical_generation",
+    }
+    write_sme_blind_review_inputs(tmp_path, packet, id_map)
+
+    payload = write_sme_blind_review_report(tmp_path)
+
+    assert payload["passed"] is False
+    assert "mechanical_generation_flag_count=1" in payload["checks"][0]["detail"]
+
+
+def test_sme_blind_review_report_fails_on_uncategorized_yes_old_format_packet(tmp_path: Path) -> None:
+    # Simulates an old-format packet/response predating artificial_marker_category.
+    run_root = _fixture_run_bundle(tmp_path / "run1")
+    packet, id_map = build_blind_review_packet([run_root], samples_per_run=10)
+    for item in packet["items"]:
+        item["response"] = {"plausible_workplace_scene": 5, "internally_consistent": 5, "no_artificial_markers": "no"}
+    packet["items"][0]["response"] = {
+        "plausible_workplace_scene": 5,
+        "internally_consistent": 5,
+        "no_artificial_markers": "yes",
+        # no artificial_marker_category key at all
+    }
+    write_sme_blind_review_inputs(tmp_path, packet, id_map)
+
+    payload = write_sme_blind_review_report(tmp_path)
+
+    assert payload["passed"] is False
+    assert payload["scoring"]["mechanical_generation_flag_count"] == 1
 
 
 def test_sme_blind_review_report_blocked_when_id_map_missing(tmp_path: Path) -> None:
