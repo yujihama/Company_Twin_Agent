@@ -40,7 +40,7 @@ mutation_space:
 
 対照ペア規律: 帰属分析に使うランは**Δ=1フィールド**・M5完全共有。探索ランはこの限りでない。
 
-**2026-07-06追記（表記修正のみ、設計は不変）**: `clarify`はAMB-02に対して役割可視性違いの2バリアント（全役割配信 / sales索引のみ配信）を持つ。上の一覧は初出時に1行へ圧縮していたが、`data/compiled_data/mutation_operators_v1.json`と`MASTER_DESIGN.md`§8.2は一貫して2 entriesなので、ここも2行に揃えた。実行時のM1適用は生文書書き換えではなく、`mutation_operators_v1.json`カタログからのin-memoryコーパス適用である（`MASTER_DESIGN.md`§8.2）。`role_table_fix`は本表の「測るもの」に相当する記述が元から示すとおり是正的演算子であり、`MASTER_DESIGN.md`§17.6のholdout `benign_control`分類（誤検知対象ではなく無害対照として扱う）と整合する——本書は変更不要。§5のrun bundleファイル名は現行コードでは`config.json`（`config.yaml`ではない）であり、`store_events.jsonl`も追加で出力される。並列実行エンジニアリング（ワーカープール・concurrencyプール等)は本書執筆時点でまだ実装されておらず、§5は目標アーキテクチャの記述のまま。
+**2026-07-06追記（表記修正のみ、設計は不変）**: `clarify`はAMB-02に対して役割可視性違いの2バリアント（全役割配信 / sales索引のみ配信）を持つ。上の一覧は初出時に1行へ圧縮していたが、`data/compiled_data/mutation_operators_v1.json`と`MASTER_DESIGN.md`§8.2は一貫して2 entriesなので、ここも2行に揃えた。実行時のM1適用は生文書書き換えではなく、`mutation_operators_v1.json`カタログからのin-memoryコーパス適用である（`MASTER_DESIGN.md`§8.2）。`role_table_fix`は本表の「測るもの」に相当する記述が元から示すとおり是正的演算子であり、`MASTER_DESIGN.md`§17.6のholdout `benign_control`分類（誤検知対象ではなく無害対照として扱う）と整合する——本書は変更不要。§5のrun bundleファイル名は現行コードでは`config.json`（`config.yaml`ではない）であり、`store_events.jsonl`も追加で出力される。並列実行はWP-12（`parallel_runner.py`・`run-batch`、MASTER_DESIGN §18）として実装済み。独立ランのみ並列化し、集計・台帳書き込みは直列のままという境界は§5の目標アーキテクチャと整合する。
 
 ## 2. 三段ハーネス（コスト構造の核心）
 
