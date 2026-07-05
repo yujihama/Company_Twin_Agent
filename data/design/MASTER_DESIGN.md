@@ -737,3 +737,91 @@ Residual, deliberately not fixed: the corpus's product naming ("乗換保険") a
 the aggregate 4-products x near-sequential-deadlines statistical structure
 are recorded as known limitations, since the corpus document set is frozen
 for comparability across calibration rounds.
+
+### 17.6 Approved gate recalibration: SME flag categories, holdout arms and delta detection (2026-07-05)
+
+**Both redefinitions below are approved by the project owner, 2026-07-05,**
+after three blind-review rounds and two independent holdout audits. They are
+recorded here as calibration history, not as a relaxation of §12's original
+criterion -- the design doc's original language for the SME gate was always
+「traceサンプルの『現場としてあり得る度』評価が基準以上」 (a plausibility-rate
+threshold), never a zero-flags requirement.
+
+**(1) SME blind-review gate (`sme_blind_review.py`).** Empirical basis:
+round 1->3 of blind SME review took flags from 25/39 to 40/40 to 11/40. The
+remaining 11 decompose into three kinds: (a) mechanical generation artifacts
+(system vocabulary, non-Japanese tokens, broken/garbled text, template ids);
+(b) recognizability of deliberately-designed probe scenarios and
+frozen-corpus naming (e.g. 乗換保険); (c) aggregate statistical structure
+visible only across many items in a generated deck (repeated phrasing
+skeletons, sequential dates). (b) and (c) are structurally irreducible
+without destroying the experiment design itself -- a probe scenario that did
+not look designed, or a deck with no cross-item structure, would not be the
+experiment being validated. Only (a) is a genuine defect the gate should
+catch.
+
+Approved redefinition: `REVIEW_QUESTIONS` gained a fourth question,
+`artificial_marker_category`, required only when `no_artificial_markers` is
+"yes", with three Japanese-language category definitions
+(`mechanical_generation` / `design_content` / `statistical_structure`). An
+item now passes when `plausible>=4 AND consistent>=4 AND no
+mechanical_generation flag on that item`; `design_content`/
+`statistical_structure` flags are counted and reported per category but do
+not fail the item. The overall gate is `plausibility_rate >=
+SME_PLAUSIBILITY_TARGET (0.8, unchanged) AND mechanical_generation flag
+count == 0`. Backward-compatibility hardening: a "yes" response with no (or
+an unrecognized) category is treated as `mechanical_generation` -- the
+strictest category -- so an old/unmigrated response packet can never pass
+more easily than a properly categorized one. `dropped_count>0` (leaked
+vocabulary) still fails the report unchanged from §17.4; ai_proxy/
+human_sme `claim_level` behavior is unchanged.
+
+**(2) Holdout arms + delta-based detection (`holdout.py`).** Empirical
+basis: the pre-#26-world campaign scored strict 4/5, and all 4 hits audited
+clean of false-notice contamination. The single miss,
+`role_table_fix_quality_owner`, had zero approval events at all
+(`opportunity_count=0` for every expected finding type on every candidate
+run) -- there was nothing for an approval-anomaly detector to fire on, by
+construction, not because detection failed. The design docs consistently
+frame `role_table_fix` as corrective, not anomaly-inducing: the mutation
+catalog row in this document reads "帰属矛盾の解消は誤宛先報告を減らすか" (does
+resolving attribution ambiguity REDUCE misdirected reports), and
+`data/compiled_data/world_config_v2.yaml`'s `attribution_pairs` and
+`data/design/FUZZING_HARNESS_DESIGN.md`'s mutation_space describe the same
+operator the same way. Scoring it against the positive-control
+expected-finding-types machinery therefore contradicted the design intent
+for this operator. Separately, no-mutation control runs showed baseline
+false alarms: `grounding_gap`/`version_gap`/`tacit_chat_to_action` were
+observed firing on unmutated control runs, so raw presence of an expected
+finding_type cannot by itself distinguish a mutation-caused signal from
+baseline noise.
+
+Approved redefinition: every injection in a holdout plan gains an `arm`
+field, `"positive_control"` (default for `clarify_*`/`contradict_*`/
+`dangling_fill_*`) or `"benign_control"` (default for `role_table_fix`),
+sealed into `plan_hash` alongside a new `control_run_roots` list (the
+designated no-mutation control run roots, also sealed into the plan at
+build time via `holdout-plan --control-run-root`, so the control set cannot
+be chosen post-hoc at scoring time). `benign_control` injections pass when
+(i) bundle verification passes, (ii) none of the anomaly types previously
+expected for that operator fire as a finding on its run (no false alarm),
+and (iii) the run's rate for each of those types is at or below the
+no-mutation control baseline; they are scored by `score_benign_controls`,
+reported in their own `benign_controls` section, and are excluded from the
+positive-control strict denominator (`compute_holdout_detection_rate`'s
+`injection_count`/`detected_count`/`detection_rate`). `positive_control`
+detection is now delta-aware: an expected finding_type on the mutated run is
+only a genuine strict hit if it exceeds the no-mutation control baseline
+computed across the sealed `control_run_roots` (opportunity-normalized rate
+where available, i.e. L1 `rule_hit_rate`'s `hit_count/opportunity_count`;
+raw count as a same-run-shape comparison proxy for L0). If a type never
+fires in any control, presence on the mutated run suffices (nothing to
+exceed); if it does fire in controls, the mutated run must exceed the
+maximum control rate, or the observation is recorded as
+`baseline_confounded` (not detected) with the compared-against baseline
+shown on the row. `strict_detection_rate` (>= 0.80, unchanged target) is
+still the official gate, computed over positive_control injections only.
+Backward compatibility: a plan built before the `arm` field existed has
+every injection default to `positive_control` (the old behavior, and the
+strictest interpretation -- nothing is quietly exempted from the
+denominator just because the plan predates arms).
