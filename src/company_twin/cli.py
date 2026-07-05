@@ -522,9 +522,9 @@ def sme_pack(
     run_root: Annotated[list[Path], typer.Option("--run-root", help="Run bundle to sample excerpts from; repeat for multiple")],
     samples_per_run: Annotated[int, typer.Option("--samples-per-run")] = 10,
 ) -> None:
-    """WP-14: build a leak-stripped SME blind-review packet and write sme_blind_review_inputs.json."""
-    packet = build_blind_review_packet([path.resolve() for path in run_root], samples_per_run=samples_per_run)
-    write_sme_blind_review_inputs(campaign_root.resolve(), packet)
+    """WP-14: build a leak-stripped SME blind-review packet; writes reviewer-facing sme_blind_review_inputs.json plus experimenter-side sme_blind_review_id_map.json."""
+    packet, id_map = build_blind_review_packet([path.resolve() for path in run_root], samples_per_run=samples_per_run)
+    write_sme_blind_review_inputs(campaign_root.resolve(), packet, id_map)
     _echo_json(packet)
 
 

@@ -31,6 +31,7 @@ from company_twin.holdout import (
 )
 from company_twin.readiness import REPORT_SCHEMA_VERSION, run_readiness_gate, write_readiness_reports
 from company_twin.sme_blind_review import (
+    REVIEW_QUESTIONS,
     SME_PLAUSIBILITY_TARGET,
     build_blind_review_packet,
     sample_run_bundle_excerpts,
@@ -437,7 +438,7 @@ def test_strip_experimenter_vocabulary_leaves_clean_business_text_untouched() ->
 def test_build_blind_review_packet_strips_and_drops_excessively_leaky_items(tmp_path: Path) -> None:
     run_root = _fixture_run_bundle(tmp_path / "run1")
 
-    packet = build_blind_review_packet([run_root])
+    packet, _id_map = build_blind_review_packet([run_root])
 
     assert packet["schema_version"] == "company_twin.sme_blind_review_inputs.v1"
     assert packet["item_count"] > 0
@@ -445,6 +446,67 @@ def test_build_blind_review_packet_strips_and_drops_excessively_leaky_items(tmp_
         assert item["response"] is None
         for banned in ("probe", "span", "oracle", "recorder", "experiment"):
             assert banned not in item["text"].lower()
+
+
+def test_blind_review_packet_uses_neutral_sequential_reviewer_ids(tmp_path: Path) -> None:
+    # A run-root-derived item_id like "anchor_s2_seed0:chat_0" puts
+    # experimenter vocabulary (anchor/seed) directly in front of the blind
+    # reviewer, who would correctly flag it as an artificial marker. The
+    # reviewer-facing packet must carry only neutral sequential ids; the
+    # mapping back to the run bundle lives in the experimenter-side id map.
+    run_root = _fixture_run_bundle(tmp_path / "anchor_s2_seed0")
+
+    packet, id_map = build_blind_review_packet([run_root])
+
+    assert packet["item_count"] > 0
+    for index, item in enumerate(packet["items"]):
+        assert item["item_id"] == f"R-{index + 1:03d}"
+        assert set(item) == {"item_id", "kind", "text", "questions", "response"}
+    serialized = json.dumps(packet, ensure_ascii=False)
+    assert "anchor_s2_seed0" not in serialized
+    assert "run_root" not in serialized
+    assert "was_clean" not in serialized
+    assert "redaction" not in serialized
+    assert "dropped" not in serialized
+
+    assert id_map["schema_version"] == "company_twin.sme_blind_review_id_map.v1"
+    assert id_map["packet_hash"] == packet["packet_hash"]
+    by_id = {entry["item_id"]: entry for entry in id_map["entries"]}
+    assert set(by_id) == {item["item_id"] for item in packet["items"]}
+    assert all(entry["run_root"] == "anchor_s2_seed0" for entry in id_map["entries"])
+    assert all(entry["redaction_count"] == 0 and entry["was_clean"] for entry in id_map["entries"])
+
+
+def test_blind_review_packet_reviewer_facing_fields_pass_leak_lint(tmp_path: Path) -> None:
+    # Every reviewer-visible string in the packet (keys and values alike) must
+    # survive the same leak lint the excerpt texts are held to. The fixed
+    # questionnaire is the one deliberate exception: it asks the reviewer
+    # whether they noticed 実験/シミュレーション-style markers, so it is
+    # asserted by identity against the canonical instrument instead of being
+    # lint-scanned.
+    run_root = _fixture_run_bundle(tmp_path / "anchor_s2_seed0")
+
+    packet, _id_map = build_blind_review_packet([run_root])
+    assert packet["item_count"] > 0
+
+    def reviewer_strings(node: Any):
+        if isinstance(node, dict):
+            for key, value in node.items():
+                yield key
+                if key == "questions":
+                    continue
+                yield from reviewer_strings(value)
+        elif isinstance(node, list):
+            for value in node:
+                yield from reviewer_strings(value)
+        elif isinstance(node, str):
+            yield node
+
+    for text in reviewer_strings(packet):
+        stripped = strip_experimenter_vocabulary(text)
+        assert stripped["was_clean"], f"reviewer-facing leak: {text!r} -> {stripped['redactions']}"
+    for item in packet["items"]:
+        assert item["questions"] == [dict(question) for question in REVIEW_QUESTIONS]
 
 
 def test_build_blind_review_packet_drops_items_with_even_a_single_redaction(tmp_path: Path) -> None:
@@ -461,12 +523,16 @@ def test_build_blind_review_packet_drops_items_with_even_a_single_redaction(tmp_
     (run_root / "world_ledger.jsonl").write_text("", encoding="utf-8")
     (run_root / "attempts.jsonl").write_text("", encoding="utf-8")
 
-    packet = build_blind_review_packet([run_root])
+    packet, id_map = build_blind_review_packet([run_root])
 
     assert packet["item_count"] == 0
-    assert packet["dropped_count"] == 1
-    assert packet["dropped_items"][0]["reason"] == "leaked_vocabulary_redacted"
-    assert packet["dropped_items"][0]["redaction_count"] == 1
+    # Drop bookkeeping is experimenter metadata and lives in the id map, not
+    # the reviewer-facing packet.
+    assert "dropped_count" not in packet and "dropped_items" not in packet
+    assert id_map["dropped_count"] == 1
+    assert id_map["dropped_items"][0]["reason"] == "leaked_vocabulary_redacted"
+    assert id_map["dropped_items"][0]["redaction_count"] == 1
+    assert id_map["dropped_items"][0]["run_root"] == "run_leaky"
 
 
 def test_sme_blind_review_report_blocked_when_inputs_missing(tmp_path: Path) -> None:
@@ -478,8 +544,8 @@ def test_sme_blind_review_report_blocked_when_inputs_missing(tmp_path: Path) -> 
 
 def test_sme_blind_review_report_blocked_when_packet_unfilled(tmp_path: Path) -> None:
     run_root = _fixture_run_bundle(tmp_path / "run1")
-    packet = build_blind_review_packet([run_root])
-    write_sme_blind_review_inputs(tmp_path, packet)
+    packet, id_map = build_blind_review_packet([run_root])
+    write_sme_blind_review_inputs(tmp_path, packet, id_map)
 
     payload = write_sme_blind_review_report(tmp_path)
 
@@ -490,10 +556,10 @@ def test_sme_blind_review_report_blocked_when_packet_unfilled(tmp_path: Path) ->
 
 def test_sme_blind_review_report_passes_when_filled_responses_meet_target(tmp_path: Path) -> None:
     run_root = _fixture_run_bundle(tmp_path / "run1")
-    packet = build_blind_review_packet([run_root], samples_per_run=10)
+    packet, id_map = build_blind_review_packet([run_root], samples_per_run=10)
     for item in packet["items"]:
         item["response"] = {"plausible_workplace_scene": 5, "internally_consistent": 5, "no_artificial_markers": "no"}
-    write_sme_blind_review_inputs(tmp_path, packet)
+    write_sme_blind_review_inputs(tmp_path, packet, id_map)
 
     payload = write_sme_blind_review_report(tmp_path)
 
@@ -504,11 +570,11 @@ def test_sme_blind_review_report_passes_when_filled_responses_meet_target(tmp_pa
 
 def test_sme_blind_review_report_fails_on_artificial_marker_flag(tmp_path: Path) -> None:
     run_root = _fixture_run_bundle(tmp_path / "run1")
-    packet = build_blind_review_packet([run_root], samples_per_run=10)
+    packet, id_map = build_blind_review_packet([run_root], samples_per_run=10)
     for item in packet["items"]:
         item["response"] = {"plausible_workplace_scene": 5, "internally_consistent": 5, "no_artificial_markers": "no"}
     packet["items"][0]["response"]["no_artificial_markers"] = "yes"
-    write_sme_blind_review_inputs(tmp_path, packet)
+    write_sme_blind_review_inputs(tmp_path, packet, id_map)
 
     payload = write_sme_blind_review_report(tmp_path)
 
@@ -532,6 +598,9 @@ def test_sme_pack_and_score_cli(tmp_path: Path) -> None:
     pack_result = runner.invoke(app, ["sme-pack", "--campaign-root", str(tmp_path), "--run-root", str(run_root)])
     assert pack_result.exit_code == 0, pack_result.output
     assert (tmp_path / "sme_blind_review_inputs.json").exists()
+    assert (tmp_path / "sme_blind_review_id_map.json").exists()
+    reviewer_packet = json.loads((tmp_path / "sme_blind_review_inputs.json").read_text(encoding="utf-8"))
+    assert run_root.name not in json.dumps(reviewer_packet, ensure_ascii=False)
 
     score_result = runner.invoke(app, ["sme-score", "--campaign-root", str(tmp_path)])
     assert score_result.exit_code == 1  # honest fail: packet is unfilled
@@ -557,10 +626,10 @@ def test_readiness_reports_wires_wp14_writers_end_to_end(tmp_path: Path) -> None
     _run_bundle_with_findings(tmp_path / "s1_run0", finding_types={"grounding_gap": 1})
 
     run_root = _fixture_run_bundle(tmp_path / "sme_run")
-    packet = build_blind_review_packet([run_root])
+    packet, id_map = build_blind_review_packet([run_root])
     for item in packet["items"]:
         item["response"] = {"plausible_workplace_scene": 5, "internally_consistent": 5, "no_artificial_markers": "no"}
-    write_sme_blind_review_inputs(tmp_path, packet)
+    write_sme_blind_review_inputs(tmp_path, packet, id_map)
 
     manifest = write_readiness_reports(tmp_path)
 

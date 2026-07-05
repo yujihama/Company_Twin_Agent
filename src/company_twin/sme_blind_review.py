@@ -18,7 +18,12 @@ is the offline machinery around it:
   sync with the existing lint definitions.
 - build_blind_review_packet()/write_sme_blind_review_inputs(): produces the
   reviewer-facing packet (sme_blind_review_inputs.json) with plausibility
-  questions and an empty reviewer-response schema.
+  questions and an empty reviewer-response schema, plus an experimenter-side
+  id map (sme_blind_review_id_map.json). Reviewer-facing item ids are neutral
+  sequential labels ("R-001", ...); the mapping back to run_root/excerpt and
+  all redaction bookkeeping lives only in the id-map file, which must never
+  be shipped to a reviewer (a run-root-derived id like "anchor_s2_seed0" is
+  itself an artificial marker that would defeat the blind).
 - score_sme_blind_review()/write_sme_blind_review_report(): consumes filled
   reviewer responses and computes the pass/fail readiness expects. An
   unfilled or partially filled packet is an honest FAIL/blocked, never a pass.
@@ -39,6 +44,7 @@ from .recorder import read_jsonl
 from .world_config import _json_hash
 
 SME_BLIND_REVIEW_SCHEMA_VERSION = "company_twin.sme_blind_review_inputs.v1"
+SME_BLIND_REVIEW_ID_MAP_SCHEMA_VERSION = "company_twin.sme_blind_review_id_map.v1"
 SME_PLAUSIBILITY_TARGET = 0.80
 SME_MIN_REVIEWED_SAMPLES = 5
 
@@ -217,8 +223,11 @@ def strip_experimenter_vocabulary(text: str) -> dict[str, Any]:
     return {"text": cleaned, "redactions": redactions, "was_clean": not redactions}
 
 
-def build_blind_review_packet(run_roots: list[Path], *, samples_per_run: int = 10) -> dict[str, Any]:
-    """Build a blind-review packet from one or more run bundles.
+def build_blind_review_packet(run_roots: list[Path], *, samples_per_run: int = 10) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Build a blind-review packet and its experimenter-side id map.
+
+    Returns ``(packet, id_map)``. The packet is the only file a reviewer ever
+    sees; the id map stays on the experimenter side.
 
     Every excerpt is stripped via strip_experimenter_vocabulary() before being
     added to the packet. strip_experimenter_vocabulary() always neutralizes
@@ -229,51 +238,97 @@ def build_blind_review_packet(run_roots: list[Path], *, samples_per_run: int = 1
     natural business artifacts" design intent this module exists to uphold.
     Any excerpt that needed even one redaction is therefore dropped rather
     than shipped with a "[削除済み]" fragment in it, and the drop is recorded
-    so the packet's completeness is auditable.
+    (in the id map, not the packet) so completeness stays auditable.
+
+    Reviewer-facing item ids are neutral sequential labels ("R-001", ...):
+    an id derived from the run-root name (e.g. "anchor_s2_seed0:chat_0")
+    carries experimenter vocabulary a blind reviewer would correctly flag as
+    an artificial marker, defeating the review. Likewise run_root/was_clean/
+    redaction_count are experimenter bookkeeping and live only in the id map.
+    Scoring keys on item_id within the packet itself, so the neutral ids are
+    internally sufficient for score_sme_blind_review()/
+    write_sme_blind_review_report().
     """
     items: list[dict[str, Any]] = []
+    entries: list[dict[str, Any]] = []
     dropped: list[dict[str, Any]] = []
     for run_root in run_roots:
         excerpts = sample_run_bundle_excerpts(run_root, limit=samples_per_run)
         for excerpt in excerpts:
             stripped = strip_experimenter_vocabulary(excerpt["text"])
-            item_id = f"{run_root.name}:{excerpt['excerpt_id']}"
             if stripped["redactions"]:
-                dropped.append({"item_id": item_id, "reason": "leaked_vocabulary_redacted", "redaction_count": len(stripped["redactions"])})
+                dropped.append(
+                    {
+                        "run_root": run_root.name,
+                        "excerpt_id": excerpt["excerpt_id"],
+                        "reason": "leaked_vocabulary_redacted",
+                        "redaction_count": len(stripped["redactions"]),
+                    }
+                )
                 continue
+            item_id = f"R-{len(items) + 1:03d}"
             items.append(
                 {
                     "item_id": item_id,
-                    "run_root": run_root.name,
                     "kind": excerpt["kind"],
                     "text": stripped["text"],
-                    "was_clean": stripped["was_clean"],
-                    "redaction_count": len(stripped["redactions"]),
                     "questions": [dict(question) for question in REVIEW_QUESTIONS],
                     "response": None,
                 }
             )
+            entries.append(
+                {
+                    "item_id": item_id,
+                    "run_root": run_root.name,
+                    "excerpt_id": excerpt["excerpt_id"],
+                    "was_clean": stripped["was_clean"],
+                    "redaction_count": len(stripped["redactions"]),
+                }
+            )
+    packet_hash = _json_hash([item["text"] for item in items])
     packet = {
         "schema_version": SME_BLIND_REVIEW_SCHEMA_VERSION,
         "kind": "blind_review_packet",
         "plausibility_target": SME_PLAUSIBILITY_TARGET,
         "min_reviewed_samples": SME_MIN_REVIEWED_SAMPLES,
         "item_count": len(items),
-        "dropped_count": len(dropped),
-        "dropped_items": dropped,
         "items": items,
-        "packet_hash": _json_hash([item["text"] for item in items]),
+        "packet_hash": packet_hash,
         "note": (
-            "Reviewer-facing packet only. `response` fields are null until a human SME fills them in; "
-            "score_sme_blind_review() treats null responses as unreviewed, never as passing."
+            "Reviewer-facing packet. Fill in each item's `response` as "
+            '{"plausible_workplace_scene": 1-5, "internally_consistent": 1-5, "no_artificial_markers": "yes"|"no"}. '
+            "Null responses count as unreviewed, never as passing."
         ),
     }
-    return packet
+    id_map = {
+        "schema_version": SME_BLIND_REVIEW_ID_MAP_SCHEMA_VERSION,
+        "kind": "blind_review_id_map",
+        "item_count": len(items),
+        "dropped_count": len(dropped),
+        "dropped_items": dropped,
+        "entries": entries,
+        "packet_hash": packet_hash,
+        "note": (
+            "Experimenter-side file only -- never send this to a reviewer. It maps each neutral "
+            "reviewer-facing item_id back to its source run bundle and records drop/redaction bookkeeping."
+        ),
+    }
+    return packet, id_map
 
 
-def write_sme_blind_review_inputs(campaign_root: Path, packet: dict[str, Any]) -> dict[str, Any]:
+def write_sme_blind_review_inputs(
+    campaign_root: Path, packet: dict[str, Any], id_map: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    """Write the reviewer packet and, when provided, the experimenter id map.
+
+    The id map is written to a sibling file (sme_blind_review_id_map.json)
+    rather than embedded in the packet: sme_blind_review_inputs.json is the
+    file handed to the reviewer, so nothing experimenter-plane may live in it.
+    """
     campaign_root.mkdir(parents=True, exist_ok=True)
     (campaign_root / "sme_blind_review_inputs.json").write_text(json.dumps(packet, ensure_ascii=False, indent=2), encoding="utf-8")
+    if id_map is not None:
+        (campaign_root / "sme_blind_review_id_map.json").write_text(json.dumps(id_map, ensure_ascii=False, indent=2), encoding="utf-8")
     return packet
 
 
