@@ -561,6 +561,7 @@ def holdout_plan(
     campaign_root: Annotated[Path, typer.Option("--campaign-root")],
     mutation: Annotated[list[str] | None, typer.Option("--mutation", help="Mutation id to include in the holdout injection plan; repeat for multiple. Defaults to the full catalog")] = None,
     run_root: Annotated[list[str] | None, typer.Option("--run-root", help="Planned run-root name(s) attributed to every injection (explicit resolution; omitting this makes bundle attribution exploration-mode, which cannot pass)")] = None,
+    auto_run_roots: Annotated[bool, typer.Option("--auto-run-roots", help="Give each injection exactly one planned run root named after its injection_id (holdout_<mutation_id>) -- the one-to-one attribution a multi-mutation plan needs; mutually exclusive with --run-root")] = False,
     planned_ticks: Annotated[int, typer.Option("--planned-ticks", help="Expected world_ledger tick coverage for a live S2 bundle attributed to this plan's injections")] = 0,
     control_run_root: Annotated[list[str] | None, typer.Option("--control-run-root", help="Designated no-mutation control run-root name, sealed into the plan (part of plan_hash) for delta-aware detection and benign-control baseline scoring; repeat for multiple")] = None,
     root: Annotated[Path | None, typer.Option("--root")] = None,
@@ -571,6 +572,7 @@ def holdout_plan(
         base,
         mutation_ids=mutation,
         run_roots=run_root,
+        auto_run_roots=auto_run_roots,
         planned_ticks=planned_ticks,
         control_run_roots=control_run_root,
     )

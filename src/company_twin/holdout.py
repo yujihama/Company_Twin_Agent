@@ -90,6 +90,7 @@ def build_holdout_injection_plan(
     *,
     mutation_ids: list[str] | None = None,
     run_roots: list[str] | None = None,
+    auto_run_roots: bool = False,
     planned_ticks: int = 0,
     control_run_roots: list[str] | None = None,
 ) -> dict[str, Any]:
@@ -117,6 +118,8 @@ def build_holdout_injection_plan(
     was pre-registered at plan-build time, not one chosen post-hoc at scoring
     time.
     """
+    if auto_run_roots and run_roots:
+        raise ValueError("pass either run_roots (shared, attributed to every injection) or auto_run_roots (per-injection root named after the injection_id), not both")
     catalog = load_mutation_catalog(root)
     if not catalog:
         raise ValueError("mutation catalog is empty; holdout plan requires at least one runtime mutation")
@@ -144,7 +147,12 @@ def build_holdout_injection_plan(
                 "target_doc_id": spec.get("doc_id") or spec.get("target_doc_id"),
                 "expected_finding_types": expected_finding_types,
                 "spec_hash": _json_hash(spec),
-                "planned_run_roots": list(run_roots or []),
+                # auto_run_roots gives each injection exactly its own run root,
+                # named after the injection_id, so a multi-mutation plan can be
+                # sealed with one-to-one bundle attribution before any run
+                # exists (shared run_roots would attribute every bundle to
+                # every injection and correctly fail verification).
+                "planned_run_roots": [f"holdout_{mutation_id}"] if auto_run_roots else list(run_roots or []),
                 "planned_ticks": int(planned_ticks),
                 "arm": _default_arm_for_operator(operator),
             }

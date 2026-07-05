@@ -201,6 +201,22 @@ def test_build_holdout_injection_plan_rejects_unknown_mutation_id() -> None:
         build_holdout_injection_plan(Path.cwd(), mutation_ids=["not_a_real_mutation"])
 
 
+def test_build_holdout_injection_plan_auto_run_roots_gives_one_to_one_attribution() -> None:
+    plan = build_holdout_injection_plan(Path.cwd(), auto_run_roots=True)
+
+    for injection in plan["injections"]:
+        assert injection["planned_run_roots"] == [injection["injection_id"]]
+    # One-to-one attribution must be sealed: two plans differing only in
+    # auto_run_roots have different plan hashes.
+    shared = build_holdout_injection_plan(Path.cwd())
+    assert plan["plan_hash"] != shared["plan_hash"]
+
+
+def test_build_holdout_injection_plan_rejects_auto_and_shared_run_roots_together() -> None:
+    with pytest.raises(ValueError, match="not both"):
+        build_holdout_injection_plan(Path.cwd(), run_roots=["some_root"], auto_run_roots=True)
+
+
 def _run_bundle_with_findings(root: Path, *, finding_types: dict[str, int], rule_hit: dict[str, Any] | None = None) -> None:
     root.mkdir(parents=True, exist_ok=True)
     (root / "triage").mkdir(exist_ok=True)
