@@ -9,15 +9,18 @@ import typer
 from .acceptance import run_acceptance
 from .agents import openrouter_ready
 from .ab_testing import write_prompt_mode_ab_report
+from .backcasting import extract_backcasting_cases, write_backcasting_inputs, write_backcasting_report
 from .campaign import run_control_pair_campaign, run_design_campaign, static_world_surface_lint
 from .corpus import Corpus
 from .design_loader import load_design
 from .env import load_local_env, normalize_openrouter_model
 from .harness import make_run_root, run_s0, run_s1_episode, run_s2_world
+from .holdout import build_holdout_injection_plan, write_holdout_inputs, write_holdout_report
 from .mutations import apply_corpus_mutations, build_delta_one_pair_manifest, lint_mutation_specs, load_mutation_catalog, mutation_specs_from_values
 from .oracles import execute_fresh_min_repro_confirmation, execute_min_repro_jobs, write_triage
 from .readiness import run_readiness_gate, write_readiness_reports
 from .semantic_grounding import LocalSemanticJudge, OpenRouterSemanticJudge, evaluate_semantic_grounding_campaign, evaluate_semantic_grounding_run, export_g3_calibration_samples
+from .sme_blind_review import build_blind_review_packet, write_sme_blind_review_inputs, write_sme_blind_review_report
 
 app = typer.Typer(no_args_is_help=True)
 
@@ -425,6 +428,75 @@ def readiness_reports(
         overwrite=overwrite,
     )
     _echo_json(payload)
+
+
+@app.command("backcasting-extract")
+def backcasting_extract(
+    campaign_root: Annotated[Path, typer.Option("--campaign-root")],
+    root: Annotated[Path | None, typer.Option("--root")] = None,
+) -> None:
+    """WP-14: extract candidate exemplar cases (現場判断事例) from the corpus into backcasting_inputs.json."""
+    base = _root(root)
+    design = load_design(base)
+    extraction = extract_backcasting_cases(design)
+    write_backcasting_inputs(campaign_root.resolve(), extraction)
+    _echo_json(extraction)
+
+
+@app.command("backcasting-report")
+def backcasting_report(
+    campaign_root: Annotated[Path, typer.Option("--campaign-root")],
+) -> None:
+    """WP-14: score backcasting_inputs.json against any recorded re-simulation results and write backcasting_report.json."""
+    payload = write_backcasting_report(campaign_root.resolve())
+    _echo_json(payload)
+
+
+@app.command("holdout-plan")
+def holdout_plan(
+    campaign_root: Annotated[Path, typer.Option("--campaign-root")],
+    mutation: Annotated[list[str] | None, typer.Option("--mutation", help="Mutation id to include in the holdout injection plan; repeat for multiple. Defaults to the full catalog")] = None,
+    root: Annotated[Path | None, typer.Option("--root")] = None,
+) -> None:
+    """WP-14: build a holdout injection plan from the WP-06 mutation catalog and write holdout_inputs.json."""
+    base = _root(root)
+    plan = build_holdout_injection_plan(base, mutation_ids=mutation)
+    write_holdout_inputs(campaign_root.resolve(), plan)
+    _echo_json(plan)
+
+
+@app.command("holdout-score")
+def holdout_score(
+    campaign_root: Annotated[Path, typer.Option("--campaign-root")],
+) -> None:
+    """WP-14: score holdout_inputs.json against existing run bundles under --campaign-root and write holdout_report.json."""
+    payload = write_holdout_report(campaign_root.resolve())
+    _echo_json(payload)
+    if not payload["passed"]:
+        raise typer.Exit(code=1)
+
+
+@app.command("sme-pack")
+def sme_pack(
+    campaign_root: Annotated[Path, typer.Option("--campaign-root")],
+    run_root: Annotated[list[Path], typer.Option("--run-root", help="Run bundle to sample excerpts from; repeat for multiple")],
+    samples_per_run: Annotated[int, typer.Option("--samples-per-run")] = 10,
+) -> None:
+    """WP-14: build a leak-stripped SME blind-review packet and write sme_blind_review_inputs.json."""
+    packet = build_blind_review_packet([path.resolve() for path in run_root], samples_per_run=samples_per_run)
+    write_sme_blind_review_inputs(campaign_root.resolve(), packet)
+    _echo_json(packet)
+
+
+@app.command("sme-score")
+def sme_score(
+    campaign_root: Annotated[Path, typer.Option("--campaign-root")],
+) -> None:
+    """WP-14: score sme_blind_review_inputs.json against filled-in reviewer responses and write sme_blind_review.json."""
+    payload = write_sme_blind_review_report(campaign_root.resolve())
+    _echo_json(payload)
+    if not payload["passed"]:
+        raise typer.Exit(code=1)
 
 
 @app.command("lint")
