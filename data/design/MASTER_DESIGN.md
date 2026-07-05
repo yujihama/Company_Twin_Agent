@@ -431,12 +431,22 @@ re-simulation, live holdout runs) remain separate follow-on work.
   `backcasting-extract`, `backcasting-report`.
 - `company_twin.holdout`: `build_holdout_injection_plan()` reuses the
   existing WP-06 mutation-operator catalog as the known-answer injection set,
-  stamping each planned injection with a spec hash.
-  `compute_holdout_detection_rate()`/`write_holdout_report()` score existing
-  run bundles' L0 triage findings and L1 monitoring-rule hits (L0∪L1) per
-  injected mutation; the acceptance target is detection_rate >= 0.80,
-  justified by previously measured miss_rate=1.0 monitoring blind spots. CLI:
-  `holdout-plan`, `holdout-score`.
+  stamping each planned injection with a spec hash and a pre-registered
+  `expected_finding_types` spec (mapping each mutation's operator family --
+  clarify/contradict/dangling_fill/role_table_fix -- to the L0 finding_type /
+  L1-detected finding_type that would genuinely indicate its detection,
+  e.g. contradict -> tacit_chat_to_action/sod_pattern/alternative_approval_chain,
+  role_table_fix -> sod_pattern/approval_concentration/alternative_approval_chain),
+  frozen before any run bundle is scored so "what counts as a hit" cannot be
+  chosen post-hoc. `compute_holdout_detection_rate()`/`write_holdout_report()`
+  compute both a `lenient_detection_rate` (any L0∪L1 signal on a matching
+  run, the original gameable definition, kept only for visibility) and a
+  `strict_detection_rate` (only signals matching the injection's registered
+  expected_finding_types); `detection_rate_basis: "strict"` names the strict
+  rate as the sole official pass/fail gate (>= 0.80, justified by previously
+  measured miss_rate=1.0 monitoring blind spots) so an unrelated finding
+  co-occurring on a mutated run can no longer inflate the measured detection
+  rate. CLI: `holdout-plan`, `holdout-score`.
 - `company_twin.sme_blind_review`: `sample_run_bundle_excerpts()` pulls short
   business-artifact-shaped excerpts from a run bundle;
   `strip_experimenter_vocabulary()` reuses the existing leak-lint

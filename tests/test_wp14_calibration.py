@@ -182,6 +182,10 @@ def test_build_holdout_injection_plan_reuses_wp06_mutation_catalog() -> None:
     mutation_ids = {injection["mutation_id"] for injection in plan["injections"]}
     assert "clarify_elderly_understanding_all" in mutation_ids
     assert all(injection["spec_hash"] for injection in plan["injections"])
+    # Every injection must carry a pre-registered, non-empty expected-detection
+    # spec -- this is what makes strict scoring pre-registered rather than
+    # chosen post-hoc.
+    assert all(injection["expected_finding_types"] for injection in plan["injections"])
 
 
 def test_build_holdout_injection_plan_rejects_unknown_mutation_id() -> None:
@@ -201,15 +205,22 @@ def _run_bundle_with_findings(root: Path, *, finding_types: dict[str, int], rule
 
 def test_compute_holdout_detection_rate_counts_l0_and_l1_evidence(tmp_path: Path) -> None:
     plan = build_holdout_injection_plan(Path.cwd(), mutation_ids=["clarify_elderly_understanding_all", "dangling_fill_search_key_stub"])
+    # grounding_gap is in the pre-registered expected_finding_types for both
+    # clarify and dangling_fill, so this is a strict hit for the matching one.
     _run_bundle_with_findings(tmp_path / "s1_run0", finding_types={"grounding_gap": 2})
 
     measurement = compute_holdout_detection_rate(tmp_path, plan)
 
+    assert measurement["detection_rate_basis"] == "strict"
     assert measurement["injection_count"] == 2
     assert measurement["detected_count"] == 1
     assert measurement["detection_rate"] == 0.5
+    assert measurement["strict_detection_rate"] == 0.5
+    assert measurement["lenient_detection_rate"] == 0.5
     detected_row = next(row for row in measurement["per_injection"] if row["mutation_id"] == "clarify_elderly_understanding_all")
     assert detected_row["detected"] is True
+    assert detected_row["strict_detected"] is True
+    assert detected_row["lenient_detected"] is True
     assert detected_row["l0_finding_types"] == ["grounding_gap"]
     undetected_row = next(row for row in measurement["per_injection"] if row["mutation_id"] == "dangling_fill_search_key_stub")
     assert undetected_row["detected"] is False
@@ -217,17 +228,47 @@ def test_compute_holdout_detection_rate_counts_l0_and_l1_evidence(tmp_path: Path
 
 
 def test_compute_holdout_detection_rate_counts_l1_only_evidence(tmp_path: Path) -> None:
-    plan = build_holdout_injection_plan(Path.cwd(), mutation_ids=["clarify_elderly_understanding_all"])
+    plan = build_holdout_injection_plan(Path.cwd(), mutation_ids=["contradict_chat_approval_recorded"])
     _run_bundle_with_findings(
         tmp_path / "s1_run0",
         finding_types={},
         rule_hit={"MON-SAME-SUBMITTER-APPROVER": {"finding_type": "sod_pattern", "hit_count": 1}},
     )
+    (tmp_path / "s1_run0" / "meta.json").write_text(
+        json.dumps({"stage": "S1", "mutation_ids": ["contradict_chat_approval_recorded"]}), encoding="utf-8"
+    )
 
     measurement = compute_holdout_detection_rate(tmp_path, plan)
 
+    # sod_pattern is in contradict's pre-registered expected_finding_types, so
+    # the L1-only hit counts under strict too.
     assert measurement["detected_count"] == 1
+    assert measurement["strict_detected_count"] == 1
+    assert measurement["lenient_detected_count"] == 1
     assert measurement["per_injection"][0]["l1_monitoring_rules"] == ["MON-SAME-SUBMITTER-APPROVER"]
+    assert measurement["per_injection"][0]["l1_finding_types"] == ["sod_pattern"]
+
+
+def test_compute_holdout_detection_rate_unrelated_finding_counts_lenient_not_strict(tmp_path: Path) -> None:
+    """Ungameability: an unrelated finding_type on a mutated run inflates the
+    lenient rate but must NOT count as a strict hit."""
+    plan = build_holdout_injection_plan(Path.cwd(), mutation_ids=["clarify_elderly_understanding_all"])
+    # deadline_overrun has nothing to do with the clarify mutation's
+    # pre-registered expectation (grounding_gap/version_gap/version_mix); it
+    # is an unrelated finding merely co-occurring on the mutated run.
+    _run_bundle_with_findings(tmp_path / "s1_run0", finding_types={"deadline_overrun": 3})
+
+    measurement = compute_holdout_detection_rate(tmp_path, plan)
+
+    assert measurement["lenient_detection_rate"] == 1.0
+    assert measurement["strict_detection_rate"] == 0.0
+    assert measurement["detection_rate"] == 0.0  # official field follows strict
+    assert measurement["passed"] is False
+    row = measurement["per_injection"][0]
+    assert row["lenient_detected"] is True
+    assert row["strict_detected"] is False
+    assert row["detected"] is False
+    assert "expected_finding_types" in row["strict_reason"]
 
 
 def test_holdout_report_blocked_when_inputs_missing(tmp_path: Path) -> None:
@@ -258,18 +299,70 @@ def test_holdout_report_fails_honestly_below_target_and_passes_above(tmp_path: P
     failing = write_holdout_report(tmp_path)
     assert failing["passed"] is False
     assert failing["measurement"]["detection_rate"] < HOLDOUT_DETECTION_TARGET
+    assert failing["measurement"]["strict_detection_rate"] < HOLDOUT_DETECTION_TARGET
+    assert failing["detection_rate_basis"] == "strict"
 
-    # Now supply matching run bundles for all five mutations -> rate 1.0 >= target.
+    # Now supply matching run bundles for all five mutations, each producing a
+    # finding_type that is actually in that mutation's own pre-registered
+    # expected_finding_types (not a blanket grounding_gap) -> strict rate 1.0.
     run_lookup = {}
     for idx, injection in enumerate(plan["injections"]):
         run_root = tmp_path / f"s1_holdout_{idx}"
-        _run_bundle_with_findings(run_root, finding_types={"grounding_gap": 1})
+        finding_type = injection["expected_finding_types"][0]
+        _run_bundle_with_findings(run_root, finding_types={finding_type: 1})
         run_lookup[injection["injection_id"]] = run_root
 
     passing = write_holdout_report(tmp_path, run_lookup=run_lookup)
     assert passing["passed"] is True
     assert passing["measurement"]["detection_rate"] == 1.0
+    assert passing["measurement"]["strict_detection_rate"] == 1.0
+    assert passing["measurement"]["lenient_detection_rate"] == 1.0
     assert len(passing["checks"][0]["per_injection"]) == 5
+
+
+def test_holdout_report_gate_fails_on_strict_even_when_lenient_passes(tmp_path: Path) -> None:
+    """The official pass/fail must gate on strict, not lenient: construct a
+    campaign where every mutation's run bundle fires an L0 finding (so
+    lenient_detection_rate == 1.0 >= 0.80) but none of those findings match
+    the mutation's own pre-registered expectation (so strict stays 0.0)."""
+    plan = build_holdout_injection_plan(
+        Path.cwd(),
+        mutation_ids=[
+            "clarify_elderly_understanding_all",
+            "clarify_elderly_understanding_sales_only",
+            "contradict_chat_approval_recorded",
+            "dangling_fill_search_key_stub",
+            "role_table_fix_quality_owner",
+        ],
+    )
+    write_holdout_inputs(tmp_path, plan)
+
+    run_lookup = {}
+    for idx, injection in enumerate(plan["injections"]):
+        run_root = tmp_path / f"s1_holdout_{idx}"
+        # deadline_overrun is not in any of these mutations' expected sets,
+        # so it lights up lenient without ever satisfying strict.
+        _run_bundle_with_findings(run_root, finding_types={"deadline_overrun": 1})
+        run_lookup[injection["injection_id"]] = run_root
+
+    payload = write_holdout_report(tmp_path, run_lookup=run_lookup)
+
+    assert payload["measurement"]["lenient_detection_rate"] == 1.0
+    assert payload["measurement"]["strict_detection_rate"] == 0.0
+    assert payload["passed"] is False
+    assert payload["status"] == "blocked"
+
+
+def test_compute_holdout_detection_rate_rejects_plan_without_expected_specs(tmp_path: Path) -> None:
+    """Scoring must refuse a plan whose injections lack a pre-registered
+    expected_finding_types spec -- otherwise "what counts as a hit" could be
+    chosen post-hoc at scoring time instead of at plan-build time."""
+    plan = build_holdout_injection_plan(Path.cwd(), mutation_ids=["clarify_elderly_understanding_all"])
+    plan["injections"][0]["expected_finding_types"] = []
+    _run_bundle_with_findings(tmp_path / "s1_run0", finding_types={"grounding_gap": 1})
+
+    with pytest.raises(ValueError, match="expected_finding_types"):
+        compute_holdout_detection_rate(tmp_path, plan)
 
 
 def test_holdout_plan_and_score_cli(tmp_path: Path) -> None:
