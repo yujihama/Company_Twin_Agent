@@ -4,7 +4,15 @@ from pathlib import Path
 from company_twin.ab_testing import write_prompt_mode_ab_report
 from company_twin.oracles import write_triage
 from company_twin.readiness import _semantic_grounding_check
-from company_twin.semantic_grounding import LocalSemanticJudge, evaluate_semantic_grounding_run, export_g3_calibration_samples
+from company_twin.semantic_grounding import (
+    NEGATIVE_CALIBRATION_CATEGORIES,
+    LocalSemanticJudge,
+    evaluate_semantic_grounding_run,
+    export_g3_calibration_samples,
+    load_g3_calibration_cases,
+    score_g3_calibration_file,
+    summarize_g3_calibration_scores,
+)
 
 
 class _FakeOpenRouterJudge:
@@ -156,6 +164,101 @@ def test_local_g3_calibration_fixture_agrees_with_labels() -> None:
         correct += int(actual == expected)
 
     assert correct / len(cases) >= 0.9
+
+
+_NEGATIVE_CALIBRATION_PATH = Path(__file__).resolve().parents[1] / "docs" / "g3_negative_calibration_samples.jsonl"
+
+
+def test_g3_negative_calibration_fixture_is_schema_valid() -> None:
+    cases = load_g3_calibration_cases(_NEGATIVE_CALIBRATION_PATH)
+
+    assert 15 <= len(cases) <= 20
+
+    by_category: dict[str, int] = {}
+    for case in cases:
+        assert case["category"] in NEGATIVE_CALIBRATION_CATEGORIES
+        by_category[case["category"]] = by_category.get(case["category"], 0) + 1
+        assert case["human_label"] in {"unsupported", "contradicted", "not_evaluated"}
+        assert case["sample_id"]
+        assert case["construal"]
+        assert case["decision"]
+        # missing_handle cases model an absent read trace; every other
+        # category must cite real, non-empty corpus text.
+        if case["category"] == "missing_handle":
+            assert case["cited_text"] == ""
+            assert case["human_label"] == "not_evaluated"
+        else:
+            assert case["cited_text"]
+            assert case["human_label"] in {"unsupported", "contradicted"}
+
+    # All five required categories are present in the committed fixture.
+    assert set(by_category) == NEGATIVE_CALIBRATION_CATEGORIES
+    assert all(count >= 3 for count in by_category.values())
+
+
+def test_g3_calibration_cases_reject_bad_schema(tmp_path: Path) -> None:
+    bad_path = tmp_path / "bad.jsonl"
+    bad_path.write_text(json.dumps({"cited_text": "x", "construal": "y", "decision": "z"}) + "\n", encoding="utf-8")
+
+    try:
+        load_g3_calibration_cases(bad_path)
+        assert False, "expected ValueError for missing evidence_plan/human_label"
+    except ValueError as exc:
+        assert "missing required keys" in str(exc)
+
+
+def test_local_proxy_specificity_on_negative_set_is_recorded(tmp_path: Path) -> None:
+    """The local deterministic proxy is not required to be perfect on the
+    negative set -- it is a lexical-overlap proxy, not a real entailment
+    judge -- but its performance must be computed and recorded so a live
+    OpenRouter judge run can be compared against a baseline."""
+    output_path = tmp_path / "g3_negative_calibration_result.json"
+
+    payload = score_g3_calibration_file(_NEGATIVE_CALIBRATION_PATH, judge=LocalSemanticJudge(), output_path=output_path)
+
+    assert output_path.exists()
+    on_disk = json.loads(output_path.read_text(encoding="utf-8"))
+    assert on_disk["schema_version"] == "company_twin.g3_negative_calibration_result.v1"
+    assert on_disk["case_count"] == payload["case_count"]
+    assert payload["judge"]["backend"] == "local_semantic_proxy"
+    assert payload["judge"]["readiness_eligible"] is False
+    assert 0.0 <= payload["overall_specificity_rate"] <= 1.0
+    assert set(payload["by_category"]) == NEGATIVE_CALIBRATION_CATEGORIES
+    for category, bucket in payload["by_category"].items():
+        assert bucket["correct"] + bucket["incorrect"] == bucket["total"]
+        assert bucket["total"] > 0
+    # missing_handle is a deterministic abstention case: the local judge
+    # returns not_evaluated whenever cited_text is empty, so it should always
+    # score correct regardless of the lexical-overlap heuristic's weakness
+    # elsewhere in the negative set.
+    assert payload["by_category"]["missing_handle"]["specificity_rate"] == 1.0
+
+
+def test_specificity_summary_computes_per_category_and_overall_rates_on_synthetic_set() -> None:
+    class _StubJudge:
+        backend = "openrouter"
+        model = "openrouter:stub-judge"
+
+    rows = [
+        {"sample_id": "A", "category": "contradicted", "human_label": "contradicted", "judge_label": "contradicted", "correct": True},
+        {"sample_id": "B", "category": "contradicted", "human_label": "contradicted", "judge_label": "supported", "correct": False},
+        {"sample_id": "C", "category": "weak_support", "human_label": "unsupported", "judge_label": "unsupported", "correct": True},
+        {"sample_id": "D", "category": "weak_support", "human_label": "unsupported", "judge_label": "unsupported", "correct": True},
+        {"sample_id": "E", "category": "missing_handle", "human_label": "not_evaluated", "judge_label": "not_evaluated", "correct": True},
+    ]
+
+    summary = summarize_g3_calibration_scores(rows, judge=_StubJudge(), source_path="synthetic-mini-set")
+
+    assert summary["case_count"] == 5
+    assert summary["correct_count"] == 4
+    assert summary["incorrect_count"] == 1
+    assert summary["overall_specificity_rate"] == 4 / 5
+    assert summary["by_category"]["contradicted"] == {"total": 2, "correct": 1, "incorrect": 1, "specificity_rate": 0.5}
+    assert summary["by_category"]["weak_support"] == {"total": 2, "correct": 2, "incorrect": 0, "specificity_rate": 1.0}
+    assert summary["by_category"]["missing_handle"] == {"total": 1, "correct": 1, "incorrect": 0, "specificity_rate": 1.0}
+    assert summary["judge"]["backend"] == "openrouter"
+    assert summary["judge"]["readiness_eligible"] is True
+    assert summary["source_path"] == "synthetic-mini-set"
 
 
 def test_l1_oracles_and_monitoring_rules_are_separate_populations(tmp_path: Path) -> None:

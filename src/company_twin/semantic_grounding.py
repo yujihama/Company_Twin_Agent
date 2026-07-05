@@ -20,6 +20,14 @@ CONTRADICTED = "contradicted"
 NOT_EVALUATED = "not_evaluated"
 READINESS_ALLOWED_JUDGE_BACKENDS = frozenset({"openrouter"})
 
+G3_NEGATIVE_CALIBRATION_SCHEMA_VERSION = "company_twin.g3_negative_calibration_result.v1"
+# A negative-set case is "correct" when the judge's label matches the human
+# label, or -- for the not_evaluated/missing-handle category -- when the
+# judge abstains rather than asserting an unsupported entailment relation.
+NEGATIVE_CALIBRATION_CATEGORIES = frozenset(
+    {"fabricated_basis", "version_mismatch", "weak_support", "contradicted", "missing_handle"}
+)
+
 
 class SemanticJudge(Protocol):
     backend: str
@@ -251,6 +259,132 @@ def export_g3_calibration_samples(source_root: Path, output_path: Path, *, limit
         "sample_count": len(samples),
         "limit": limit,
         "note": "Fill human_label manually, then run an OpenRouter g3 judge and record agreement in docs/g3_calibration.md.",
+    }
+
+
+def load_g3_calibration_cases(path: Path) -> list[dict[str, Any]]:
+    """Read a calibration JSONL fixture (positive or negative) into row dicts.
+
+    Validates the minimal schema shared by docs/g3_calibration_samples.jsonl
+    (human_label filled after blind review) and
+    docs/g3_negative_calibration_samples.jsonl (adds a required category).
+    """
+    from .recorder import read_jsonl
+
+    rows = read_jsonl(path)
+    if not rows:
+        raise ValueError(f"no calibration cases found in {path}")
+    required = {"cited_text", "construal", "decision", "evidence_plan", "human_label"}
+    for index, row in enumerate(rows):
+        missing = required - set(row)
+        if missing:
+            raise ValueError(f"calibration case {index} in {path} is missing required keys: {sorted(missing)}")
+        if row.get("human_label") not in {SUPPORTED, UNSUPPORTED, CONTRADICTED, NOT_EVALUATED}:
+            raise ValueError(f"calibration case {index} in {path} has invalid human_label={row.get('human_label')!r}")
+        if "category" in row and row["category"] not in NEGATIVE_CALIBRATION_CATEGORIES:
+            raise ValueError(f"calibration case {index} in {path} has unknown category={row['category']!r}")
+    return rows
+
+
+def _case_is_correct(*, human_label: str, judge_label: str) -> bool:
+    if human_label == NOT_EVALUATED:
+        # A missing-handle / unusable-evidence case is scored correct when the
+        # judge abstains. Asserting supported/unsupported/contradicted from no
+        # evidence is a specificity failure even though it is not literally a
+        # false "supported" call.
+        return judge_label == NOT_EVALUATED
+    return judge_label == human_label
+
+
+def score_g3_calibration_file(
+    path: Path,
+    *,
+    judge: SemanticJudge | None = None,
+    output_path: Path | None = None,
+    write: bool = True,
+) -> dict[str, Any]:
+    """Score a committed calibration JSONL fixture with a live or local judge.
+
+    This is the harness the design DoD calls a "specificity" measurement: it
+    runs the same judge interface used by evaluate_semantic_grounding_run over
+    a fixture of already-labeled cases and reports per-category and overall
+    agreement with the human label. It has no dependency on a run bundle, so
+    it works equally over the positive fixture (docs/g3_calibration_samples.jsonl)
+    and the negative fixture (docs/g3_negative_calibration_samples.jsonl).
+    """
+    path = path.resolve()
+    judge = judge or LocalSemanticJudge()
+    cases = load_g3_calibration_cases(path)
+
+    rows: list[dict[str, Any]] = []
+    for case in cases:
+        result = judge.judge(
+            cited_text=str(case.get("cited_text") or ""),
+            construal=str(case.get("construal") or ""),
+            decision=str(case.get("decision") or ""),
+            evidence_plan=str(case.get("evidence_plan") or ""),
+        )
+        judge_label = str(result.get("label", NOT_EVALUATED))
+        human_label = str(case.get("human_label"))
+        correct = _case_is_correct(human_label=human_label, judge_label=judge_label)
+        rows.append(
+            {
+                "sample_id": case.get("sample_id"),
+                "category": case.get("category"),
+                "human_label": human_label,
+                "judge_label": judge_label,
+                "confidence": result.get("confidence", 0.0),
+                "rationale": result.get("rationale", ""),
+                "correct": correct,
+            }
+        )
+
+    payload = summarize_g3_calibration_scores(rows, judge=judge, source_path=path)
+    if write and output_path is not None:
+        output_path = output_path.resolve()
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        payload["output_path"] = str(output_path)
+    return payload
+
+
+def summarize_g3_calibration_scores(rows: list[dict[str, Any]], *, judge: SemanticJudge, source_path: Path | str | None = None) -> dict[str, Any]:
+    """Build the specificity summary artifact shape from already-scored rows.
+
+    Split out from score_g3_calibration_file so the aggregation logic itself
+    (per-category correct/incorrect counts, overall specificity) can be unit
+    tested against a synthetic mini-set without a judge or fixture file.
+    """
+    by_category: dict[str, dict[str, int]] = {}
+    for row in rows:
+        category = str(row.get("category") or "uncategorized")
+        bucket = by_category.setdefault(category, {"total": 0, "correct": 0, "incorrect": 0})
+        bucket["total"] += 1
+        if row.get("correct"):
+            bucket["correct"] += 1
+        else:
+            bucket["incorrect"] += 1
+    for bucket in by_category.values():
+        bucket["specificity_rate"] = (bucket["correct"] / bucket["total"]) if bucket["total"] else None
+
+    total = len(rows)
+    correct_total = sum(1 for row in rows if row.get("correct"))
+    readiness_eligible = judge.backend in READINESS_ALLOWED_JUDGE_BACKENDS
+    return {
+        "schema_version": G3_NEGATIVE_CALIBRATION_SCHEMA_VERSION,
+        "source_path": str(source_path) if source_path is not None else None,
+        "judge": {
+            "backend": judge.backend,
+            "model": judge.model,
+            "prompt_version": G3_JUDGE_PROMPT_VERSION,
+            "readiness_eligible": readiness_eligible,
+        },
+        "case_count": total,
+        "correct_count": correct_total,
+        "incorrect_count": total - correct_total,
+        "overall_specificity_rate": (correct_total / total) if total else None,
+        "by_category": by_category,
+        "rows": rows,
     }
 
 

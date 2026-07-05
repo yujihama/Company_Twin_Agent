@@ -144,3 +144,60 @@ manual calibration batch should include known-bad samples, preferably up to 10
 fresh scaffold-mode fabricated-basis findings not used in prompt tuning, so the
 OpenRouter judge's specificity against unsupported or contradicted basis can be
 measured before readiness use.
+
+## Negative (Known-Bad) Calibration Set
+
+The one-sided caveat above is addressed by a second, purpose-built fixture:
+`docs/g3_negative_calibration_samples.jsonl`. It contains 20 known-bad/graded
+cases built from real corpus text (`data/raw_data/...` and the deliberate
+`data/raw_data_v1_0` stale mirrors of DFH-SAL-021 and DFH-SAL-045), so every
+`cited_text` is either a real chunk unrelated to the claim, the real stale
+v1.0 text, or a genuinely on-topic but non-supporting/contradicting real
+chunk. Cases are in natural Japanese business register matching real
+`basis_records.jsonl` construal/decision/evidence_plan style.
+
+Each row uses the same schema as the positive fixture (`cited_text`,
+`construal`, `decision`, `evidence_plan`, `human_label`) plus a required
+`category` field. The five categories, each with 3-5 cases:
+
+| Category | What it tests | `human_label` |
+|---|---|---|
+| `fabricated_basis` | construal/decision/evidence_plan invents an obligation absent from every real document; `cited_text` is real but unrelated | `unsupported` |
+| `version_mismatch` | basis claims the current-rule procedure while `cited_text` is the outdated v1.0 text (DFH-SAL-021/045 skew) | `contradicted` |
+| `weak_support` | `cited_text` is genuinely on-topic but does not reach the claimed conclusion | `unsupported` |
+| `contradicted` | `cited_text` states the opposite of the construal/decision | `contradicted` |
+| `missing_handle` | `citation_handle` present but no read trace / empty `cited_text` | `not_evaluated` |
+
+Case counts in the committed fixture: `fabricated_basis=5`, `version_mismatch=4`,
+`weak_support=4`, `contradicted=4`, `missing_handle=3` (20 total).
+
+### Scoring Harness
+
+`score_g3_calibration_file` in `semantic_grounding.py` (exposed as the
+`g3-score-calibration` CLI command) runs the same `SemanticJudge` interface
+used by `evaluate_semantic_grounding_run` over any labeled calibration JSONL
+file -- positive or negative -- and writes a machine-readable summary with
+per-category correct/incorrect counts, an overall specificity/agreement rate,
+and judge metadata (`backend`, `model`, `prompt_version`,
+`readiness_eligible`). For the `missing_handle`/`not_evaluated` category, a
+case is scored correct only if the judge abstains (`not_evaluated`); asserting
+any entailment label from absent evidence is a specificity failure.
+
+Offline (local deterministic proxy, regression guard only -- this is not the
+live specificity measurement):
+
+```powershell
+python -m company_twin.cli g3-score-calibration --calibration-file docs\g3_negative_calibration_samples.jsonl --output docs\g3_negative_calibration_result.local.json
+```
+
+### Live Specificity Run (required before readiness use)
+
+```powershell
+python -m company_twin.cli g3-score-calibration --calibration-file docs\g3_negative_calibration_samples.jsonl --output docs\g3_negative_calibration_result.json --judge-model openrouter:qwen/qwen3.6-plus
+```
+
+Record the resulting `overall_specificity_rate`, the per-category rates, and
+the judge model/prompt version in this document once the live pass is run.
+The WP-02 semantic-judge DoD is not fully satisfied until both the positive
+agreement rate (above) and this negative specificity rate are recorded from a
+live, allowlisted judge backend.
