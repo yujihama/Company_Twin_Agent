@@ -11,6 +11,7 @@ from company_twin.campaign import (
     static_world_surface_lint,
     _diverse_s0_rows,
     _promote_probe,
+    _s0_candidates_for_row,
 )
 from company_twin.corpus import Corpus
 from company_twin.design_loader import load_design
@@ -36,6 +37,16 @@ def test_contra01_registers_split_by_topic_candidate_for_next_batch() -> None:
     design = load_design(Path.cwd())
 
     assert design.spans["CONTRA-01"].candidates == {
+        "split_by_topic": "商品説明事項の改定依頼と停止条件該当の一報を論点別に分割し、それぞれ別の主管部署へ接地して送る"
+    }
+
+
+def test_contra01_split_by_topic_candidate_is_scoped_to_p09() -> None:
+    design = load_design(Path.cwd())
+
+    assert _s0_candidates_for_row(design, "CONTRA-01", {"probe_id": "P-03"}) == {}
+    assert _s0_candidates_for_row(design, "CONTRA-01", {"probe_id": "P-09"}) == {}
+    assert _s0_candidates_for_row(design, "CONTRA-01", {"probe_id": "P-09", "candidate_ids": ["split_by_topic"]}) == {
         "split_by_topic": "商品説明事項の改定依頼と停止条件該当の一報を論点別に分割し、それぞれ別の主管部署へ接地して送る"
     }
 

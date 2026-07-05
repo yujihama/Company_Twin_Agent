@@ -87,6 +87,7 @@ def run_s0(
         "role": seat.role,
         "model": model_name,
         "variant": variant,
+        "candidate_ids": sorted(design.spans[span_id].candidates) if span_id in design.spans else [],
         "response": response,
         "outcome": outcome,
         **parsed,

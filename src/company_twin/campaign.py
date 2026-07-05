@@ -539,7 +539,7 @@ def aggregate_s0_control_pair_attribution(design: DesignInputs, s0_results: list
                 all_live = False
         span_id = str(row.get("span_id") or "")
         role = role_of.get(str(row.get("seat_id") or ""), "unknown")
-        candidates = design.spans[span_id].candidates if span_id in design.spans else {}
+        candidates = _s0_candidates_for_row(design, span_id, row)
         enriched = {
             **row,
             "role": role,
@@ -599,6 +599,11 @@ def aggregate_s0_control_pair_attribution(design: DesignInputs, s0_results: list
 
 
 ENTROPY_EXCLUDED_CLUSTERS = frozenset({"unparsed"})
+# Late candidates should not relabel historical rows that lack a run-time snapshot.
+S0_ROW_OPT_IN_CANDIDATES = frozenset({("CONTRA-01", "split_by_topic")})
+S0_PROBE_SCOPED_CANDIDATES: dict[tuple[str, str], frozenset[str]] = {
+    ("CONTRA-01", "split_by_topic"): frozenset({"P-09"}),
+}
 
 
 def _entropy_clusters(clusters: Counter[str]) -> Counter[str]:
@@ -651,8 +656,7 @@ def aggregate_s0_divergence(design: DesignInputs, s0_results: list[dict[str, Any
         cells.setdefault((span_id, role), []).append(row)
     out_cells: list[dict[str, Any]] = []
     for (span_id, role), rows in sorted(cells.items()):
-        candidates = design.spans[span_id].candidates if span_id in design.spans else {}
-        clusters = Counter(_s0_cluster(row, candidates) for row in rows)
+        clusters = Counter(_s0_cluster(row, _s0_candidates_for_row(design, span_id, row)) for row in rows)
         entropy_clusters = _entropy_clusters(clusters)
         probe_counts = Counter(str(row.get("probe_id") or "") for row in rows if row.get("probe_id"))
         primary_probe_id = probe_counts.most_common(1)[0][0] if probe_counts else ""
@@ -718,6 +722,19 @@ def _s0_cluster(row: dict[str, Any], candidates: dict[str, str]) -> str:
     if row.get("parsed") is False:
         return "unparsed"
     return classify_answer(_answer_text(row), candidates)
+
+
+def _s0_candidates_for_row(design: DesignInputs, span_id: str, row: dict[str, Any]) -> dict[str, str]:
+    candidates = dict(design.spans[span_id].candidates) if span_id in design.spans else {}
+    probe_id = str(row.get("probe_id") or "")
+    row_candidate_ids = {str(candidate_id) for candidate_id in row.get("candidate_ids", [])}
+    for scoped_span_id, candidate_id in S0_ROW_OPT_IN_CANDIDATES:
+        if span_id == scoped_span_id and candidate_id not in row_candidate_ids:
+            candidates.pop(candidate_id, None)
+    for (scoped_span_id, candidate_id), allowed_probes in S0_PROBE_SCOPED_CANDIDATES.items():
+        if span_id == scoped_span_id and probe_id not in allowed_probes:
+            candidates.pop(candidate_id, None)
+    return candidates
 
 
 def classify_answer(answer: str, candidates: dict[str, str]) -> str:

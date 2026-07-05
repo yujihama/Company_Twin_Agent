@@ -14,6 +14,7 @@ from company_twin.design_loader import load_design
 from company_twin.harness import CONTROLLED_ACTION_TOOLS, _tool_count, run_s0
 from company_twin.oracles import aggregate_ensemble_triage
 from company_twin.recorder import RunRecorder, read_jsonl
+from company_twin.semantic_grounding import evaluate_semantic_grounding_campaign
 
 
 def test_deepagentseat_records_failed_invoke(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
@@ -179,6 +180,24 @@ def test_ensemble_triage_excludes_marked_failed_bundle(tmp_path) -> None:
 
     assert payload["run_filter"]["included_run_count"] == 0
     assert payload["run_filter"]["excluded_failed_run_ids"] == ["s2_seed0"]
+
+
+def test_g3_campaign_excludes_marked_failed_bundle_without_decoding_jsonl(tmp_path) -> None:
+    failed_root = tmp_path / "s2_seed0"
+    failed_root.mkdir()
+    (failed_root / "attempts.jsonl").write_bytes(b"\xa7 not utf8\n")
+    (failed_root / "basis_records.jsonl").write_text(
+        '{"action_id": "a1", "seat_id": "emp-A"}\n',
+        encoding="utf-8",
+    )
+    (failed_root / "failed_run.json").write_text('{"error_type": "UnicodeDecodeError"}', encoding="utf-8")
+
+    payload = evaluate_semantic_grounding_campaign(tmp_path)
+
+    assert payload["run_count"] == 0
+    assert payload["basis_action_bound"] == 0
+    assert payload["excluded_failed_run_ids"] == ["s2_seed0"]
+    assert not (failed_root / "g3_semantic_grounding.json").exists()
 
 
 def test_a13_accepts_completed_s2_replacement_while_failed_bundle_remains(tmp_path) -> None:

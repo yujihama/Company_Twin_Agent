@@ -151,7 +151,11 @@ def evaluate_semantic_grounding_campaign(
     judge = judge or LocalSemanticJudge()
     shared_cache = cache_path or (campaign_root / "g3_entailment_cache.json")
     run_reports = []
+    excluded_failed_run_ids = []
     for run_root in sorted(path for path in campaign_root.iterdir() if path.is_dir()):
+        if (run_root / "failed_run.json").exists():
+            excluded_failed_run_ids.append(run_root.name)
+            continue
         if (run_root / "basis_records.jsonl").exists():
             run_reports.append(evaluate_semantic_grounding_run(run_root, judge=judge, cache_path=shared_cache, write=True))
     action_bound = sum(int(report.get("basis_action_bound") or 0) for report in run_reports)
@@ -172,6 +176,7 @@ def evaluate_semantic_grounding_campaign(
         "grounding_semantic_all3_rate": all3_rate if readiness_eligible else None,
         "grounding_g3_semantic_rate_proxy": None if readiness_eligible else g3_rate,
         "grounding_semantic_all3_rate_proxy": None if readiness_eligible else all3_rate,
+        "excluded_failed_run_ids": excluded_failed_run_ids,
         "run_reports": [
             {
                 "run_root": report["run_root"],
