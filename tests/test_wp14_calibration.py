@@ -217,26 +217,99 @@ def test_build_holdout_injection_plan_rejects_auto_and_shared_run_roots_together
         build_holdout_injection_plan(Path.cwd(), run_roots=["some_root"], auto_run_roots=True)
 
 
-def _run_bundle_with_findings(root: Path, *, finding_types: dict[str, int], rule_hit: dict[str, Any] | None = None) -> None:
+_DEFAULT_TARGET_DOC_ID = "DFH-SAL-901"  # clarify_elderly_understanding_all's doc_id
+
+
+def _activation_rule_hit(expected_finding_types: list[str], *, hit_types: dict[str, int] | None = None) -> dict[str, Any]:
+    """Synthesize a rule_hit_rate block giving every expected_finding_type a
+    genuine opportunity_count > 0 (activation-aware holdout protocol,
+    MASTER_DESIGN.md section 17.9) -- one rule per finding_type, opportunity
+    always > 0, hit_count from hit_types (defaults to 0)."""
+    hit_types = hit_types or {}
+    return {
+        f"MON-ACTIVATION-{finding_type.upper()}": {
+            "finding_type": finding_type,
+            "opportunity_count": 3,
+            "hit_count": int(hit_types.get(finding_type, 0)),
+        }
+        for finding_type in expected_finding_types
+    }
+
+
+def _write_attempts_exposing_doc(root: Path, *, doc_id: str, seat_id: str = "seat_sales_1") -> None:
+    if not doc_id:
+        (root / "attempts.jsonl").write_text("", encoding="utf-8")
+        return
+    row = {
+        "ts": "2026-07-06T00:00:00+00:00",
+        "run_id": "test",
+        "tick": 1,
+        "seat_id": seat_id,
+        "tool": "read_document",
+        "args": {"doc_id": doc_id},
+        "success": True,
+        "result": {"citation_handle": "H-1", "doc_id": doc_id, "version": "1.1"},
+        "denied_reason": None,
+        "origin": "agent",
+    }
+    (root / "attempts.jsonl").write_text(json.dumps(row) + "\n", encoding="utf-8")
+
+
+def _run_bundle_with_findings(
+    root: Path,
+    *,
+    finding_types: dict[str, int],
+    rule_hit: dict[str, Any] | None = None,
+    expected_finding_types: list[str] | None = None,
+    target_doc_id: str = _DEFAULT_TARGET_DOC_ID,
+    activated: bool = True,
+) -> None:
     root.mkdir(parents=True, exist_ok=True)
     (root / "triage").mkdir(exist_ok=True)
+    # Activation (2026-07-06 approved protocol, MASTER_DESIGN.md section
+    # 17.9): give every expected_finding_type a genuine opportunity_count > 0
+    # (defaulting to the finding_types passed in when expected_finding_types
+    # isn't explicitly given, so existing single-type fixtures still activate
+    # on their own finding_type) unless rule_hit is explicitly supplied by the
+    # caller (some tests construct rule_hit_rate themselves for L1-only
+    # evidence) or activated=False (dedicated unactivated-path tests).
+    if rule_hit is None and activated:
+        rule_hit = _activation_rule_hit(expected_finding_types or list(finding_types), hit_types=finding_types)
     (root / "triage" / "metrics.json").write_text(
         json.dumps({"stage": "S1", "finding_types": finding_types, "rule_hit_rate": rule_hit or {}, "detection_miss_rate": {}}),
         encoding="utf-8",
     )
     (root / "meta.json").write_text(json.dumps({"stage": "S1", "mutation_ids": ["clarify_elderly_understanding_all"]}), encoding="utf-8")
+    _write_attempts_exposing_doc(root, doc_id=target_doc_id if activated else "")
 
 
-def _verified_s2_bundle(root: Path, *, injection: dict[str, Any], finding_types: dict[str, int], planned_ticks: int = 4) -> None:
+def _verified_s2_bundle(
+    root: Path,
+    *,
+    injection: dict[str, Any],
+    finding_types: dict[str, int],
+    planned_ticks: int = 4,
+    activated: bool = True,
+    rule_hit: dict[str, Any] | None = None,
+) -> None:
     """Build a run bundle that passes holdout bundle-attribution verification
     (verify_holdout_bundles): stage S2, config.json mutation entries matching
-    the injection's spec_hash/mutation_id, and world_ledger tick coverage."""
+    the injection's spec_hash/mutation_id, and world_ledger tick coverage.
+
+    By default (activated=True) this also builds ACTIVATION evidence
+    (2026-07-06 approved protocol, MASTER_DESIGN.md section 17.9): a
+    successful read_document attempt on the injection's target_doc_id
+    (exposure) plus a rule_hit_rate giving every expected_finding_type an
+    opportunity_count > 0 (opportunity). Pass activated=False to build an
+    unactivated bundle (e.g. for the zero-activation-fails test path)."""
     from company_twin.world_config import _json_hash as world_json_hash
 
     root.mkdir(parents=True, exist_ok=True)
     (root / "triage").mkdir(exist_ok=True)
+    if rule_hit is None and activated:
+        rule_hit = _activation_rule_hit(list(injection.get("expected_finding_types") or []), hit_types=finding_types)
     (root / "triage" / "metrics.json").write_text(
-        json.dumps({"stage": "S2", "finding_types": finding_types, "rule_hit_rate": {}, "detection_miss_rate": {}}),
+        json.dumps({"stage": "S2", "finding_types": finding_types, "rule_hit_rate": rule_hit or {}, "detection_miss_rate": {}}),
         encoding="utf-8",
     )
     mutation_id = injection["mutation_id"]
@@ -250,6 +323,8 @@ def _verified_s2_bundle(root: Path, *, injection: dict[str, Any], finding_types:
     (root / "meta.json").write_text(json.dumps({"stage": "S2", "mutation_ids": [mutation_id]}), encoding="utf-8")
     ledger_rows = [{"tick": tick, "event_type": "tick_committed"} for tick in range(1, planned_ticks + 1)]
     (root / "world_ledger.jsonl").write_text("".join(json.dumps(row) + "\n" for row in ledger_rows), encoding="utf-8")
+    target_doc_id = str(injection.get("target_doc_id") or "")
+    _write_attempts_exposing_doc(root, doc_id=target_doc_id if activated else "")
 
 
 def test_compute_holdout_detection_rate_counts_l0_and_l1_evidence(tmp_path: Path) -> None:
@@ -281,7 +356,8 @@ def test_compute_holdout_detection_rate_counts_l1_only_evidence(tmp_path: Path) 
     _run_bundle_with_findings(
         tmp_path / "s1_run0",
         finding_types={},
-        rule_hit={"MON-SAME-SUBMITTER-APPROVER": {"finding_type": "sod_pattern", "hit_count": 1}},
+        rule_hit={"MON-SAME-SUBMITTER-APPROVER": {"finding_type": "sod_pattern", "hit_count": 1, "opportunity_count": 2}},
+        target_doc_id="DFH-SAL-903",  # contradict_chat_approval_recorded's doc_id -- exposure evidence
     )
     (tmp_path / "s1_run0" / "meta.json").write_text(
         json.dumps({"stage": "S1", "mutation_ids": ["contradict_chat_approval_recorded"]}), encoding="utf-8"
@@ -302,10 +378,14 @@ def test_compute_holdout_detection_rate_unrelated_finding_counts_lenient_not_str
     """Ungameability: an unrelated finding_type on a mutated run inflates the
     lenient rate but must NOT count as a strict hit."""
     plan = build_holdout_injection_plan(Path.cwd(), mutation_ids=["clarify_elderly_understanding_all"])
+    expected_finding_types = plan["injections"][0]["expected_finding_types"]
     # deadline_overrun has nothing to do with the clarify mutation's
     # pre-registered expectation (grounding_gap/version_gap/version_mix); it
-    # is an unrelated finding merely co-occurring on the mutated run.
-    _run_bundle_with_findings(tmp_path / "s1_run0", finding_types={"deadline_overrun": 3})
+    # is an unrelated finding merely co-occurring on the mutated run. The run
+    # is activated (exposure + a genuine opportunity for the real expected
+    # types) so this exercises the "activated but wrong finding" strict_reason
+    # path, not the zero-activation path.
+    _run_bundle_with_findings(tmp_path / "s1_run0", finding_types={"deadline_overrun": 3}, expected_finding_types=expected_finding_types)
 
     measurement = compute_holdout_detection_rate(tmp_path, plan)
 
@@ -824,6 +904,290 @@ def test_holdout_plan_cli_records_control_run_roots(tmp_path: Path) -> None:
     plan = json.loads((tmp_path / "holdout_inputs.json").read_text(encoding="utf-8"))
     assert plan["control_run_roots"] == ["s2_anchor"]
     assert plan["injections"][0]["arm"] == ARM_POSITIVE_CONTROL
+
+
+# ---------------------------------------------------------------------------
+# 2026-07-06 approved activation-aware holdout protocol (MASTER_DESIGN.md
+# section 17.9): activation = exposure AND opportunity; detection is
+# evaluated only over activated trials; zero activated trials -> fails
+# outright; multi-seed (seeds_per_injection) plan support.
+# ---------------------------------------------------------------------------
+
+
+def test_run_exposure_detects_read_document_attempt(tmp_path: Path) -> None:
+    from company_twin.holdout import _run_exposure
+
+    root = tmp_path / "run0"
+    root.mkdir()
+    _write_attempts_exposing_doc(root, doc_id="DFH-SAL-901")
+
+    exposure = _run_exposure(root, "DFH-SAL-901")
+
+    assert exposure["exposed"] is True
+    assert exposure["read_document_hits"]
+    assert exposure["read_document_hits"][0]["seat_id"] == "seat_sales_1"
+
+
+def test_run_exposure_detects_basis_citation(tmp_path: Path) -> None:
+    from company_twin.holdout import _run_exposure
+
+    root = tmp_path / "run0"
+    root.mkdir()
+    (root / "attempts.jsonl").write_text("", encoding="utf-8")
+    basis_row = {
+        "basis_id": "BASIS-000001",
+        "seat_id": "seat_sales_1",
+        "tick": 2,
+        "retrieved": [{"doc_id": "DFH-SAL-901", "version": "1.1", "citation_handle": "H-1"}],
+    }
+    (root / "basis_records.jsonl").write_text(json.dumps(basis_row) + "\n", encoding="utf-8")
+
+    exposure = _run_exposure(root, "DFH-SAL-901")
+
+    assert exposure["exposed"] is True
+    assert exposure["basis_citation_hits"]
+    assert exposure["read_document_hits"] == []
+
+
+def test_run_exposure_false_when_doc_never_read(tmp_path: Path) -> None:
+    from company_twin.holdout import _run_exposure
+
+    root = tmp_path / "run0"
+    root.mkdir()
+    (root / "attempts.jsonl").write_text("", encoding="utf-8")
+
+    exposure = _run_exposure(root, "DFH-SAL-901")
+
+    assert exposure["exposed"] is False
+    assert "DFH-SAL-901" in exposure["detail"]
+
+
+def test_run_opportunity_from_rule_hit_rate_metrics(tmp_path: Path) -> None:
+    from company_twin.holdout import _run_opportunity
+
+    root = tmp_path / "run0"
+    root.mkdir()
+    (root / "triage").mkdir()
+    # Reproduces the earlier role_table_fix run: opportunity_count=0 for
+    # every expected finding type -- no genuine opportunity, by construction.
+    (root / "triage" / "metrics.json").write_text(
+        json.dumps(
+            {
+                "rule_hit_rate": {
+                    "MON-A": {"finding_type": "sod_pattern", "opportunity_count": 0, "hit_count": 0},
+                    "MON-B": {"finding_type": "approval_concentration", "opportunity_count": 0, "hit_count": 0},
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    opportunity = _run_opportunity(root, ["sod_pattern", "approval_concentration", "alternative_approval_chain"])
+
+    assert opportunity["has_opportunity"] is False
+    assert opportunity["opportunity_count_by_type"] == {"sod_pattern": 0, "approval_concentration": 0, "alternative_approval_chain": 0}
+
+    # Now with a genuine opportunity for one expected type.
+    (root / "triage" / "metrics.json").write_text(
+        json.dumps({"rule_hit_rate": {"MON-A": {"finding_type": "sod_pattern", "opportunity_count": 4, "hit_count": 0}}}),
+        encoding="utf-8",
+    )
+    opportunity2 = _run_opportunity(root, ["sod_pattern", "approval_concentration"])
+    assert opportunity2["has_opportunity"] is True
+    assert opportunity2["opportunity_count_by_type"]["sod_pattern"] == 4
+
+
+def test_injection_with_zero_activated_trials_fails_with_named_reason(tmp_path: Path) -> None:
+    """A run bundle with real findings but NO exposure and NO opportunity
+    (unactivated) must fail the injection outright -- the stimulus never had
+    a fair chance to be observed, so an "undetected" reading here is not
+    evidence of a detection miss (MASTER_DESIGN.md section 17.6's
+    role_table_fix_quality_owner finding / section 17.7's stimulus-delivery
+    gap, both cases where the run was in fact unactivated)."""
+    plan = build_holdout_injection_plan(
+        Path.cwd(), mutation_ids=["clarify_elderly_understanding_all"], run_roots=["s2_holdout_0"]
+    )
+    write_holdout_inputs(tmp_path, plan)
+    injection = plan["injections"][0]
+    # Even though grounding_gap (an expected finding_type) technically fires,
+    # activated=False means no exposure evidence and no opportunity_count is
+    # recorded -- so this run cannot demonstrate detection.
+    _verified_s2_bundle(tmp_path / "s2_holdout_0", injection=injection, finding_types={"grounding_gap": 1}, activated=False)
+
+    report = write_holdout_report(tmp_path, run_lookup={injection["injection_id"]: tmp_path / "s2_holdout_0"})
+
+    row = report["measurement"]["per_injection"][0]
+    assert row["activation_summary"]["any_activated"] is False
+    assert row["activation_summary"]["activated_trials"] == 0
+    assert row["strict_detected"] is False
+    assert row["detected"] is False
+    assert "ZERO activated trials" in row["strict_reason"]
+    assert report["passed"] is False
+    assert report["measurement"]["unactivated_positive_control_count"] == 1
+    assert report["activation"]["unactivated_injection_ids"] == [injection["injection_id"]]
+
+
+def test_activated_but_undetected_injection_fails(tmp_path: Path) -> None:
+    """An activated trial (exposure + opportunity both present) that produces
+    no matching expected finding_type is a genuine detection miss, distinct
+    from the zero-activation case -- it must still fail, with a reason that
+    does NOT claim zero activation."""
+    plan = build_holdout_injection_plan(
+        Path.cwd(), mutation_ids=["clarify_elderly_understanding_all"], run_roots=["s2_holdout_0"]
+    )
+    write_holdout_inputs(tmp_path, plan)
+    injection = plan["injections"][0]
+    # Activated (exposure + opportunity for the expected types) but the run's
+    # only finding is unrelated (deadline_overrun), so it's a real miss.
+    _verified_s2_bundle(tmp_path / "s2_holdout_0", injection=injection, finding_types={"deadline_overrun": 2}, activated=True)
+
+    report = write_holdout_report(tmp_path, run_lookup={injection["injection_id"]: tmp_path / "s2_holdout_0"})
+
+    row = report["measurement"]["per_injection"][0]
+    assert row["activation_summary"]["any_activated"] is True
+    assert row["strict_detected"] is False
+    assert row["detected"] is False
+    assert "ZERO activated trials" not in row["strict_reason"]
+    assert report["passed"] is False
+
+
+def test_activated_hit_among_k_seeds_counts_as_detected(tmp_path: Path) -> None:
+    """seeds_per_injection > 1: an injection is detected when AT LEAST ONE of
+    its K seeded trials is both activated and a strict hit, even if the other
+    seeds are unactivated or miss."""
+    plan = build_holdout_injection_plan(
+        Path.cwd(),
+        mutation_ids=["clarify_elderly_understanding_all"],
+        auto_run_roots=True,
+        seeds_per_injection=3,
+    )
+    injection = plan["injections"][0]
+    assert injection["planned_run_roots"] == [
+        "holdout_clarify_elderly_understanding_all_seed1",
+        "holdout_clarify_elderly_understanding_all_seed2",
+        "holdout_clarify_elderly_understanding_all_seed3",
+    ]
+    write_holdout_inputs(tmp_path, plan)
+
+    # Seed 1: unactivated. Seed 2: activated but a miss. Seed 3: activated hit.
+    _verified_s2_bundle(tmp_path / "holdout_clarify_elderly_understanding_all_seed1", injection=injection, finding_types={"grounding_gap": 1}, activated=False)
+    _verified_s2_bundle(tmp_path / "holdout_clarify_elderly_understanding_all_seed2", injection=injection, finding_types={"deadline_overrun": 1}, activated=True)
+    _verified_s2_bundle(tmp_path / "holdout_clarify_elderly_understanding_all_seed3", injection=injection, finding_types={"grounding_gap": 1}, activated=True)
+
+    measurement = compute_holdout_detection_rate(tmp_path, plan)
+
+    row = measurement["per_injection"][0]
+    assert row["activation"]["activated_trials"] == 2
+    assert row["activation"]["total_trials"] == 3
+    assert row["strict_detected"] is True
+    assert row["detected"] is True
+    assert measurement["detection_rate"] == 1.0
+
+
+def test_seeds_per_injection_k_changes_plan_hash_and_requires_auto_run_roots() -> None:
+    plan_k1 = build_holdout_injection_plan(Path.cwd(), mutation_ids=["clarify_elderly_understanding_all"], auto_run_roots=True)
+    plan_k3 = build_holdout_injection_plan(
+        Path.cwd(), mutation_ids=["clarify_elderly_understanding_all"], auto_run_roots=True, seeds_per_injection=3
+    )
+
+    assert plan_k1["plan_hash"] != plan_k3["plan_hash"]
+    assert plan_k1["injections"][0]["planned_run_roots"] == ["holdout_clarify_elderly_understanding_all"]
+    assert plan_k3["injections"][0]["planned_run_roots"] == [
+        "holdout_clarify_elderly_understanding_all_seed1",
+        "holdout_clarify_elderly_understanding_all_seed2",
+        "holdout_clarify_elderly_understanding_all_seed3",
+    ]
+
+    with pytest.raises(ValueError, match="requires auto_run_roots"):
+        build_holdout_injection_plan(Path.cwd(), mutation_ids=["clarify_elderly_understanding_all"], seeds_per_injection=2)
+
+
+def test_seeds_per_injection_default_k1_backward_compat_naming() -> None:
+    plan = build_holdout_injection_plan(Path.cwd(), mutation_ids=["clarify_elderly_understanding_all"], auto_run_roots=True)
+
+    assert plan["injections"][0]["planned_run_roots"] == ["holdout_clarify_elderly_understanding_all"]
+    assert plan["injections"][0]["seeds_per_injection"] == 1
+
+    # Same plan_hash-affecting shape as before this field existed: an
+    # explicit seeds_per_injection=1 plan matches one built without the kwarg.
+    plan_implicit = build_holdout_injection_plan(Path.cwd(), mutation_ids=["clarify_elderly_understanding_all"], auto_run_roots=True)
+    assert plan["plan_hash"] == plan_implicit["plan_hash"]
+
+
+def test_holdout_plan_cli_seeds_per_injection_option(tmp_path: Path) -> None:
+    runner = CliRunner()
+    plan_result = runner.invoke(
+        app,
+        [
+            "holdout-plan",
+            "--campaign-root",
+            str(tmp_path),
+            "--mutation",
+            "clarify_elderly_understanding_all",
+            "--auto-run-roots",
+            "--seeds-per-injection",
+            "2",
+        ],
+    )
+    assert plan_result.exit_code == 0, plan_result.output
+    plan = json.loads((tmp_path / "holdout_inputs.json").read_text(encoding="utf-8"))
+    assert plan["injections"][0]["planned_run_roots"] == [
+        "holdout_clarify_elderly_understanding_all_seed1",
+        "holdout_clarify_elderly_understanding_all_seed2",
+    ]
+
+
+def test_activation_recorded_for_benign_control_for_visibility_only(tmp_path: Path) -> None:
+    """benign_control activation is recorded but never gates its own pass
+    criterion -- an unactivated benign_control bundle that is otherwise clean
+    (no false alarm) still passes."""
+    plan = build_holdout_injection_plan(
+        Path.cwd(),
+        mutation_ids=["clarify_elderly_understanding_all", "role_table_fix_quality_owner"],
+        control_run_roots=[],
+    )
+    write_holdout_inputs(tmp_path, plan)
+    positive = next(i for i in plan["injections"] if i["arm"] == ARM_POSITIVE_CONTROL)
+    benign = next(i for i in plan["injections"] if i["arm"] == ARM_BENIGN_CONTROL)
+    _verified_s2_bundle(tmp_path / "s2_positive", injection=positive, finding_types={positive["expected_finding_types"][0]: 1}, activated=True)
+    _verified_s2_bundle(tmp_path / "s2_benign", injection=benign, finding_types={}, activated=False)
+    run_lookup = {positive["injection_id"]: tmp_path / "s2_positive", benign["injection_id"]: tmp_path / "s2_benign"}
+
+    benign_result = score_benign_controls(tmp_path, plan, run_lookup=run_lookup)
+
+    assert benign_result is not None
+    assert benign_result["per_injection"][0]["activation"]["any_activated"] is False
+    assert benign_result["per_injection"][0]["passed"] is True  # activation never gates benign_control
+
+    report = write_holdout_report(tmp_path, run_lookup=run_lookup)
+    assert report["passed"] is True
+    assert report["activation"] is not None
+    benign_activation_row = next(row for row in report["activation"]["per_injection"] if row["injection_id"] == benign["injection_id"])
+    assert benign_activation_row["any_activated"] is False
+    # benign_control's lack of activation does not appear in the positive-control unactivated list.
+    assert benign["injection_id"] not in report["activation"]["unactivated_injection_ids"]
+
+
+def test_backward_compat_scoring_applies_activation_to_pre_existing_plan_schema(tmp_path: Path) -> None:
+    """Activation recording applies at scoring time regardless of the sealed
+    plan's schema version: a plan built the way build_holdout_injection_plan
+    produced it BEFORE seeds_per_injection/activation existed (single-seed
+    holdout_<mutation_id> root, no seeds_per_injection key) is still scored
+    with activation, and the zero-activation-fails rule applies to it too."""
+    plan = build_holdout_injection_plan(Path.cwd(), mutation_ids=["clarify_elderly_understanding_all"], auto_run_roots=True)
+    injection = plan["injections"][0]
+    del injection["seeds_per_injection"]  # simulate a pre-existing sealed plan without this key
+    write_holdout_inputs(tmp_path, plan)
+
+    # Unactivated bundle at the legacy single-seed root name.
+    _verified_s2_bundle(tmp_path / "holdout_clarify_elderly_understanding_all", injection=injection, finding_types={"grounding_gap": 1}, activated=False)
+
+    report = write_holdout_report(tmp_path)
+
+    assert report["passed"] is False
+    row = report["measurement"]["per_injection"][0]
+    assert row["activation_summary"]["any_activated"] is False
+    assert "ZERO activated trials" in row["strict_reason"]
 
 
 # ---------------------------------------------------------------------------

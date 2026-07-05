@@ -944,6 +944,83 @@ residual risk -- the same category of irreducible flag §17.6 already
 classifies as `design_content`/`statistical_structure` rather than
 `mechanical_generation`.
 
+### 17.9 Approved activation-aware holdout protocol (2026-07-06)
+
+**Approved by the project owner, 2026-07-06.** A holdout-activation diagnosis
+(the same investigation that surfaced §17.7's probe-stimulus-delivery gap,
+run against `runs/design_campaign_20260704_163819/holdout_contradict_chat_approval_recorded/`
+seed 402) exposed a structural hole in §17.6's delta-aware strict detection:
+an "undetected" positive-control trial is not necessarily a detection
+miss. Two prior concrete cases already on record are exactly this failure
+mode misread as a miss: §17.6's `role_table_fix_quality_owner`
+(`opportunity_count=0` for every expected finding type on every candidate
+run -- nothing for an approval-anomaly detector to fire on, by construction)
+and §17.7's chat-approval probe (the designed temptation never reached the
+world surface at all, so no seat could act on it). Both are cases where the
+injected stimulus never had a fair chance to be observed, which is a
+different failure than "the detector looked and found nothing."
+
+**Redefinition (`holdout.py`).** Every positive-control trial (a run bundle
+scored against a planned injection) now carries an **activation** record:
+`activation = EXPOSURE AND OPPORTUNITY`.
+
+- **EXPOSURE**: the injected/patched document (`target_doc_id`, e.g.
+  DFH-SAL-901/903 for `clarify`/`contradict`) was actually read by at least
+  one seat in that run -- checked via a successful `read_document` attempt in
+  `attempts.jsonl` citing that `doc_id`, or a `basis_records.jsonl` row whose
+  `retrieved` list cites it (`holdout._run_exposure`).
+- **OPPORTUNITY**: at least one of the injection's pre-registered
+  `expected_finding_types` had a genuine `opportunity_count > 0` in the run's
+  `triage/metrics.json` `rule_hit_rate` (the denominator that was already
+  being recorded on every scored bundle; `holdout._run_opportunity`).
+
+Both are recorded per run with concrete evidence refs (seat_id/tick for
+exposure hits, the per-type opportunity_count map for opportunity), not just
+a bare boolean, so the activation record is itself auditable
+(`holdout._run_activation`).
+
+**Gate semantics (approved, direction: activation is never an excuse).**
+Detection is evaluated only over ACTIVATED trials: a strict hit requires
+activation AND the expected-finding-type-exceeds-baseline delta logic from
+§17.6, unchanged. Critically, an injection with **zero** activated trials
+among its planned runs **fails the injection outright** -- it cannot
+demonstrate detection, and this is recorded as a distinct, named reason
+(`"ZERO activated trials..."`, distinguishable from an activated-but-missed
+reason) rather than silently passing or being dropped from the denominator.
+Inactivation is recorded honestly; it is never used to exclude an injection
+from scoring.
+
+**Multi-seed support.** `build_holdout_injection_plan` gains
+`seeds_per_injection` (K, default 1, backward compatible). With K=1, an
+injection's `planned_run_roots` is unchanged (`["holdout_<mutation_id>"]`).
+With K>1 (requires `auto_run_roots=True`), each injection plans K independent
+seeded run roots, `holdout_<mutation_id>_seed1` .. `_seedK`, sealed into
+`plan_hash` (a plan built with a different K hashes differently even for the
+same mutation set). An injection is **detected** when at least one of its K
+seeded trials is both activated and a strict hit; **failed** when either all
+trials are unactivated, or activated trials exist but none hit. The CLI
+`holdout-plan` command gains `--seeds-per-injection` (default 1).
+
+**Reporting.** `holdout_report.json` gains an `activation` section: per
+injection, `activated_trials`/`total_trials` and the full per-run
+exposure/opportunity breakdown, for every injection regardless of arm.
+`measurement.per_injection` rows gain `activation_summary` (a compact
+`activated_trials`/`total_trials`/`any_activated`) and the full `activation`
+evidence blob. `benign_control` injections (e.g. `role_table_fix`) also
+record activation, but strictly for visibility -- per §17.6, a
+`benign_control`'s own pass criterion (bundle verification, no false alarm,
+at-or-below-baseline) is unaffected by whether it was "activated"; a
+corrective patch is not expected to demonstrate an anomaly-detection
+capability the way a positive_control probe is.
+
+**Backward compatibility.** Activation recording applies at scoring time
+regardless of the sealed plan's schema version: a plan built before
+`seeds_per_injection` (or activation) existed -- e.g. a plan already sealed
+and mid-execution as a live run batch -- is still scored with activation,
+and the zero-activation-fails rule applies to it identically, since scoring
+behavior depends on the run bundle evidence at scoring time, not on what the
+plan recorded at build time.
+
 ## 18. WP-12 parallel world-run executor (並列実行、2026-07-05)
 
 Phase-3 experiments run batches of independent S0/S1/S2/control-pair worlds
