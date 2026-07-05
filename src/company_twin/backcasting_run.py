@@ -57,6 +57,14 @@ NOT_EVALUATED = "not_evaluated"
 READINESS_ALLOWED_JUDGE_BACKENDS = frozenset({"openrouter"})
 
 
+class BackcastingInputsError(RuntimeError):
+    """backcasting_inputs.json is missing, unreadable, or has zero cases.
+
+    Raised instead of writing an empty backcasting_resimulation_results.json:
+    a silent no-op results file is indistinguishable from a completed live
+    pass to anyone who only checks that the file exists."""
+
+
 # ---------------------------------------------------------------------------
 # Pre-registered deterministic sampling
 # ---------------------------------------------------------------------------
@@ -496,24 +504,27 @@ def run_backcasting_resimulation(
     cherry-picking of the sample structurally impossible: any downstream
     reader can recompute select_backcasting_sample() from
     backcasting_inputs.json and confirm the recorded sample matches.
+
+    Raises BackcastingInputsError (and writes nothing) when
+    backcasting_inputs.json is missing, unreadable, or has zero cases.
     """
     campaign_root = campaign_root.resolve()
     inputs_path = campaign_root / "backcasting_inputs.json"
     extraction = _read_json(inputs_path)
     cases = extraction.get("cases") or []
     if not cases:
-        payload = {
-            "schema_version": BACKCASTING_RESULTS_SCHEMA_VERSION,
-            "campaign_root": str(campaign_root),
-            "sample": {"sample_size": 0, "sample_seed": sample_seed, "population_size": 0, "selected_case_ids": []},
-            "seat": {"backend": seat.backend, "model": seat.model},
-            "judge": {"backend": judge.backend, "model": judge.model, "prompt_version": JUDGE_PROMPT_VERSION, "readiness_eligible": judge.backend in READINESS_ALLOWED_JUDGE_BACKENDS},
-            "results": [],
-            "note": "backcasting_inputs.json is missing or has zero cases; run backcasting-extract first.",
-        }
-        if write:
-            (campaign_root / "backcasting_resimulation_results.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-        return payload
+        if not inputs_path.exists():
+            reason = f"{inputs_path} does not exist"
+        elif not extraction:
+            reason = f"{inputs_path} is not a readable JSON object"
+        else:
+            reason = f"{inputs_path} has zero cases"
+        raise BackcastingInputsError(
+            f"cannot run the backcasting re-simulation: {reason}. "
+            f"Run `backcasting-extract --campaign-root {campaign_root}` first. "
+            "Refusing to write an empty backcasting_resimulation_results.json -- "
+            "a silent no-op could be mistaken for a completed live pass."
+        )
 
     cases_by_id = {str(case["case_id"]): case for case in cases}
     sample = select_backcasting_sample(cases, sample_size=sample_size, sample_seed=sample_seed)

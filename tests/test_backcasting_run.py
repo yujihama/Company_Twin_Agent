@@ -21,6 +21,7 @@ from company_twin.backcasting_run import (
     NOT_REPRODUCED,
     READINESS_ALLOWED_JUDGE_BACKENDS,
     REPRODUCED,
+    BackcastingInputsError,
     LocalReproductionJudge,
     assert_two_plane_clean,
     backcasting_seat_prompt,
@@ -211,12 +212,22 @@ def test_every_selected_case_appears_in_results_even_when_all_fail(tmp_path: Pat
     assert all("detail" in row and row["detail"] for row in payload["results"])
 
 
-def test_run_backcasting_resimulation_blocked_gracefully_when_inputs_missing(tmp_path: Path) -> None:
-    payload = run_backcasting_resimulation(tmp_path, seat=FakeSeat(), judge=FakeJudge(), sample_size=5, sample_seed=0)
+def test_run_backcasting_resimulation_raises_when_inputs_missing(tmp_path: Path) -> None:
+    with pytest.raises(BackcastingInputsError, match="backcasting-extract"):
+        run_backcasting_resimulation(tmp_path, seat=FakeSeat(), judge=FakeJudge(), sample_size=5, sample_seed=0)
 
-    assert payload["results"] == []
-    assert payload["sample"]["sample_size"] == 0
-    assert (tmp_path / "backcasting_resimulation_results.json").exists()
+    # A silent no-op results file must never be written -- it could be
+    # mistaken for a completed live pass.
+    assert not (tmp_path / "backcasting_resimulation_results.json").exists()
+
+
+def test_run_backcasting_resimulation_raises_when_inputs_have_zero_cases(tmp_path: Path) -> None:
+    (tmp_path / "backcasting_inputs.json").write_text(json.dumps({"cases": []}), encoding="utf-8")
+
+    with pytest.raises(BackcastingInputsError, match="zero cases"):
+        run_backcasting_resimulation(tmp_path, seat=FakeSeat(), judge=FakeJudge(), sample_size=5, sample_seed=0)
+
+    assert not (tmp_path / "backcasting_resimulation_results.json").exists()
 
 
 # ---------------------------------------------------------------------------
@@ -340,3 +351,18 @@ def test_backcasting_run_cli_requires_seat_model_when_live_required(tmp_path: Pa
     result = runner.invoke(app, ["backcasting-run", "--campaign-root", str(tmp_path)])
 
     assert result.exit_code != 0
+
+
+def test_backcasting_run_cli_fails_loudly_when_inputs_missing(tmp_path: Path) -> None:
+    runner = CliRunner()
+
+    result = runner.invoke(app, ["backcasting-run", "--campaign-root", str(tmp_path), "--allow-proxy-seat"])
+
+    assert result.exit_code == 1
+    combined = result.output
+    try:
+        combined += result.stderr
+    except (AttributeError, ValueError):  # stderr may not be separately captured
+        pass
+    assert "backcasting-extract" in combined
+    assert not (tmp_path / "backcasting_resimulation_results.json").exists()
