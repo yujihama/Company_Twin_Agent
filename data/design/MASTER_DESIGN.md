@@ -689,11 +689,15 @@ report could still hide. This closes them without touching the sampler in
   `stage9_evidence_manifest_consistent`); it still accepts ai_proxy SME and
   single-seed holdout. `readiness_report.json` additionally carries
   `external_claim_readiness` -- a separate, stricter, informational-but-honest
-  summary requiring human_sme review, a machine-checkable
-  `g3_negative_calibration.json` (specificity on known-clean cases), holdout
-  with both positive and negative controls, and a single post-fix world
-  version. It is expected mostly false for now and never gates
-  `internal_readiness`/the top-level `passed` field.
+  summary requiring human_sme review, a machine-checkable G3 negative
+  calibration artifact (recognizes the real `g3-score-calibration` output --
+  `docs/g3_negative_calibration_result.json`, schema
+  `company_twin.g3_negative_calibration_result.v1`,
+  `overall_specificity_rate`, requires `judge.readiness_eligible` so a
+  local-proxy specificity run does not satisfy the item), holdout with both
+  positive and negative controls, and a single post-fix world version. It is
+  expected mostly false for now and never gates `internal_readiness`/the
+  top-level `passed` field.
 
 Scope boundary: this is again machinery + report-side hardening only. It does
 not itself run a live re-simulation, a live holdout campaign, or a human SME

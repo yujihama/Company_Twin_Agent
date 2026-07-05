@@ -327,6 +327,51 @@ def test_external_claim_readiness_g3_negative_calibration_artifact_recognized(tm
     assert item["specificity"] == 0.92
 
 
+def test_external_claim_readiness_g3_negative_calibration_real_artifact_requires_readiness_eligible_judge(tmp_path: Path) -> None:
+    """The real artifact written by `g3-score-calibration` over the local
+    deterministic proxy judge must NOT satisfy this item -- only an
+    openrouter-backend (readiness_eligible) run does."""
+    from company_twin.semantic_grounding import G3_NEGATIVE_CALIBRATION_SCHEMA_VERSION
+
+    (tmp_path / "g3_negative_calibration_result.local.json").write_text(
+        json.dumps(
+            {
+                "schema_version": G3_NEGATIVE_CALIBRATION_SCHEMA_VERSION,
+                "judge": {"backend": "local_semantic_proxy", "model": "deterministic-v1", "readiness_eligible": False},
+                "overall_specificity_rate": 0.85,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    summary = build_external_claim_readiness_summary(tmp_path)
+
+    item = next(item for item in summary["items"] if item["item"] == "g3_negative_calibration_recorded")
+    assert item["passed"] is False
+    assert "readiness_eligible" in item["detail"]
+
+
+def test_external_claim_readiness_g3_negative_calibration_real_artifact_passes_with_openrouter_judge(tmp_path: Path) -> None:
+    from company_twin.semantic_grounding import G3_NEGATIVE_CALIBRATION_SCHEMA_VERSION
+
+    (tmp_path / "g3_negative_calibration_result.json").write_text(
+        json.dumps(
+            {
+                "schema_version": G3_NEGATIVE_CALIBRATION_SCHEMA_VERSION,
+                "judge": {"backend": "openrouter", "model": "qwen/qwen3.6-plus", "readiness_eligible": True},
+                "overall_specificity_rate": 0.9,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    summary = build_external_claim_readiness_summary(tmp_path)
+
+    item = next(item for item in summary["items"] if item["item"] == "g3_negative_calibration_recorded")
+    assert item["passed"] is True
+    assert item["specificity"] == 0.9
+
+
 def test_external_claim_readiness_holdout_requires_controls_section(tmp_path: Path) -> None:
     plan = build_holdout_injection_plan(Path.cwd(), mutation_ids=["clarify_elderly_understanding_all"], run_roots=["s2_holdout_0"])
     write_holdout_inputs(tmp_path, plan)

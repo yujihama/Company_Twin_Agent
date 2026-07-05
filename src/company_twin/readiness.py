@@ -4,15 +4,25 @@ import json
 from pathlib import Path
 from typing import Any
 
-from .semantic_grounding import READINESS_ALLOWED_JUDGE_BACKENDS
+from .semantic_grounding import G3_NEGATIVE_CALIBRATION_SCHEMA_VERSION, READINESS_ALLOWED_JUDGE_BACKENDS
 
 REPORT_SCHEMA_VERSION = "company_twin.readiness_report.v1"
 
 # Machine-checkable G3 negative-calibration artifact: a JSON file recording
 # specificity results (true-negative rate on known-clean cases) for the g3
-# semantic judge. This is intentionally a simple presence+shape check, not a
-# re-derivation -- see _g3_negative_calibration_check.
-G3_NEGATIVE_CALIBRATION_FILENAMES: tuple[str, ...] = ("g3_negative_calibration.json",)
+# semantic judge. This is the real artifact `company_twin.cli
+# g3-score-calibration` writes over docs/g3_negative_calibration_samples.jsonl
+# (semantic_grounding.score_g3_calibration_file/summarize_g3_calibration_scores,
+# schema_version=G3_NEGATIVE_CALIBRATION_SCHEMA_VERSION, field
+# overall_specificity_rate). This check is intentionally a simple
+# presence+shape check, not a re-derivation -- see
+# _g3_negative_calibration_check. A generic "g3_negative_calibration.json"
+# name is also accepted for a hand-placed/renamed artifact.
+G3_NEGATIVE_CALIBRATION_FILENAMES: tuple[str, ...] = (
+    "g3_negative_calibration_result.json",
+    "g3_negative_calibration_result.local.json",
+    "g3_negative_calibration.json",
+)
 
 
 def run_readiness_gate(campaign_root: Path, *, semantic_threshold: float = 0.8) -> dict[str, Any]:
@@ -88,14 +98,24 @@ def _stage9_evidence_manifest_check(campaign_root: Path) -> dict[str, Any]:
 def _g3_negative_calibration_check(campaign_root: Path) -> dict[str, Any]:
     """External-claim item: look for a machine-checkable G3 negative
     calibration artifact (specificity results on known-clean cases), either
-    under campaign_root or under docs/. This is a simple presence+shape
-    check -- schema_version + a numeric specificity/true_negative_rate field
-    -- not a re-derivation of the calibration itself."""
+    under campaign_root or under docs/. Recognizes the real artifact written
+    by `company_twin.cli g3-score-calibration` over
+    docs/g3_negative_calibration_samples.jsonl
+    (semantic_grounding.score_g3_calibration_file /
+    summarize_g3_calibration_scores: schema_version
+    G3_NEGATIVE_CALIBRATION_SCHEMA_VERSION, field `overall_specificity_rate`,
+    `judge.readiness_eligible`) as well as a generic hand-placed
+    specificity/true_negative_rate artifact. This is a simple presence+shape
+    check -- not a re-derivation of the calibration itself. A readiness-
+    eligible (openrouter-backend) judge is required for this item to pass;
+    a local-proxy specificity run is recorded but does not satisfy it (the
+    same allowlist g3/backcasting readiness already enforce)."""
     candidates = [campaign_root / name for name in G3_NEGATIVE_CALIBRATION_FILENAMES]
     candidates += [campaign_root.parent / "docs" / name for name in G3_NEGATIVE_CALIBRATION_FILENAMES]
     # Also check a repo-relative docs/ path when campaign_root is nested under runs/.
     for parent in campaign_root.parents:
-        candidates.append(parent / "docs" / "g3_negative_calibration.json")
+        candidates.extend(parent / "docs" / name for name in G3_NEGATIVE_CALIBRATION_FILENAMES)
+    best_non_eligible: dict[str, Any] | None = None
     for path in candidates:
         if not path.exists():
             continue
@@ -105,24 +125,38 @@ def _g3_negative_calibration_check(campaign_root: Path) -> dict[str, Any]:
             continue
         if not isinstance(payload, dict):
             continue
-        specificity = payload.get("specificity")
+        specificity = payload.get("overall_specificity_rate")
+        if specificity is None:
+            specificity = payload.get("specificity")
         if specificity is None:
             specificity = payload.get("true_negative_rate")
-        if specificity is not None:
-            return {
-                "check": "g3_negative_calibration_recorded",
-                "passed": True,
-                "detail": "",
-                "artifact_path": str(path),
-                "specificity": specificity,
-            }
+        if specificity is None:
+            continue
+        judge = payload.get("judge") or {}
+        is_real_schema = payload.get("schema_version") == G3_NEGATIVE_CALIBRATION_SCHEMA_VERSION
+        readiness_eligible = bool(judge.get("readiness_eligible")) if is_real_schema else True
+        result = {
+            "check": "g3_negative_calibration_recorded",
+            "passed": readiness_eligible,
+            "detail": "" if readiness_eligible else f"{path.name}: judge.readiness_eligible is not true (judge={judge!r}); a local-proxy specificity run does not satisfy this item",
+            "artifact_path": str(path),
+            "specificity": specificity,
+            "judge": judge if is_real_schema else None,
+        }
+        if readiness_eligible:
+            return result
+        best_non_eligible = best_non_eligible or result
+    if best_non_eligible is not None:
+        return best_non_eligible
     return {
         "check": "g3_negative_calibration_recorded",
         "passed": False,
         "detail": (
-            "no g3_negative_calibration.json found under campaign_root or docs/ with a "
-            "specificity/true_negative_rate field; G3 negative calibration (specificity on known-clean "
-            "cases) has not been recorded as a machine-checkable artifact"
+            "no g3_negative_calibration_result.json (or docs/g3_negative_calibration.json) found with a "
+            "specificity/overall_specificity_rate field; G3 negative calibration (specificity on known-clean "
+            "cases) has not been recorded as a machine-checkable artifact. Run `company_twin.cli "
+            "g3-score-calibration --calibration-file docs/g3_negative_calibration_samples.jsonl "
+            "--output docs/g3_negative_calibration_result.json --judge-model <openrouter-model>`."
         ),
     }
 
