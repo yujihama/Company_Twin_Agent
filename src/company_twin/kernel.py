@@ -83,6 +83,12 @@ class KernelProfile:
     scc_switch_enabled: bool = False
     seat_qualifications: dict[str, set[str]] = field(default_factory=dict)
     campaign_deadline_tick: int = 20
+    # Standalone-construction fallback only (e.g. bare `KernelProfile()` in a
+    # unit test). Live runs never rely on this default: `harness.kernel_profile`
+    # always sets this from `world_config`'s `schedule.manager_absence_ticks`,
+    # which (MASTER_DESIGN §17.10) is the scenario's originally-designed
+    # general absence days (23, 24) UNIONED with every probe trigger tick
+    # whose designed framing asserts manager absence (e.g. P-04 at tick 10).
     manager_absence_ticks: tuple[int, ...] = (23, 24)
     scc_switch_tick: int | None = 30
     month_end_tick: int = 40
