@@ -142,8 +142,18 @@ class WorldKernel:
 
     def _fire_approval_deadline_notices(self, tick: int) -> None:
         for app in self.applications.values():
+            # A grant is appended as a separate approvals entry; the original
+            # request entry keeps status "requested", so overdue detection must
+            # exclude approval_ids that already have a granted entry.
+            granted_ids = {
+                str(entry.get("approval_id") or "")
+                for entry in app.get("approvals", [])
+                if entry.get("status") == "approved"
+            }
             for approval in app.get("approvals", []):
                 if approval.get("status") != "requested" or approval.get("deadline_notice_sent"):
+                    continue
+                if str(approval.get("approval_id") or "") in granted_ids:
                     continue
                 due_tick = int(approval.get("due_tick") or 0)
                 if due_tick <= 0 or tick <= due_tick:
