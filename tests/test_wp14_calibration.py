@@ -263,6 +263,7 @@ def _run_bundle_with_findings(
     expected_finding_types: list[str] | None = None,
     target_doc_id: str = _DEFAULT_TARGET_DOC_ID,
     activated: bool = True,
+    mutation_id: str = "clarify_elderly_understanding_all",
 ) -> None:
     root.mkdir(parents=True, exist_ok=True)
     (root / "triage").mkdir(exist_ok=True)
@@ -279,7 +280,7 @@ def _run_bundle_with_findings(
         json.dumps({"stage": "S1", "finding_types": finding_types, "rule_hit_rate": rule_hit or {}, "detection_miss_rate": {}}),
         encoding="utf-8",
     )
-    (root / "meta.json").write_text(json.dumps({"stage": "S1", "mutation_ids": ["clarify_elderly_understanding_all"]}), encoding="utf-8")
+    (root / "meta.json").write_text(json.dumps({"stage": "S1", "mutation_ids": [mutation_id]}), encoding="utf-8")
     _write_attempts_exposing_doc(root, doc_id=target_doc_id if activated else "")
 
 
@@ -328,10 +329,13 @@ def _verified_s2_bundle(
 
 
 def test_compute_holdout_detection_rate_counts_l0_and_l1_evidence(tmp_path: Path) -> None:
-    plan = build_holdout_injection_plan(Path.cwd(), mutation_ids=["clarify_elderly_understanding_all", "dangling_fill_search_key_stub"])
+    # clarify_elderly_understanding_sales_only (not _all -- reclassified
+    # benign_control per MASTER_DESIGN.md section 17.11) is used here as the
+    # positive_control clarify example; its target_doc_id is DFH-SAL-902.
+    plan = build_holdout_injection_plan(Path.cwd(), mutation_ids=["clarify_elderly_understanding_sales_only", "dangling_fill_search_key_stub"])
     # grounding_gap is in the pre-registered expected_finding_types for both
     # clarify and dangling_fill, so this is a strict hit for the matching one.
-    _run_bundle_with_findings(tmp_path / "s1_run0", finding_types={"grounding_gap": 2})
+    _run_bundle_with_findings(tmp_path / "s1_run0", finding_types={"grounding_gap": 2}, target_doc_id="DFH-SAL-902", mutation_id="clarify_elderly_understanding_sales_only")
 
     measurement = compute_holdout_detection_rate(tmp_path, plan)
 
@@ -341,7 +345,7 @@ def test_compute_holdout_detection_rate_counts_l0_and_l1_evidence(tmp_path: Path
     assert measurement["detection_rate"] == 0.5
     assert measurement["strict_detection_rate"] == 0.5
     assert measurement["lenient_detection_rate"] == 0.5
-    detected_row = next(row for row in measurement["per_injection"] if row["mutation_id"] == "clarify_elderly_understanding_all")
+    detected_row = next(row for row in measurement["per_injection"] if row["mutation_id"] == "clarify_elderly_understanding_sales_only")
     assert detected_row["detected"] is True
     assert detected_row["strict_detected"] is True
     assert detected_row["lenient_detected"] is True
@@ -377,7 +381,10 @@ def test_compute_holdout_detection_rate_counts_l1_only_evidence(tmp_path: Path) 
 def test_compute_holdout_detection_rate_unrelated_finding_counts_lenient_not_strict(tmp_path: Path) -> None:
     """Ungameability: an unrelated finding_type on a mutated run inflates the
     lenient rate but must NOT count as a strict hit."""
-    plan = build_holdout_injection_plan(Path.cwd(), mutation_ids=["clarify_elderly_understanding_all"])
+    # clarify_elderly_understanding_sales_only (not _all -- reclassified
+    # benign_control per MASTER_DESIGN.md section 17.11) is used here as the
+    # positive_control clarify example.
+    plan = build_holdout_injection_plan(Path.cwd(), mutation_ids=["clarify_elderly_understanding_sales_only"])
     expected_finding_types = plan["injections"][0]["expected_finding_types"]
     # deadline_overrun has nothing to do with the clarify mutation's
     # pre-registered expectation (grounding_gap/version_gap/version_mix); it
@@ -385,7 +392,13 @@ def test_compute_holdout_detection_rate_unrelated_finding_counts_lenient_not_str
     # is activated (exposure + a genuine opportunity for the real expected
     # types) so this exercises the "activated but wrong finding" strict_reason
     # path, not the zero-activation path.
-    _run_bundle_with_findings(tmp_path / "s1_run0", finding_types={"deadline_overrun": 3}, expected_finding_types=expected_finding_types)
+    _run_bundle_with_findings(
+        tmp_path / "s1_run0",
+        finding_types={"deadline_overrun": 3},
+        expected_finding_types=expected_finding_types,
+        target_doc_id="DFH-SAL-902",
+        mutation_id="clarify_elderly_understanding_sales_only",
+    )
 
     measurement = compute_holdout_detection_rate(tmp_path, plan)
 
@@ -419,29 +432,28 @@ def test_holdout_report_fails_honestly_below_target_and_passes_above(tmp_path: P
         ],
     )
     write_holdout_inputs(tmp_path, plan)
-    # Only one of four positive-control mutations produces a run bundle with
-    # findings -> 0.25 < 0.80 target. (role_table_fix_quality_owner is
-    # benign_control and excluded from this denominator.)
-    _run_bundle_with_findings(tmp_path / "s1_run0", finding_types={"grounding_gap": 1})
-    (tmp_path / "s1_run0" / "meta.json").write_text(
-        json.dumps({"stage": "S1", "mutation_ids": ["clarify_elderly_understanding_all"]}), encoding="utf-8"
-    )
-
+    # 2026-07-06 approved holdout arm re-classification (MASTER_DESIGN.md
+    # section 17.11): only THREE of these five mutations are positive_control
+    # now (clarify_elderly_understanding_sales_only, contradict, dangling_fill)
+    # -- clarify_elderly_understanding_all and role_table_fix_quality_owner
+    # are both benign_control. Zero of the three positive-control mutations
+    # produce a matching run bundle with findings here -> 0.0 < 0.80 target.
     failing = write_holdout_report(tmp_path)
     assert failing["passed"] is False
+    assert failing["measurement"]["injection_count"] == 3  # positive_control only
     assert failing["measurement"]["detection_rate"] < HOLDOUT_DETECTION_TARGET
     assert failing["measurement"]["strict_detection_rate"] < HOLDOUT_DETECTION_TARGET
     assert failing["detection_rate_basis"] == "strict"
 
-    # Now supply matching run bundles for all five mutations. The four
+    # Now supply matching run bundles for all five mutations. The three
     # positive_control mutations each produce a finding_type that is actually
     # in that mutation's own pre-registered expected_finding_types (not a
-    # blanket grounding_gap) -> strict rate 1.0. The benign_control
-    # (role_table_fix_quality_owner) gets a CLEAN bundle (no findings at all)
-    # -- a benign_control injection is expected to produce nothing new, so a
-    # clean bundle is what "passing" looks like for it, not an injected
-    # finding. Every bundle is verified (stage S2, config.json mutation entry
-    # matching spec_hash, adequate tick coverage, no failure marker).
+    # blanket grounding_gap) -> strict rate 1.0. Both benign_control
+    # mutations get a CLEAN bundle (no findings at all) -- a benign_control
+    # injection is expected to produce nothing new, so a clean bundle is what
+    # "passing" looks like for it, not an injected finding. Every bundle is
+    # verified (stage S2, config.json mutation entry matching spec_hash,
+    # adequate tick coverage, no failure marker).
     run_lookup = {}
     for idx, injection in enumerate(plan["injections"]):
         run_root = tmp_path / f"s2_holdout_{idx}"
@@ -457,11 +469,11 @@ def test_holdout_report_fails_honestly_below_target_and_passes_above(tmp_path: P
     assert passing["measurement"]["detection_rate"] == 1.0
     assert passing["measurement"]["strict_detection_rate"] == 1.0
     assert passing["measurement"]["lenient_detection_rate"] == 1.0
-    assert passing["measurement"]["injection_count"] == 4  # positive_control only
+    assert passing["measurement"]["injection_count"] == 3  # positive_control only
     assert len(passing["checks"][0]["per_injection"]) == 5  # all arms still itemized
     assert passing["bundle_verification"]["all_verified"] is True
     assert passing["benign_controls"]["all_passed"] is True
-    assert passing["benign_controls"]["injection_count"] == 1
+    assert passing["benign_controls"]["injection_count"] == 2
     assert passing["plan_hash"] == plan["plan_hash"]
 
 
@@ -508,7 +520,11 @@ def test_verify_holdout_bundles_records_exploration_mode_and_cannot_pass(tmp_pat
     run_lookup entry) must be recorded as exploration-mode and cannot pass
     the readiness check, even when the scanned bundle happens to look
     correct."""
-    plan = build_holdout_injection_plan(Path.cwd(), mutation_ids=["clarify_elderly_understanding_all"])  # no run_roots -> exploration
+    # clarify_elderly_understanding_sales_only (not _all -- reclassified
+    # benign_control per MASTER_DESIGN.md section 17.11) is used here as the
+    # positive_control example, so the positive-only verification gate is
+    # actually exercised.
+    plan = build_holdout_injection_plan(Path.cwd(), mutation_ids=["clarify_elderly_understanding_sales_only"])  # no run_roots -> exploration
     write_holdout_inputs(tmp_path, plan)
     injection = plan["injections"][0]
     _verified_s2_bundle(tmp_path / "s1_run0", injection=injection, finding_types={injection["expected_finding_types"][0]: 1})
@@ -527,7 +543,10 @@ def test_verify_holdout_bundles_records_exploration_mode_and_cannot_pass(tmp_pat
 
 
 def test_holdout_report_missing_controls_is_a_warning_not_a_failure(tmp_path: Path) -> None:
-    plan = build_holdout_injection_plan(Path.cwd(), mutation_ids=["clarify_elderly_understanding_all"], run_roots=["s2_holdout_0"])
+    # clarify_elderly_understanding_sales_only (not _all -- reclassified
+    # benign_control per MASTER_DESIGN.md section 17.11) is used here as the
+    # positive_control example.
+    plan = build_holdout_injection_plan(Path.cwd(), mutation_ids=["clarify_elderly_understanding_sales_only"], run_roots=["s2_holdout_0"])
     write_holdout_inputs(tmp_path, plan)
     injection = plan["injections"][0]
     _verified_s2_bundle(tmp_path / "s2_holdout_0", injection=injection, finding_types={injection["expected_finding_types"][0]: 1})
@@ -540,7 +559,10 @@ def test_holdout_report_missing_controls_is_a_warning_not_a_failure(tmp_path: Pa
 
 
 def test_holdout_report_controls_records_anomalous_hits_without_failing(tmp_path: Path) -> None:
-    plan = build_holdout_injection_plan(Path.cwd(), mutation_ids=["clarify_elderly_understanding_all"], run_roots=["s2_holdout_0"])
+    # clarify_elderly_understanding_sales_only (not _all -- reclassified
+    # benign_control per MASTER_DESIGN.md section 17.11) is used here as the
+    # positive_control example.
+    plan = build_holdout_injection_plan(Path.cwd(), mutation_ids=["clarify_elderly_understanding_sales_only"], run_roots=["s2_holdout_0"])
     write_holdout_inputs(tmp_path, plan)
     injection = plan["injections"][0]
     _verified_s2_bundle(tmp_path / "s2_holdout_0", injection=injection, finding_types={injection["expected_finding_types"][0]: 1})
@@ -634,10 +656,18 @@ def test_holdout_plan_and_score_cli(tmp_path: Path) -> None:
 
 
 def test_build_holdout_injection_plan_assigns_default_arms() -> None:
+    """2026-07-06 approved holdout arm re-classification (MASTER_DESIGN.md
+    section 17.11): arm assignment is now per-mutation_id, not just
+    per-operator -- the two `clarify` variants get DIFFERENT arms.
+    positive_control = {contradict_chat_approval_recorded,
+    dangling_fill_search_key_stub, clarify_elderly_understanding_sales_only};
+    benign_control = {clarify_elderly_understanding_all,
+    role_table_fix_quality_owner}."""
     plan = build_holdout_injection_plan(
         Path.cwd(),
         mutation_ids=[
             "clarify_elderly_understanding_all",
+            "clarify_elderly_understanding_sales_only",
             "contradict_chat_approval_recorded",
             "dangling_fill_search_key_stub",
             "role_table_fix_quality_owner",
@@ -645,14 +675,42 @@ def test_build_holdout_injection_plan_assigns_default_arms() -> None:
     )
 
     arms_by_mutation = {injection["mutation_id"]: injection["arm"] for injection in plan["injections"]}
-    assert arms_by_mutation["clarify_elderly_understanding_all"] == ARM_POSITIVE_CONTROL
     assert arms_by_mutation["contradict_chat_approval_recorded"] == ARM_POSITIVE_CONTROL
     assert arms_by_mutation["dangling_fill_search_key_stub"] == ARM_POSITIVE_CONTROL
+    assert arms_by_mutation["clarify_elderly_understanding_sales_only"] == ARM_POSITIVE_CONTROL
+    assert arms_by_mutation["clarify_elderly_understanding_all"] == ARM_BENIGN_CONTROL
     assert arms_by_mutation["role_table_fix_quality_owner"] == ARM_BENIGN_CONTROL
+
+    positive_count = sum(1 for arm in arms_by_mutation.values() if arm == ARM_POSITIVE_CONTROL)
+    assert positive_count == 3  # positive denominator = 3 under the new mapping
+
+
+def test_arm_by_mutation_id_override_takes_precedence_over_operator_default() -> None:
+    """_resolve_arm's per-mutation_id override (MASTER_DESIGN.md section
+    17.11) must take precedence over the operator-level default -- this is
+    exactly why clarify's two variants can now get different arms even though
+    they share the same operator ("clarify")."""
+    from company_twin.holdout import _ARM_BY_MUTATION_ID, _default_arm_for_operator, _resolve_arm
+
+    # Both variants share the "clarify" operator, whose OWN operator-level
+    # default is positive_control...
+    assert _default_arm_for_operator("clarify") == ARM_POSITIVE_CONTROL
+    # ...but the per-mutation_id override makes them diverge.
+    assert _resolve_arm("clarify_elderly_understanding_all", "clarify") == ARM_BENIGN_CONTROL
+    assert _resolve_arm("clarify_elderly_understanding_sales_only", "clarify") == ARM_POSITIVE_CONTROL
+    # A mutation_id with no override falls back to the operator default.
+    assert "some_future_clarify_variant" not in _ARM_BY_MUTATION_ID
+    assert _resolve_arm("some_future_clarify_variant", "clarify") == ARM_POSITIVE_CONTROL
+    # role_table_fix's override agrees with its operator default (redundant
+    # but present for explicitness/documentation).
+    assert _resolve_arm("role_table_fix_quality_owner", "role_table_fix") == ARM_BENIGN_CONTROL
 
 
 def test_holdout_plan_arm_is_sealed_in_plan_hash() -> None:
-    plan_a = build_holdout_injection_plan(Path.cwd(), mutation_ids=["clarify_elderly_understanding_all"])
+    # clarify_elderly_understanding_sales_only is positive_control (see
+    # MASTER_DESIGN.md section 17.11), so tampering it to benign_control below
+    # actually changes the arm.
+    plan_a = build_holdout_injection_plan(Path.cwd(), mutation_ids=["clarify_elderly_understanding_sales_only"])
     plan_b = json.loads(json.dumps(plan_a))
     plan_b["injections"][0]["arm"] = ARM_BENIGN_CONTROL
 
@@ -679,12 +737,20 @@ def test_holdout_plan_control_run_roots_sealed_in_plan_hash() -> None:
 
 
 def test_compute_holdout_detection_rate_excludes_benign_control_from_denominator(tmp_path: Path) -> None:
+    # clarify_elderly_understanding_sales_only (not _all -- reclassified
+    # benign_control per MASTER_DESIGN.md section 17.11) is used here as the
+    # positive_control example.
     plan = build_holdout_injection_plan(
         Path.cwd(),
-        mutation_ids=["clarify_elderly_understanding_all", "role_table_fix_quality_owner"],
+        mutation_ids=["clarify_elderly_understanding_sales_only", "role_table_fix_quality_owner"],
     )
     # Only the positive_control mutation gets a matching, detected run bundle.
-    _run_bundle_with_findings(tmp_path / "s1_run0", finding_types={"grounding_gap": 1})
+    _run_bundle_with_findings(
+        tmp_path / "s1_run0",
+        finding_types={"grounding_gap": 1},
+        target_doc_id="DFH-SAL-902",
+        mutation_id="clarify_elderly_understanding_sales_only",
+    )
 
     measurement = compute_holdout_detection_rate(tmp_path, plan)
 
@@ -754,9 +820,12 @@ def test_delta_detection_baseline_confounded_when_control_fires_equally(tmp_path
 def test_delta_detection_exceeding_baseline_counts_as_detected(tmp_path: Path) -> None:
     """When the mutated run's rate for an expected finding_type EXCEEDS the
     max control-run rate for that same type, it is a genuine strict hit."""
+    # clarify_elderly_understanding_sales_only (not _all -- reclassified
+    # benign_control per MASTER_DESIGN.md section 17.11) is used here as the
+    # positive_control example.
     plan = build_holdout_injection_plan(
         Path.cwd(),
-        mutation_ids=["clarify_elderly_understanding_all"],
+        mutation_ids=["clarify_elderly_understanding_sales_only"],
         control_run_roots=["s2_control_anchor"],
     )
     write_holdout_inputs(tmp_path, plan)
@@ -787,9 +856,12 @@ def test_delta_detection_presence_suffices_when_absent_in_all_controls(tmp_path:
     presence on the mutated run suffices (nothing to exceed) -- this
     reproduces the pre-recalibration strict-detection behavior for a type
     with a clean (zero) control baseline."""
+    # clarify_elderly_understanding_sales_only (not _all -- reclassified
+    # benign_control per MASTER_DESIGN.md section 17.11) is used here as the
+    # positive_control example.
     plan = build_holdout_injection_plan(
         Path.cwd(),
-        mutation_ids=["clarify_elderly_understanding_all"],
+        mutation_ids=["clarify_elderly_understanding_sales_only"],
         control_run_roots=["s2_control_anchor"],
     )
     write_holdout_inputs(tmp_path, plan)
@@ -812,8 +884,11 @@ def test_delta_detection_presence_suffices_when_absent_in_all_controls(tmp_path:
 
 
 def test_benign_control_clean_and_at_baseline_passes(tmp_path: Path) -> None:
+    # clarify_elderly_understanding_sales_only (not _all -- reclassified
+    # benign_control per MASTER_DESIGN.md section 17.11) is used here as the
+    # positive_control example paired with role_table_fix's benign_control.
     plan = build_holdout_injection_plan(
-        Path.cwd(), mutation_ids=["clarify_elderly_understanding_all", "role_table_fix_quality_owner"], control_run_roots=[]
+        Path.cwd(), mutation_ids=["clarify_elderly_understanding_sales_only", "role_table_fix_quality_owner"], control_run_roots=[]
     )
     write_holdout_inputs(tmp_path, plan)
     positive = next(i for i in plan["injections"] if i["arm"] == ARM_POSITIVE_CONTROL)
@@ -837,17 +912,29 @@ def test_benign_control_clean_and_at_baseline_passes(tmp_path: Path) -> None:
 
 
 def test_benign_control_false_alarm_fails(tmp_path: Path) -> None:
-    """A benign_control (role_table_fix) run that DOES fire one of its
-    previously-expected anomaly types is a false alarm and must fail --
-    unlike a positive_control, nothing new should appear here."""
+    """A benign_control (role_table_fix) run that fires one of its
+    previously-expected anomaly types ABOVE the (zero, no-controls-supplied)
+    baseline must fail -- unlike a positive_control, nothing new should
+    appear here. (role_table_fix's own expected types fire zero on every
+    observed run in practice, so ANY firing here is above baseline; this is
+    distinct from clarify_elderly_understanding_all's endemic-at-baseline
+    case, which is why clarify_all -- not role_table_fix -- was reclassified
+    to use the adjusted at-or-below-baseline criterion; see
+    test_benign_control_above_baseline_without_bare_presence_still_fails for
+    a case that fires but stays at baseline.)"""
+    # clarify_elderly_understanding_sales_only (not _all -- reclassified
+    # benign_control per MASTER_DESIGN.md section 17.11) is used here as the
+    # positive_control example paired with role_table_fix's benign_control.
     plan = build_holdout_injection_plan(
-        Path.cwd(), mutation_ids=["clarify_elderly_understanding_all", "role_table_fix_quality_owner"], control_run_roots=[]
+        Path.cwd(), mutation_ids=["clarify_elderly_understanding_sales_only", "role_table_fix_quality_owner"], control_run_roots=[]
     )
     write_holdout_inputs(tmp_path, plan)
     positive = next(i for i in plan["injections"] if i["arm"] == ARM_POSITIVE_CONTROL)
     benign = next(i for i in plan["injections"] if i["arm"] == ARM_BENIGN_CONTROL)
     _verified_s2_bundle(tmp_path / "s2_positive", injection=positive, finding_types={positive["expected_finding_types"][0]: 1})
-    # Benign control fires its own expected finding_type -- a false alarm.
+    # Benign control fires its own expected finding_type -- a false alarm,
+    # and with no control_run_roots supplied the baseline is 0, so this is
+    # also above baseline.
     _verified_s2_bundle(tmp_path / "s2_benign", injection=benign, finding_types={benign["expected_finding_types"][0]: 1})
     run_lookup = {positive["injection_id"]: tmp_path / "s2_positive", benign["injection_id"]: tmp_path / "s2_benign"}
 
@@ -856,16 +943,66 @@ def test_benign_control_false_alarm_fails(tmp_path: Path) -> None:
     assert benign_result["all_passed"] is False
     assert benign_result["per_injection"][0]["passed"] is False
     assert benign["expected_finding_types"][0] in benign_result["per_injection"][0]["false_alarm_finding_types"]
+    assert benign["expected_finding_types"][0] in benign_result["per_injection"][0]["above_baseline_finding_types"]
 
     report = write_holdout_report(tmp_path, run_lookup=run_lookup)
     # Even though positive_control's own strict_detection_rate clears target,
-    # the benign_control false alarm blocks the overall report -- a false
-    # alarm on a benign_control run is evidence the detectors are unreliable.
+    # the benign_control above-baseline finding blocks the overall report --
+    # an above-baseline anomaly on a benign_control run is evidence the
+    # detectors are unreliable.
     assert report["passed"] is False
     assert any("benign_controls FAILED" in note for note in report["notes"])
 
 
+def test_benign_control_fires_but_stays_at_baseline_passes(tmp_path: Path) -> None:
+    """2026-07-06 approved benign criterion adjustment (MASTER_DESIGN.md
+    section 17.11): a benign_control run whose expected finding_type DOES
+    fire, but at a rate that does NOT exceed the sealed no-mutation control
+    baseline, now PASSES -- this is exactly clarify_elderly_understanding_all's
+    empirical situation (its expected types are endemic in no-mutation
+    controls). This replaces the prior stricter "none fire at all" clause."""
+    plan = build_holdout_injection_plan(
+        Path.cwd(),
+        mutation_ids=["clarify_elderly_understanding_all"],
+        control_run_roots=["s2_control_anchor"],
+    )
+    write_holdout_inputs(tmp_path, plan)
+    benign = plan["injections"][0]
+    assert benign["arm"] == ARM_BENIGN_CONTROL
+    finding_type = benign["expected_finding_types"][0]
+    # Benign bundle: the expected finding_type fires once.
+    _verified_s2_bundle(tmp_path / "s2_benign", injection=benign, finding_types={finding_type: 1})
+    # Control run: the SAME finding_type fires at an equal (not lower) rate --
+    # i.e. this is endemic-at-baseline noise, not a NEW anomaly.
+    control_root = tmp_path / "s2_control_anchor"
+    control_root.mkdir(parents=True, exist_ok=True)
+    (control_root / "triage").mkdir(exist_ok=True)
+    (control_root / "triage" / "metrics.json").write_text(
+        json.dumps({"stage": "S2", "finding_types": {finding_type: 1}, "rule_hit_rate": {}, "detection_miss_rate": {}}),
+        encoding="utf-8",
+    )
+    run_lookup = {benign["injection_id"]: tmp_path / "s2_benign"}
+
+    benign_result = score_benign_controls(tmp_path, plan, run_lookup=run_lookup)
+
+    assert benign_result is not None
+    row = benign_result["per_injection"][0]
+    # It DID fire (visible in false_alarm_finding_types) ...
+    assert finding_type in row["false_alarm_finding_types"]
+    # ... but did not exceed baseline, so it is NOT in above_baseline_finding_types ...
+    assert finding_type not in row["above_baseline_finding_types"]
+    assert finding_type in row["at_or_below_baseline_finding_types"]
+    # ... and therefore still PASSES under the adjusted criterion.
+    assert row["passed"] is True
+    assert benign_result["all_passed"] is True
+    assert row["visibility_note"]  # non-blocking note is still surfaced
+
+
 def test_positive_control_denominator_excludes_benign_arm_end_to_end(tmp_path: Path) -> None:
+    """2026-07-06 approved holdout arm re-classification (MASTER_DESIGN.md
+    section 17.11): positive denominator = 3 under the new mapping
+    (clarify_elderly_understanding_sales_only, contradict, dangling_fill);
+    benign = 2 (clarify_elderly_understanding_all, role_table_fix)."""
     plan = build_holdout_injection_plan(
         Path.cwd(),
         mutation_ids=[
@@ -877,12 +1014,12 @@ def test_positive_control_denominator_excludes_benign_arm_end_to_end(tmp_path: P
         ],
     )
     positive_injections = [i for i in plan["injections"] if i["arm"] == ARM_POSITIVE_CONTROL]
-    assert len(positive_injections) == 4
+    assert len(positive_injections) == 3
     benign_injections = [i for i in plan["injections"] if i["arm"] == ARM_BENIGN_CONTROL]
-    assert len(benign_injections) == 1
+    assert len(benign_injections) == 2
 
     measurement = compute_holdout_detection_rate(tmp_path, plan)
-    assert measurement["injection_count"] == 4
+    assert measurement["injection_count"] == 3
     assert measurement["total_injection_count"] == 5
 
 
@@ -895,7 +1032,7 @@ def test_holdout_plan_cli_records_control_run_roots(tmp_path: Path) -> None:
             "--campaign-root",
             str(tmp_path),
             "--mutation",
-            "clarify_elderly_understanding_all",
+            "clarify_elderly_understanding_sales_only",
             "--control-run-root",
             "s2_anchor",
         ],
@@ -1004,8 +1141,11 @@ def test_injection_with_zero_activated_trials_fails_with_named_reason(tmp_path: 
     evidence of a detection miss (MASTER_DESIGN.md section 17.6's
     role_table_fix_quality_owner finding / section 17.7's stimulus-delivery
     gap, both cases where the run was in fact unactivated)."""
+    # clarify_elderly_understanding_sales_only (not _all -- reclassified
+    # benign_control per MASTER_DESIGN.md section 17.11) is used here as the
+    # positive_control example.
     plan = build_holdout_injection_plan(
-        Path.cwd(), mutation_ids=["clarify_elderly_understanding_all"], run_roots=["s2_holdout_0"]
+        Path.cwd(), mutation_ids=["clarify_elderly_understanding_sales_only"], run_roots=["s2_holdout_0"]
     )
     write_holdout_inputs(tmp_path, plan)
     injection = plan["injections"][0]
@@ -1055,24 +1195,27 @@ def test_activated_hit_among_k_seeds_counts_as_detected(tmp_path: Path) -> None:
     """seeds_per_injection > 1: an injection is detected when AT LEAST ONE of
     its K seeded trials is both activated and a strict hit, even if the other
     seeds are unactivated or miss."""
+    # clarify_elderly_understanding_sales_only (not _all -- reclassified
+    # benign_control per MASTER_DESIGN.md section 17.11) is used here as the
+    # positive_control example.
     plan = build_holdout_injection_plan(
         Path.cwd(),
-        mutation_ids=["clarify_elderly_understanding_all"],
+        mutation_ids=["clarify_elderly_understanding_sales_only"],
         auto_run_roots=True,
         seeds_per_injection=3,
     )
     injection = plan["injections"][0]
     assert injection["planned_run_roots"] == [
-        "holdout_clarify_elderly_understanding_all_seed1",
-        "holdout_clarify_elderly_understanding_all_seed2",
-        "holdout_clarify_elderly_understanding_all_seed3",
+        "holdout_clarify_elderly_understanding_sales_only_seed1",
+        "holdout_clarify_elderly_understanding_sales_only_seed2",
+        "holdout_clarify_elderly_understanding_sales_only_seed3",
     ]
     write_holdout_inputs(tmp_path, plan)
 
     # Seed 1: unactivated. Seed 2: activated but a miss. Seed 3: activated hit.
-    _verified_s2_bundle(tmp_path / "holdout_clarify_elderly_understanding_all_seed1", injection=injection, finding_types={"grounding_gap": 1}, activated=False)
-    _verified_s2_bundle(tmp_path / "holdout_clarify_elderly_understanding_all_seed2", injection=injection, finding_types={"deadline_overrun": 1}, activated=True)
-    _verified_s2_bundle(tmp_path / "holdout_clarify_elderly_understanding_all_seed3", injection=injection, finding_types={"grounding_gap": 1}, activated=True)
+    _verified_s2_bundle(tmp_path / "holdout_clarify_elderly_understanding_sales_only_seed1", injection=injection, finding_types={"grounding_gap": 1}, activated=False)
+    _verified_s2_bundle(tmp_path / "holdout_clarify_elderly_understanding_sales_only_seed2", injection=injection, finding_types={"deadline_overrun": 1}, activated=True)
+    _verified_s2_bundle(tmp_path / "holdout_clarify_elderly_understanding_sales_only_seed3", injection=injection, finding_types={"grounding_gap": 1}, activated=True)
 
     measurement = compute_holdout_detection_rate(tmp_path, plan)
 
@@ -1114,6 +1257,131 @@ def test_seeds_per_injection_default_k1_backward_compat_naming() -> None:
     assert plan["plan_hash"] == plan_implicit["plan_hash"]
 
 
+def test_seeds_per_injection_per_mutation_dict_produces_correct_root_sets() -> None:
+    """2026-07-06 approved holdout arm re-classification (MASTER_DESIGN.md
+    section 17.11): seeds_per_injection accepts a per-mutation {mutation_id: K}
+    dict -- needed for the final campaign (contradict K=5, everything else
+    K=1). A mutation_id absent from the dict falls back to its "_default" key."""
+    plan = build_holdout_injection_plan(
+        Path.cwd(),
+        mutation_ids=["contradict_chat_approval_recorded", "dangling_fill_search_key_stub", "clarify_elderly_understanding_sales_only"],
+        auto_run_roots=True,
+        seeds_per_injection={"contradict_chat_approval_recorded": 5, "_default": 1},
+    )
+    by_mutation = {injection["mutation_id"]: injection for injection in plan["injections"]}
+
+    contradict = by_mutation["contradict_chat_approval_recorded"]
+    assert contradict["seeds_per_injection"] == 5
+    assert contradict["planned_run_roots"] == [f"holdout_contradict_chat_approval_recorded_seed{n}" for n in range(1, 6)]
+
+    dangling = by_mutation["dangling_fill_search_key_stub"]
+    assert dangling["seeds_per_injection"] == 1
+    assert dangling["planned_run_roots"] == ["holdout_dangling_fill_search_key_stub"]
+
+    clarify_sales_only = by_mutation["clarify_elderly_understanding_sales_only"]
+    assert clarify_sales_only["seeds_per_injection"] == 1
+    assert clarify_sales_only["planned_run_roots"] == ["holdout_clarify_elderly_understanding_sales_only"]
+
+
+def test_seeds_per_injection_per_mutation_dict_without_default_key_falls_back_to_one() -> None:
+    plan = build_holdout_injection_plan(
+        Path.cwd(),
+        mutation_ids=["contradict_chat_approval_recorded", "dangling_fill_search_key_stub"],
+        auto_run_roots=True,
+        seeds_per_injection={"contradict_chat_approval_recorded": 5},
+    )
+    by_mutation = {injection["mutation_id"]: injection for injection in plan["injections"]}
+    assert by_mutation["contradict_chat_approval_recorded"]["seeds_per_injection"] == 5
+    assert by_mutation["dangling_fill_search_key_stub"]["seeds_per_injection"] == 1
+
+
+def test_seeds_per_injection_per_mutation_dict_sealed_in_plan_hash() -> None:
+    """A per-mutation K dict must be sealed into plan_hash exactly like the
+    global-int form -- a plan built with a different per-mutation K for the
+    same mutation set hashes differently."""
+    plan_uniform = build_holdout_injection_plan(
+        Path.cwd(),
+        mutation_ids=["contradict_chat_approval_recorded", "dangling_fill_search_key_stub"],
+        auto_run_roots=True,
+        seeds_per_injection={"contradict_chat_approval_recorded": 1, "dangling_fill_search_key_stub": 1},
+    )
+    plan_mixed = build_holdout_injection_plan(
+        Path.cwd(),
+        mutation_ids=["contradict_chat_approval_recorded", "dangling_fill_search_key_stub"],
+        auto_run_roots=True,
+        seeds_per_injection={"contradict_chat_approval_recorded": 5, "dangling_fill_search_key_stub": 1},
+    )
+    assert plan_uniform["plan_hash"] != plan_mixed["plan_hash"]
+    # And it matches the equivalent global-int plan for the uniform K=1 case.
+    plan_global = build_holdout_injection_plan(
+        Path.cwd(),
+        mutation_ids=["contradict_chat_approval_recorded", "dangling_fill_search_key_stub"],
+        auto_run_roots=True,
+        seeds_per_injection=1,
+    )
+    assert plan_uniform["plan_hash"] == plan_global["plan_hash"]
+
+
+def test_seeds_per_injection_per_mutation_dict_requires_auto_run_roots_when_any_k_over_one() -> None:
+    with pytest.raises(ValueError, match="requires auto_run_roots"):
+        build_holdout_injection_plan(
+            Path.cwd(),
+            mutation_ids=["contradict_chat_approval_recorded"],
+            seeds_per_injection={"contradict_chat_approval_recorded": 5},
+        )
+
+
+def test_holdout_plan_cli_injection_seeds_option_per_mutation_override(tmp_path: Path) -> None:
+    """CLI: --injection-seeds mutation_id=K (repeatable) overrides
+    --seeds-per-injection per mutation, falling back to the global default
+    for any mutation not listed (MASTER_DESIGN.md section 17.11)."""
+    runner = CliRunner()
+    plan_result = runner.invoke(
+        app,
+        [
+            "holdout-plan",
+            "--campaign-root",
+            str(tmp_path),
+            "--mutation",
+            "contradict_chat_approval_recorded",
+            "--mutation",
+            "dangling_fill_search_key_stub",
+            "--auto-run-roots",
+            "--seeds-per-injection",
+            "1",
+            "--injection-seeds",
+            "contradict_chat_approval_recorded=5",
+        ],
+    )
+    assert plan_result.exit_code == 0, plan_result.output
+    plan = json.loads((tmp_path / "holdout_inputs.json").read_text(encoding="utf-8"))
+    by_mutation = {injection["mutation_id"]: injection for injection in plan["injections"]}
+    assert by_mutation["contradict_chat_approval_recorded"]["seeds_per_injection"] == 5
+    assert by_mutation["contradict_chat_approval_recorded"]["planned_run_roots"] == [
+        f"holdout_contradict_chat_approval_recorded_seed{n}" for n in range(1, 6)
+    ]
+    assert by_mutation["dangling_fill_search_key_stub"]["seeds_per_injection"] == 1
+    assert by_mutation["dangling_fill_search_key_stub"]["planned_run_roots"] == ["holdout_dangling_fill_search_key_stub"]
+
+
+def test_holdout_plan_cli_injection_seeds_option_rejects_malformed_entry(tmp_path: Path) -> None:
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        [
+            "holdout-plan",
+            "--campaign-root",
+            str(tmp_path),
+            "--mutation",
+            "contradict_chat_approval_recorded",
+            "--auto-run-roots",
+            "--injection-seeds",
+            "not-a-valid-entry",
+        ],
+    )
+    assert result.exit_code != 0
+
+
 def test_holdout_plan_cli_seeds_per_injection_option(tmp_path: Path) -> None:
     runner = CliRunner()
     plan_result = runner.invoke(
@@ -1141,9 +1409,12 @@ def test_activation_recorded_for_benign_control_for_visibility_only(tmp_path: Pa
     """benign_control activation is recorded but never gates its own pass
     criterion -- an unactivated benign_control bundle that is otherwise clean
     (no false alarm) still passes."""
+    # clarify_elderly_understanding_sales_only (not _all -- reclassified
+    # benign_control per MASTER_DESIGN.md section 17.11) is used here as the
+    # positive_control example paired with role_table_fix's benign_control.
     plan = build_holdout_injection_plan(
         Path.cwd(),
-        mutation_ids=["clarify_elderly_understanding_all", "role_table_fix_quality_owner"],
+        mutation_ids=["clarify_elderly_understanding_sales_only", "role_table_fix_quality_owner"],
         control_run_roots=[],
     )
     write_holdout_inputs(tmp_path, plan)
@@ -1716,7 +1987,10 @@ def test_readiness_reports_wires_wp14_writers_end_to_end(tmp_path: Path) -> None
         encoding="utf-8",
     )
 
-    plan = build_holdout_injection_plan(Path.cwd(), mutation_ids=["clarify_elderly_understanding_all"], run_roots=["s2_holdout_0"])
+    # clarify_elderly_understanding_sales_only (not _all -- reclassified
+    # benign_control per MASTER_DESIGN.md section 17.11) is used here as the
+    # positive_control example.
+    plan = build_holdout_injection_plan(Path.cwd(), mutation_ids=["clarify_elderly_understanding_sales_only"], run_roots=["s2_holdout_0"])
     write_holdout_inputs(tmp_path, plan)
     _verified_s2_bundle(tmp_path / "s2_holdout_0", injection=plan["injections"][0], finding_types={plan["injections"][0]["expected_finding_types"][0]: 1})
 

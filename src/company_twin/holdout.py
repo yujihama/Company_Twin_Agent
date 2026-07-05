@@ -59,6 +59,26 @@ excuse an injection from the denominator or quietly drop it). See
 run roots named `holdout_<mutation_id>_seed<N>`; K=1 keeps the pre-existing
 `holdout_<mutation_id>` naming for backward compatibility).
 
+2026-07-06 approved holdout arm re-classification (MASTER_DESIGN.md section
+17.11): arm assignment moves from per-operator to per-mutation_id (see
+`_ARM_BY_MUTATION_ID`/`_resolve_arm`) -- the operator-level default was
+insufficient because `clarify`'s two catalogued variants warrant different
+arms: `clarify_elderly_understanding_all` is reclassified `benign_control`
+(its expected types, grounding_gap/version_gap, turned out to be endemic in
+no-mutation controls -- baseline_confounded at K=1) while
+`clarify_elderly_understanding_sales_only` stays `positive_control` (a
+genuine asymmetric-visibility anomaly condition, empirically detected above
+baseline). `score_benign_controls`'s pass criterion is correspondingly
+adjusted: bundle verification OK AND no ABOVE-baseline firing of the
+operator's previously-expected anomaly types (rate <= control baseline per
+type; zero-firing trivially satisfies) -- replacing the prior "none fire at
+all" clause, which was too strict once an endemic-at-baseline operator
+(clarify) could be a benign_control. `build_holdout_injection_plan`'s
+`seeds_per_injection` also now accepts a per-mutation `{mutation_id: K}` dict
+(in addition to a single global int), so a plan can mix Ks across mutations
+(e.g. `contradict_chat_approval_recorded` at K=5, everything else at K=1);
+the resolved per-injection K is sealed into `plan_hash` exactly as before.
+
 This module never calls an LLM or external API. Detection-rate measurement
 against live campaign data happens later, by pointing compute_holdout_detection_rate
 at real run bundles; this module only supplies the plan/measurement machinery
@@ -93,6 +113,22 @@ INJECTION_ARMS: tuple[str, ...] = (ARM_POSITIVE_CONTROL, ARM_BENIGN_CONTROL)
 # it is scored as a benign_control (a run where nothing should go newly
 # wrong), not a positive_control (a run where a specific anomaly should be
 # newly detected). All other catalogued operators default to positive_control.
+#
+# 2026-07-06 approved holdout arm re-classification (MASTER_DESIGN.md section
+# 17.11): arm assignment is now keyed by mutation_id, not just operator --
+# the operator-level default is INSUFFICIENT for `clarify`, whose two
+# catalogued variants (`clarify_elderly_understanding_all` and
+# `..._sales_only`) warrant different arms. Design docs frame clarify as a
+# reverse-direction/corrective operator ("明確化は分岐を減らすか"); empirically
+# its expected types (grounding_gap/version_gap) turned out to be endemic in
+# no-mutation controls (baseline_confounded at K=1 -- see era-3 holdout
+# results), so the all-roles variant is reclassified benign_control. The
+# sales-only variant STAYS positive_control: it creates a genuine asymmetric-
+# visibility anomaly condition (sales alone get the notice; every other role
+# keeps stale information), which is a real anomaly-shaped condition, not a
+# corrective one -- and it WAS detected above baseline empirically. See
+# _ARM_BY_MUTATION_ID for the per-mutation overrides and _resolve_arm for the
+# resolution order (mutation_id override first, then the operator default).
 _ARM_BY_OPERATOR: dict[str, str] = {
     "clarify": ARM_POSITIVE_CONTROL,
     "contradict": ARM_POSITIVE_CONTROL,
@@ -100,9 +136,34 @@ _ARM_BY_OPERATOR: dict[str, str] = {
     "role_table_fix": ARM_BENIGN_CONTROL,
 }
 
+# Per-mutation_id arm overrides (MASTER_DESIGN.md section 17.11, approved
+# 2026-07-06): take precedence over _ARM_BY_OPERATOR whenever a mutation_id
+# has an explicit entry here. Any mutation_id not listed here falls back to
+# _default_arm_for_operator(operator) -- unchanged behavior for every
+# operator/mutation not explicitly reclassified.
+_ARM_BY_MUTATION_ID: dict[str, str] = {
+    "contradict_chat_approval_recorded": ARM_POSITIVE_CONTROL,
+    "dangling_fill_search_key_stub": ARM_POSITIVE_CONTROL,
+    "clarify_elderly_understanding_sales_only": ARM_POSITIVE_CONTROL,
+    "clarify_elderly_understanding_all": ARM_BENIGN_CONTROL,
+    "role_table_fix_quality_owner": ARM_BENIGN_CONTROL,
+}
+
 
 def _default_arm_for_operator(operator: str) -> str:
     return _ARM_BY_OPERATOR.get(operator, ARM_POSITIVE_CONTROL)
+
+
+def _resolve_arm(mutation_id: str, operator: str) -> str:
+    """Resolve an injection's arm: an explicit `_ARM_BY_MUTATION_ID` override
+    takes precedence (MASTER_DESIGN.md section 17.11 -- needed because the
+    two `clarify` variants warrant different arms), falling back to the
+    operator-level default (`_default_arm_for_operator`) for every mutation_id
+    not explicitly overridden."""
+    override = _ARM_BY_MUTATION_ID.get(mutation_id)
+    if override in INJECTION_ARMS:
+        return override
+    return _default_arm_for_operator(operator)
 
 
 def build_holdout_injection_plan(
@@ -113,7 +174,7 @@ def build_holdout_injection_plan(
     auto_run_roots: bool = False,
     planned_ticks: int = 0,
     control_run_roots: list[str] | None = None,
-    seeds_per_injection: int = 1,
+    seeds_per_injection: int | dict[str, int] = 1,
 ) -> dict[str, Any]:
     """Build a WP-14 holdout injection plan from the WP-06 mutation catalog.
 
@@ -129,33 +190,45 @@ def build_holdout_injection_plan(
     must reach; see holdout.verify_holdout_bundles/write_holdout_report.
 
     Each injection gains an `arm` field ("positive_control" | "benign_control",
-    see `_ARM_BY_OPERATOR`/`_default_arm_for_operator`), sealed as part of
-    `plan_hash` -- an arm cannot be silently swapped after the plan is built.
-    `control_run_roots` (designated no-mutation control run-root names, e.g.
-    the campaign's anchor/plain S2 bundles) are likewise RECORDED IN THE PLAN
-    (sealed into `plan_hash`) so the delta-aware detection basis in
-    `compute_holdout_detection_rate` and the benign-control baseline check in
-    `score_benign_controls` both compare against the exact control set that
-    was pre-registered at plan-build time, not one chosen post-hoc at scoring
-    time.
+    see `_ARM_BY_MUTATION_ID`/`_ARM_BY_OPERATOR`/`_resolve_arm`), sealed as
+    part of `plan_hash` -- an arm cannot be silently swapped after the plan is
+    built. `control_run_roots` (designated no-mutation control run-root
+    names, e.g. the campaign's anchor/plain S2 bundles) are likewise RECORDED
+    IN THE PLAN (sealed into `plan_hash`) so the delta-aware detection basis
+    in `compute_holdout_detection_rate` and the benign-control baseline check
+    in `score_benign_controls` both compare against the exact control set
+    that was pre-registered at plan-build time, not one chosen post-hoc at
+    scoring time.
 
     `seeds_per_injection` (default 1, backward compatible) is the number of
     independent seeded runs `auto_run_roots` plans for EACH injection --
     2026-07-06 approved activation-aware holdout protocol (MASTER_DESIGN.md
-    section 17.9), multi-seed support. With K=1 (the default), an injection's
-    `planned_run_roots` is `["holdout_<mutation_id>"]`, unchanged from before
-    this field existed. With K>1, `auto_run_roots` must also be set (each
-    injection needs one-to-one attribution per seed) and `planned_run_roots`
-    becomes `["holdout_<mutation_id>_seed1", ..., "holdout_<mutation_id>_seedK"]`;
-    this K is sealed into `plan_hash` (a plan built with a different K for the
-    same mutation set hashes differently, even though `run_roots`/
-    `auto_run_roots` alone don't change). An injection is DETECTED when at
-    least one of its K seeded trials is both activated and a strict hit; see
-    `compute_holdout_detection_rate`/`_score_injection`.
+    section 17.9), multi-seed support. It accepts either a single int K
+    (applied uniformly to every injection, the original shape) or a dict
+    mapping `{mutation_id: K}` (2026-07-06 approved holdout arm
+    re-classification, MASTER_DESIGN.md section 17.11 -- per-mutation K,
+    needed because the final campaign wants `contradict_chat_approval_recorded`
+    at K=5 and everything else at K=1). A mutation_id absent from the dict
+    falls back to the dict's own `"_default"` key if present, else the global
+    default of 1. With K=1 for a given injection (the default), that
+    injection's `planned_run_roots` is `["holdout_<mutation_id>"]`, unchanged
+    from before this field existed. With K>1, `auto_run_roots` must also be
+    set (each injection needs one-to-one attribution per seed) and
+    `planned_run_roots` becomes
+    `["holdout_<mutation_id>_seed1", ..., "holdout_<mutation_id>_seedK"]`;
+    the resolved per-injection K is sealed into `plan_hash` (a plan built with
+    a different K for the same mutation set hashes differently, even though
+    `run_roots`/`auto_run_roots` alone don't change). An injection is
+    DETECTED when at least one of its K seeded trials is both activated and a
+    strict hit; see `compute_holdout_detection_rate`/`_score_injection`.
     """
-    if seeds_per_injection < 1:
+    per_mutation_k = isinstance(seeds_per_injection, dict)
+    if not per_mutation_k and seeds_per_injection < 1:
         raise ValueError("seeds_per_injection must be >= 1")
-    if seeds_per_injection > 1 and not auto_run_roots:
+    if per_mutation_k and any(k < 1 for k in seeds_per_injection.values()):
+        raise ValueError("seeds_per_injection must be >= 1 for every mutation_id")
+    max_k = max(seeds_per_injection.values()) if per_mutation_k else seeds_per_injection
+    if max_k > 1 and not auto_run_roots:
         raise ValueError("seeds_per_injection > 1 requires auto_run_roots=True (each injection needs one-to-one per-seed attribution)")
     if auto_run_roots and run_roots:
         raise ValueError("pass either run_roots (shared, attributed to every injection) or auto_run_roots (per-injection root named after the injection_id), not both")
@@ -177,9 +250,15 @@ def build_holdout_injection_plan(
                 "it can be scored"
             )
         operator = str(spec.get("operator") or "")
+        if per_mutation_k:
+            resolved_k = int(seeds_per_injection.get(mutation_id, seeds_per_injection.get("_default", 1)))
+            if resolved_k < 1:
+                raise ValueError("seeds_per_injection must be >= 1 for every mutation_id")
+        else:
+            resolved_k = int(seeds_per_injection)
         if auto_run_roots:
-            if seeds_per_injection > 1:
-                planned_run_roots = [f"holdout_{mutation_id}_seed{seed}" for seed in range(1, seeds_per_injection + 1)]
+            if resolved_k > 1:
+                planned_run_roots = [f"holdout_{mutation_id}_seed{seed}" for seed in range(1, resolved_k + 1)]
             else:
                 planned_run_roots = [f"holdout_{mutation_id}"]
         else:
@@ -201,8 +280,8 @@ def build_holdout_injection_plan(
                 # every injection and correctly fail verification).
                 "planned_run_roots": planned_run_roots,
                 "planned_ticks": int(planned_ticks),
-                "arm": _default_arm_for_operator(operator),
-                "seeds_per_injection": int(seeds_per_injection),
+                "arm": _resolve_arm(mutation_id, operator),
+                "seeds_per_injection": resolved_k,
             }
         )
     payload = {
@@ -1040,7 +1119,8 @@ def score_holdout_controls(campaign_root: Path, injection_plan: dict[str, Any], 
 
 
 # ---------------------------------------------------------------------------
-# Benign-control arm scoring (2026-07-05 approved recalibration)
+# Benign-control arm scoring (2026-07-05 approved recalibration; benign
+# criterion adjusted 2026-07-06 -- MASTER_DESIGN.md section 17.11)
 # ---------------------------------------------------------------------------
 #
 # role_table_fix is a corrective/de-ambiguating operator (MASTER_DESIGN.md
@@ -1054,6 +1134,24 @@ def score_holdout_controls(campaign_root: Path, injection_plan: dict[str, Any], 
 # operator. benign_control injections are therefore scored on a different,
 # honest question: "did nothing go NEWLY wrong", not "did the pre-registered
 # anomaly appear".
+#
+# 2026-07-06 approved benign-criterion adjustment (MASTER_DESIGN.md section
+# 17.11): the ORIGINAL criterion additionally required NONE of the operator's
+# previously-expected anomaly types to fire at all (a bare presence check,
+# clause (ii) below in the old docstring). That worked for role_table_fix
+# (its expected types fire zero on every observed run) but is the WRONG bar
+# for `clarify_elderly_understanding_all`, newly reclassified benign_control
+# in this same change: its expected types (grounding_gap/version_gap) turned
+# out to be ENDEMIC on no-mutation controls too (baseline_confounded at K=1),
+# so "fires at all" would fail it even though it is no WORSE than an
+# unmutated run. The adjusted criterion drops the bare presence clause and
+# keeps only the baseline comparison: pass = bundle verification OK AND no
+# ABOVE-baseline firing of the operator's previously-expected anomaly types
+# (rate <= control baseline per type; zero-firing trivially satisfies this
+# whenever the baseline itself is 0, so role_table_fix's existing clean-bundle
+# behavior is unchanged). `false_alarm_finding_types` is retained in the
+# report purely for visibility (a type that fired at all, whether or not it
+# cleared baseline) and no longer gates `passed` on its own.
 def score_benign_controls(
     campaign_root: Path,
     injection_plan: dict[str, Any],
@@ -1061,16 +1159,23 @@ def score_benign_controls(
     run_lookup: dict[str, Path] | None = None,
 ) -> dict[str, Any] | None:
     """Score every benign_control-arm injection against its own pass
-    criterion: (i) bundle verification passes (same structural checks as a
-    positive_control injection -- spec_hash consistency, stage S2, tick
-    coverage, no failure marker, explicit resolution), (ii) NONE of the
-    anomaly types previously expected for it (its own pre-registered
-    `expected_finding_types` -- sod_pattern/approval_concentration/
-    alternative_approval_chain for role_table_fix) fire as findings on its
-    run (no false alarm), and (iii) for each of those anomaly types, the
-    run's opportunity-normalized rate is at or below the sealed no-mutation
-    control baseline (`control_run_roots` recorded in the plan) -- a
-    machine-checkable "did not get NEWLY worse than baseline" comparison.
+    criterion (2026-07-06 adjusted, MASTER_DESIGN.md section 17.11): (i)
+    bundle verification passes (same structural checks as a positive_control
+    injection -- spec_hash consistency, stage S2, tick coverage, no failure
+    marker, explicit resolution), and (ii) for every anomaly type previously
+    expected for it (its own pre-registered `expected_finding_types` --
+    sod_pattern/approval_concentration/alternative_approval_chain for
+    role_table_fix, grounding_gap/version_gap/version_mix for
+    clarify_elderly_understanding_all), the run's opportunity-normalized rate
+    does not EXCEED the sealed no-mutation control baseline
+    (`control_run_roots` recorded in the plan) -- a machine-checkable "did
+    not get NEWLY worse than baseline" comparison. Zero-firing trivially
+    satisfies this whenever the baseline itself is zero. This replaces the
+    prior additional "none of the types fire at all" clause, which was too
+    strict for an operator (clarify) whose expected types are endemic at
+    baseline; `false_alarm_finding_types` is still reported (any type that
+    fired at all, above baseline or not) for visibility, but only
+    `above_baseline_finding_types` gates `passed`.
 
     Returns ``None`` when the plan has no benign_control-arm injections
     (nothing to score) so a positive-control-only plan's report is
@@ -1124,7 +1229,12 @@ def score_benign_controls(
                 above_baseline_finding_types.append(finding_type)
         no_false_alarm = not false_alarm_finding_types
         at_or_below_baseline = not above_baseline_finding_types
-        benign_ok = bool(run_roots) and bundle_ok and no_false_alarm and at_or_below_baseline
+        # 2026-07-06 adjusted benign criterion (MASTER_DESIGN.md section
+        # 17.11): pass = bundle verification OK AND no ABOVE-baseline firing.
+        # The bare "no false alarm at all" clause is no longer part of the
+        # gate (see module-level note above) -- false_alarm_finding_types is
+        # still computed and reported for visibility only.
+        benign_ok = bool(run_roots) and bundle_ok and at_or_below_baseline
         if benign_ok:
             passed_count += 1
         problems: list[str] = []
@@ -1132,10 +1242,18 @@ def score_benign_controls(
             problems.append("no run bundles attributed to this benign_control injection")
         if not bundle_ok:
             problems.append(f"bundle verification failed: {verification['detail']}")
-        if not no_false_alarm:
-            problems.append(f"false alarm: expected_finding_types {false_alarm_finding_types} fired on this run (none should)")
         if not at_or_below_baseline:
             problems.append(f"exceeded no-mutation control baseline for {above_baseline_finding_types}")
+        # Visibility-only note (never blocks `passed` under the 2026-07-06
+        # adjusted criterion, MASTER_DESIGN.md section 17.11): a type fired at
+        # all but stayed at/below baseline. Surfaced independently of pass/fail
+        # so it isn't swallowed by an empty `detail` on a passing row.
+        visibility_note = (
+            f"expected_finding_types {false_alarm_finding_types} fired but did not exceed the no-mutation "
+            "control baseline (non-blocking under the adjusted benign criterion)"
+            if (not no_false_alarm and at_or_below_baseline)
+            else ""
+        )
         per_injection.append(
             {
                 "injection_id": injection_id,
@@ -1150,6 +1268,7 @@ def score_benign_controls(
                 "control_baseline": baseline,
                 "passed": benign_ok,
                 "detail": "" if benign_ok else "; ".join(problems),
+                "visibility_note": visibility_note,
                 # Recorded for visibility only -- see note above; never gates
                 # benign_control's own pass criterion.
                 "activation": {
@@ -1168,11 +1287,15 @@ def score_benign_controls(
         "all_passed": total > 0 and passed_count == total,
         "per_injection": per_injection,
         "note": (
-            "benign_control-arm injections (e.g. role_table_fix, a corrective/de-ambiguating operator) are "
-            "scored on whether nothing went NEWLY wrong: bundle verification passes, none of the anomaly "
-            "types previously expected for the operator fire as a false alarm, and the run's rate for each "
-            "of those types is at or below the sealed no-mutation control baseline. Never folded into the "
-            "positive-control strict denominator; reported here in its own section."
+            "benign_control-arm injections (e.g. role_table_fix, a corrective/de-ambiguating operator, and "
+            "clarify_elderly_understanding_all, reclassified 2026-07-06 per MASTER_DESIGN.md section 17.11) "
+            "are scored on whether nothing went NEWLY wrong: bundle verification passes AND the run's rate "
+            "for every anomaly type previously expected for the operator is at or below the sealed "
+            "no-mutation control baseline (rate <= control baseline per type; zero-firing trivially "
+            "satisfies this). A type firing at all but staying at/below baseline is reported for visibility "
+            "(false_alarm_finding_types/visibility_note) but no longer blocks passing on its own -- only "
+            "above_baseline_finding_types gates `passed`. Never folded into the positive-control strict "
+            "denominator; reported here in its own section."
         ),
     }
 
@@ -1229,6 +1352,19 @@ def write_holdout_report(
     or activation existed is still scored with activation recording, since
     scoring-time behavior does not depend on what the plan happened to record
     at build time.
+
+    2026-07-06 approved holdout arm re-classification (MASTER_DESIGN.md
+    section 17.11): arm assignment is now resolved per-mutation_id
+    (`build_holdout_injection_plan`'s `_ARM_BY_MUTATION_ID`, falling back to
+    the operator-level default) rather than per-operator only --
+    `clarify_elderly_understanding_all` is reclassified `benign_control`
+    while `clarify_elderly_understanding_sales_only` stays `positive_control`.
+    `score_benign_controls`'s pass criterion is correspondingly adjusted: a
+    benign_control injection passes when bundle verification is OK AND none
+    of its previously-expected anomaly types fire ABOVE the sealed
+    no-mutation control baseline (zero-firing trivially satisfies this); a
+    type firing at all but staying at/below baseline no longer blocks
+    passing on its own (see `score_benign_controls`'s `visibility_note`).
     """
     inputs_path = campaign_root / "holdout_inputs.json"
     if not inputs_path.exists():
@@ -1323,6 +1459,15 @@ def write_holdout_report(
             "metrics). Detection is evaluated only over activated trials; a positive_control injection with "
             "ZERO activated trials among its planned runs fails outright, never excluded from the denominator "
             "-- see the activation section and measurement.per_injection[*].activation_summary/activation.",
+            "2026-07-06 approved holdout arm re-classification (MASTER_DESIGN.md section 17.11): arm assignment "
+            "is now per-mutation_id (see holdout._ARM_BY_MUTATION_ID), not just per-operator -- "
+            "clarify_elderly_understanding_all is now benign_control (its expected types are endemic in "
+            "no-mutation controls) while clarify_elderly_understanding_sales_only stays positive_control (a "
+            "genuine asymmetric-visibility anomaly, empirically detected above baseline). The benign_control "
+            "pass criterion is also adjusted: pass = bundle verification OK AND no ABOVE-baseline firing of "
+            "the operator's previously-expected anomaly types (rate <= control baseline per type; "
+            "zero-firing trivially satisfies) -- this replaces the previous 'none fire at all' clause, which "
+            "was too strict for a type that fires endemically at baseline.",
         ],
         "measurement": measurement,
         "bundle_verification": bundle_verification,
@@ -1337,9 +1482,10 @@ def write_holdout_report(
         payload["status"] = "blocked"
         payload["notes"].append(
             f"benign_controls FAILED: {benign_controls['passed_count']}/{benign_controls['injection_count']} "
-            "benign_control-arm injections passed (false alarm or above-baseline finding, or bundle verification "
-            "failure) -- this blocks the report even though it is excluded from the positive-control denominator, "
-            "because a false alarm on a benign_control run is itself evidence the detectors are unreliable."
+            "benign_control-arm injections passed (above-baseline finding, or bundle verification failure -- "
+            "see MASTER_DESIGN.md section 17.11 for the adjusted pass criterion) -- this blocks the report "
+            "even though it is excluded from the positive-control denominator, because an above-baseline "
+            "anomaly on a benign_control run is itself evidence the detectors are unreliable."
         )
     if activation["unactivated_injection_ids"]:
         payload["notes"].append(
