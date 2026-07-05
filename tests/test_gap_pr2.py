@@ -282,6 +282,50 @@ def _write_min_repro_source(
     _write_jsonl(run_root / "store_events.jsonl", [])
 
 
+def _write_fresh_min_repro_bundle(
+    run_root: Path,
+    seed: int,
+    config: dict[str, Any],
+    finding_type: str,
+    *,
+    signature: str,
+) -> None:
+    run_root.mkdir(parents=True)
+    (run_root / "triage").mkdir()
+    (run_root / "meta.json").write_text(
+        json.dumps(
+            {
+                "stage": config["stage"],
+                "probe": config["probe"],
+                "knobs": config.get("knobs") or {},
+                "seed": seed,
+                "anchor": False,
+                "live": True,
+                "backend": "deepagents",
+            }
+        ),
+        encoding="utf-8",
+    )
+    (run_root / "triage" / "metrics.json").write_text(
+        json.dumps({"controlled_actions_agent": 1, "finding_types": {finding_type: 1}}),
+        encoding="utf-8",
+    )
+    (run_root / "triage" / "buckets.json").write_text(
+        json.dumps({"buckets": [{"signature": signature, "finding_type": finding_type, "seat_id": "emp-C", "count": 1}]}),
+        encoding="utf-8",
+    )
+    _write_jsonl(
+        run_root / "attempts.jsonl",
+        [
+            {"tick": 1, "seat_id": "emp-C", "tool": "llm_invoke", "args": {"backend": "deepagents"}, "success": True, "result": {}, "origin": "agent"},
+            {"tick": 1, "seat_id": "emp-C", "tool": "submit_application", "args": {"evidence": {"material_version": "v1.1"}}, "success": True, "result": {}, "origin": "agent"},
+        ],
+    )
+    _write_jsonl(run_root / "basis_records.jsonl", [])
+    _write_jsonl(run_root / "world_ledger.jsonl", [])
+    _write_jsonl(run_root / "store_events.jsonl", [])
+
+
 def test_min_repro_collation_never_promotes_confirmed_findings(tmp_path: Path) -> None:
     for seed, has_finding in enumerate([True, True, False]):
         _write_min_repro_source(tmp_path, f"s1_P-04_seed{seed}", seed=seed, has_finding=has_finding)
@@ -313,6 +357,55 @@ def test_min_repro_collation_never_promotes_confirmed_findings(tmp_path: Path) -
     updated_jobs = json.loads((tmp_path / "min_repro_jobs.json").read_text(encoding="utf-8"))["jobs"]
     assert updated_jobs[0]["status"] == "evidence_collated"
     assert a14_confirmed_requires_fresh_reproduction(tmp_path).passed
+
+
+def test_min_repro_recollation_preserves_reproduced_jobs_and_registry(tmp_path: Path) -> None:
+    for seed, has_finding in enumerate([True, True, False]):
+        _write_min_repro_source(tmp_path, f"s1_P-04_seed{seed}", seed=seed, has_finding=has_finding)
+    aggregate_ensemble_triage(tmp_path)
+    execute_min_repro_jobs(tmp_path, min_rate=0.5, min_seeds=3)
+
+    def write_confirmation_bundle(run_root: Path, seed: int, config: dict[str, Any], finding_type: str) -> None:
+        _write_fresh_min_repro_bundle(run_root, seed, config, finding_type, signature="sig-0")
+
+    payload = execute_fresh_min_repro_confirmation(
+        tmp_path,
+        finding_type="evidence_gap",
+        confirmation_seeds=3,
+        seed_start=100,
+        min_rate=2 / 3,
+        confirmation_bundle_runner=write_confirmation_bundle,
+    )
+    before_jobs = json.loads((tmp_path / "min_repro_jobs.json").read_text(encoding="utf-8"))["jobs"]
+    before_job = before_jobs[0]
+    before_manifest = json.loads((tmp_path / payload["manifest_path"]).read_text(encoding="utf-8"))
+    preserved_fields = {
+        key: before_job[key]
+        for key in (
+            "reproduction_rate",
+            "reproduction_rate_basis",
+            "type_confirmation_successes",
+            "type_reproduction_rate",
+            "type_reproduction_rate_wilson_95",
+            "signature_confirmation_successes",
+            "signature_reproduction_rate",
+            "signature_reproduction_rate_wilson_95",
+            "confirmation_successes",
+        )
+    }
+
+    execute_min_repro_jobs(tmp_path, min_rate=0.5, min_seeds=3)
+
+    after_jobs = json.loads((tmp_path / "min_repro_jobs.json").read_text(encoding="utf-8"))["jobs"]
+    after_job = after_jobs[0]
+    assert after_job["status"] == "reproduced"
+    assert {key: after_job[key] for key in preserved_fields} == preserved_fields
+    assert json.loads((tmp_path / payload["manifest_path"]).read_text(encoding="utf-8")) == before_manifest
+    registry = json.loads((tmp_path / "finding_registry.json").read_text(encoding="utf-8"))
+    assert registry["confirmed_findings"][0]["job_id"] == payload["job_id"]
+    assert registry["confirmed_findings"][0]["signature_reproduction_rate"] == preserved_fields["signature_reproduction_rate"]
+    assert registry["audit_hypothesis_cards"][0]["min_repro"]["job_id"] == payload["job_id"]
+    assert registry["audit_hypothesis_cards"][0]["min_repro"]["signature_reproduction_rate"] == preserved_fields["signature_reproduction_rate"]
 
 
 def test_fresh_min_repro_confirmation_promotes_reproduced_with_disjoint_live_seeds(tmp_path: Path) -> None:
@@ -477,6 +570,42 @@ def test_fresh_min_repro_confirmation_requires_source_signature_match(tmp_path: 
     assert manifest["reproduction_rate_basis"] == "signature"
     assert manifest["runs"][0]["finding_count"] == 1
     assert manifest["runs"][0]["matched_signature_finding_count"] == 0
+    registry = json.loads((tmp_path / "finding_registry.json").read_text(encoding="utf-8"))
+    assert registry["confirmed_findings"] == []
+
+
+def test_fresh_min_repro_confirmation_gates_on_signature_rate_not_type_rate(tmp_path: Path) -> None:
+    for seed, has_finding in enumerate([True, True, False]):
+        _write_min_repro_source(tmp_path, f"s1_P-04_seed{seed}", seed=seed, has_finding=has_finding)
+    aggregate_ensemble_triage(tmp_path)
+
+    def write_confirmation_bundle(run_root: Path, seed: int, config: dict[str, Any], finding_type: str) -> None:
+        signature = "sig-0" if seed in {100, 101} else "sig-other"
+        _write_fresh_min_repro_bundle(run_root, seed, config, finding_type, signature=signature)
+
+    payload = execute_fresh_min_repro_confirmation(
+        tmp_path,
+        finding_type="evidence_gap",
+        confirmation_seeds=3,
+        seed_start=100,
+        min_rate=0.7,
+        allow_threshold_override=True,
+        confirmation_bundle_runner=write_confirmation_bundle,
+    )
+
+    assert payload["status"] == "not_reproduced"
+    assert payload["source_bundle_count"] == 2
+    assert payload["type_reproduction_rate"] == 1.0
+    assert payload["signature_reproduction_rate"] == 2 / 3
+    manifest = json.loads((tmp_path / payload["manifest_path"]).read_text(encoding="utf-8"))
+    assert manifest["status"] == "not_reproduced"
+    assert manifest["type_confirmation_successes"] == 3
+    assert manifest["type_reproduction_rate"] == 1.0
+    assert manifest["signature_confirmation_successes"] == 2
+    assert manifest["signature_reproduction_rate"] == 2 / 3
+    assert manifest["reproduction_rate"] == 2 / 3
+    assert all(row["finding_count"] == 1 for row in manifest["runs"])
+    assert [row["matched_signature_finding_count"] for row in manifest["runs"]] == [1, 1, 0]
     registry = json.loads((tmp_path / "finding_registry.json").read_text(encoding="utf-8"))
     assert registry["confirmed_findings"] == []
 
