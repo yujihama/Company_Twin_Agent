@@ -11,6 +11,7 @@ from .agents import openrouter_ready
 from .ab_testing import write_prompt_mode_ab_report
 from .backcasting import extract_backcasting_cases, write_backcasting_inputs, write_backcasting_report
 from .backcasting_run import (
+    BackcastingInputsError,
     LocalReproductionJudge,
     OpenRouterReproductionJudge,
     default_backcasting_seat_factory,
@@ -482,13 +483,17 @@ def backcasting_run(
             raise typer.BadParameter("--seat-model is required for a live run (pass --allow-proxy-seat for offline testing only)")
     seat = default_backcasting_seat_factory(seat_model)
     judge = OpenRouterReproductionJudge(judge_model) if judge_model else LocalReproductionJudge()
-    payload = run_backcasting_resimulation(
-        campaign_root.resolve(),
-        seat=seat,
-        judge=judge,
-        sample_size=sample,
-        sample_seed=sample_seed,
-    )
+    try:
+        payload = run_backcasting_resimulation(
+            campaign_root.resolve(),
+            seat=seat,
+            judge=judge,
+            sample_size=sample,
+            sample_seed=sample_seed,
+        )
+    except BackcastingInputsError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
     _echo_json(payload)
 
 
