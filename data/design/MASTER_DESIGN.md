@@ -472,3 +472,44 @@ Scope boundary: this is machinery only. It does not claim backcasting/
 holdout/SME-blind-review Stage 9 evidence by itself -- that still requires a
 live re-simulation pass, a live holdout campaign, and a completed human SME
 review filled into the packets this module produces.
+
+### 17.1 Backcasting LIVE re-simulation runner (2026-07-05 follow-up)
+
+`company_twin.backcasting_run` closes the gap between
+`extract_backcasting_cases()` and `score_backcasting_reproduction()`: it is
+the runner that actually produces `backcasting_resimulation_results.json`.
+CLI: `backcasting-run --campaign-root ... --seat-model ... --judge-model ...
+--sample N --sample-seed S`.
+
+- **Pre-registered sampling.** `select_backcasting_sample()` orders all
+  case_ids by `sha256(seed:case_id)` and takes the first N -- a pure function
+  of `(cases, sample_size, sample_seed)`, independent of input order. The
+  full `selected_case_ids` list (not just a count) is written into the
+  results file alongside `sample_size`/`sample_seed`, so anyone can recompute
+  the exact same selection from `backcasting_inputs.json` and confirm
+  nothing was swapped or dropped after the fact. Every selected case_id
+  appears exactly once in `results`; a failed seat call is recorded as
+  `reproduced: false` with a `detail` string, never silently omitted.
+- **Two-plane separation.** The live seat receives only
+  `backcasting_seat_prompt(situation)` -- the documented situation reframed
+  as an ordinary S0-style business question. It never sees the documented
+  response, the case_id, or experimenter vocabulary
+  (backcasting/reproduction/probe/span/oracle/experiment/mutation);
+  `assert_two_plane_clean()` is a defense-in-depth check run against the
+  actual constructed prompt before every live call. The judge is
+  experimenter-plane and may see the documented response, because its job is
+  to compare the seat's live answer against it.
+- **Judge boundary**, mirroring `semantic_grounding`'s
+  `SemanticJudge`/`LocalSemanticJudge`/`OpenRouterSemanticJudge` split:
+  `ReproductionJudge` requires an explicit `backend`/`model`;
+  `LocalReproductionJudge` is a deterministic lexical-overlap proxy for
+  offline tests and is never in `READINESS_ALLOWED_JUDGE_BACKENDS`; only
+  `OpenRouterReproductionJudge` (`backend == "openrouter"`, explicit
+  `--judge-model`) is `readiness_eligible`. Judgments are cached on a hash
+  that includes `JUDGE_PROMPT_VERSION`, so a prompt-version bump invalidates
+  the cache instead of silently reusing stale labels.
+- **Live evidence discipline.** Each sampled case gets its own run bundle
+  under `<campaign_root>/backcasting_runs/<case_id>/` (via `RunRecorder`),
+  with `llm_invoke`/`llm_response` attempts recorded for the seat call
+  (mirroring `DeepAgentSeat.turn` in `agents.py`) and a `backcasting_case.json`
+  carrying the full situation/prompt/raw response/judge verdict for audit.

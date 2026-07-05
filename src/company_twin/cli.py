@@ -10,6 +10,12 @@ from .acceptance import run_acceptance
 from .agents import openrouter_ready
 from .ab_testing import write_prompt_mode_ab_report
 from .backcasting import extract_backcasting_cases, write_backcasting_inputs, write_backcasting_report
+from .backcasting_run import (
+    LocalReproductionJudge,
+    OpenRouterReproductionJudge,
+    default_backcasting_seat_factory,
+    run_backcasting_resimulation,
+)
 from .campaign import run_control_pair_campaign, run_design_campaign, static_world_surface_lint
 from .corpus import Corpus
 from .design_loader import load_design
@@ -449,6 +455,40 @@ def backcasting_report(
 ) -> None:
     """WP-14: score backcasting_inputs.json against any recorded re-simulation results and write backcasting_report.json."""
     payload = write_backcasting_report(campaign_root.resolve())
+    _echo_json(payload)
+
+
+@app.command("backcasting-run")
+def backcasting_run(
+    campaign_root: Annotated[Path, typer.Option("--campaign-root")],
+    seat_model: Annotated[str | None, typer.Option("--seat-model", help="OpenRouter model for the live seat re-simulation, e.g. openrouter:qwen/qwen3.6-flash")] = None,
+    judge_model: Annotated[str | None, typer.Option("--judge-model", help="OpenRouter model for the live reproduction judge; omitted uses local deterministic proxy (never readiness-eligible)")] = None,
+    sample: Annotated[int | None, typer.Option("--sample", help="Number of cases to sample from backcasting_inputs.json; omitted runs the full population")] = None,
+    sample_seed: Annotated[int, typer.Option("--sample-seed", help="Pre-registered seed for deterministic sampling")] = 0,
+    root: Annotated[Path | None, typer.Option("--root")] = None,
+    require_live_seat: Annotated[bool, typer.Option("--require-live-seat/--allow-proxy-seat", help="Require --seat-model and a working OPENROUTER_API_KEY; disable only for offline/local testing")] = True,
+) -> None:
+    """WP-14 follow-up: run the live re-simulation pass over backcasting_inputs.json and write backcasting_resimulation_results.json.
+
+    The seat receives ONLY the situation (S0-style natural business question);
+    the documented response and case_id never reach it. The judge is
+    experimenter-plane and may see the documented response. Run
+    `backcasting-report` afterwards to score the written results file.
+    """
+    base = _root(root)
+    if require_live_seat:
+        _require_live(base)
+        if not seat_model:
+            raise typer.BadParameter("--seat-model is required for a live run (pass --allow-proxy-seat for offline testing only)")
+    seat = default_backcasting_seat_factory(seat_model)
+    judge = OpenRouterReproductionJudge(judge_model) if judge_model else LocalReproductionJudge()
+    payload = run_backcasting_resimulation(
+        campaign_root.resolve(),
+        seat=seat,
+        judge=judge,
+        sample_size=sample,
+        sample_seed=sample_seed,
+    )
     _echo_json(payload)
 
 
