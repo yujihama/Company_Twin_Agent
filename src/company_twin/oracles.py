@@ -705,9 +705,17 @@ def execute_fresh_min_repro_confirmation(
             }
         )
 
-    reproduction_rate = len(source_bundles) / confirmation_seeds
-    reproduction_wilson = _rounded_wilson(len(source_bundles), confirmation_seeds)
-    status = "reproduced" if source_bundles and reproduction_rate >= min_rate else "not_reproduced"
+    type_confirmation_successes = sum(1 for row in run_rows if int(row.get("finding_count") or 0) > 0)
+    signature_confirmation_successes = len(source_bundles)
+    type_reproduction_rate = type_confirmation_successes / confirmation_seeds
+    signature_reproduction_rate = signature_confirmation_successes / confirmation_seeds
+    type_reproduction_wilson = _rounded_wilson(type_confirmation_successes, confirmation_seeds)
+    signature_reproduction_wilson = _rounded_wilson(signature_confirmation_successes, confirmation_seeds)
+    # Backward-compatible confirmation fields are signature-scoped: a fresh run
+    # only confirms when it reproduces one of the queued source signatures.
+    reproduction_rate = signature_reproduction_rate
+    reproduction_wilson = signature_reproduction_wilson
+    status = "reproduced" if source_bundles and signature_reproduction_rate >= min_rate else "not_reproduced"
     manifest = {
         "schema_version": MIN_REPRO_CONFIRMATION_SCHEMA_VERSION,
         "job_id": selected_job_id,
@@ -727,6 +735,13 @@ def execute_fresh_min_repro_confirmation(
         "confirmation_successes": len(source_bundles),
         "reproduction_rate": reproduction_rate,
         "reproduction_rate_wilson_95": reproduction_wilson,
+        "reproduction_rate_basis": "signature",
+        "type_confirmation_successes": type_confirmation_successes,
+        "type_reproduction_rate": type_reproduction_rate,
+        "type_reproduction_rate_wilson_95": type_reproduction_wilson,
+        "signature_confirmation_successes": signature_confirmation_successes,
+        "signature_reproduction_rate": signature_reproduction_rate,
+        "signature_reproduction_rate_wilson_95": signature_reproduction_wilson,
         "source_bundles": source_bundles,
         "runs": run_rows,
         "coverage_cells": _coverage_cells_for_finding(campaign_root, selected_finding),
@@ -754,6 +769,13 @@ def execute_fresh_min_repro_confirmation(
                     "confirmation_seeds": confirmation_seeds,
                     "reproduction_rate": reproduction_rate,
                     "reproduction_rate_wilson_95": reproduction_wilson,
+                    "reproduction_rate_basis": "signature",
+                    "type_confirmation_successes": type_confirmation_successes,
+                    "type_reproduction_rate": type_reproduction_rate,
+                    "type_reproduction_rate_wilson_95": type_reproduction_wilson,
+                    "signature_confirmation_successes": signature_confirmation_successes,
+                    "signature_reproduction_rate": signature_reproduction_rate,
+                    "signature_reproduction_rate_wilson_95": signature_reproduction_wilson,
                     "threshold_override": threshold_override,
                     "expected_bucket_signatures": sorted(expected_signatures),
                     "seats_subset": effective_seats_subset,
@@ -775,6 +797,13 @@ def execute_fresh_min_repro_confirmation(
         "confirmation_successes": len(source_bundles),
         "reproduction_rate": reproduction_rate,
         "reproduction_rate_wilson_95": reproduction_wilson,
+        "reproduction_rate_basis": "signature",
+        "type_confirmation_successes": type_confirmation_successes,
+        "type_reproduction_rate": type_reproduction_rate,
+        "type_reproduction_rate_wilson_95": type_reproduction_wilson,
+        "signature_confirmation_successes": signature_confirmation_successes,
+        "signature_reproduction_rate": signature_reproduction_rate,
+        "signature_reproduction_rate_wilson_95": signature_reproduction_wilson,
         "pre_registered_confirmation": pre_registered,
         "threshold_override": threshold_override,
         "expected_bucket_signatures": sorted(expected_signatures),
@@ -1092,6 +1121,13 @@ def _confirmed_finding(job: dict[str, Any]) -> dict[str, Any]:
         "confirmation_seeds": job.get("confirmation_seeds"),
         "reproduction_rate": job.get("reproduction_rate"),
         "reproduction_rate_wilson_95": job.get("reproduction_rate_wilson_95"),
+        "reproduction_rate_basis": job.get("reproduction_rate_basis") or "signature",
+        "type_confirmation_successes": job.get("type_confirmation_successes"),
+        "type_reproduction_rate": job.get("type_reproduction_rate"),
+        "type_reproduction_rate_wilson_95": job.get("type_reproduction_rate_wilson_95"),
+        "signature_confirmation_successes": job.get("signature_confirmation_successes"),
+        "signature_reproduction_rate": job.get("signature_reproduction_rate"),
+        "signature_reproduction_rate_wilson_95": job.get("signature_reproduction_rate_wilson_95"),
         "source_bundle_count": job.get("source_bundle_count"),
         "matching_bundle_count": job.get("matching_bundle_count"),
         "confirmation_path": job.get("confirmation_path"),
@@ -1108,6 +1144,15 @@ def _audit_hypothesis_card(job: dict[str, Any]) -> dict[str, Any]:
         "card_id": f"HYP-{str(job.get('job_id') or '')[:12]}",
         "finding_type": finding_type,
         "hypothesis": f"{finding_type} reproduces under {stage}/{probe} and should be reviewed as a confirmed audit hypothesis.",
+        "confirmation_successes": job.get("confirmation_successes"),
+        "confirmation_seeds": job.get("confirmation_seeds"),
+        "reproduction_rate": job.get("reproduction_rate"),
+        "reproduction_rate_wilson_95": job.get("reproduction_rate_wilson_95"),
+        "reproduction_rate_basis": job.get("reproduction_rate_basis") or "signature",
+        "type_reproduction_rate": job.get("type_reproduction_rate"),
+        "type_reproduction_rate_wilson_95": job.get("type_reproduction_rate_wilson_95"),
+        "signature_reproduction_rate": job.get("signature_reproduction_rate"),
+        "signature_reproduction_rate_wilson_95": job.get("signature_reproduction_rate_wilson_95"),
         "min_repro": {
             "job_id": job.get("job_id"),
             "status": "reproduced",
@@ -1117,6 +1162,13 @@ def _audit_hypothesis_card(job: dict[str, Any]) -> dict[str, Any]:
             "confirmation_seeds": job.get("confirmation_seeds"),
             "reproduction_rate": job.get("reproduction_rate"),
             "reproduction_rate_wilson_95": job.get("reproduction_rate_wilson_95"),
+            "reproduction_rate_basis": job.get("reproduction_rate_basis") or "signature",
+            "type_confirmation_successes": job.get("type_confirmation_successes"),
+            "type_reproduction_rate": job.get("type_reproduction_rate"),
+            "type_reproduction_rate_wilson_95": job.get("type_reproduction_rate_wilson_95"),
+            "signature_confirmation_successes": job.get("signature_confirmation_successes"),
+            "signature_reproduction_rate": job.get("signature_reproduction_rate"),
+            "signature_reproduction_rate_wilson_95": job.get("signature_reproduction_rate_wilson_95"),
             "confirmation_path": job.get("confirmation_path"),
         },
         "divergence_cells": job.get("coverage_cells") or [],

@@ -385,13 +385,27 @@ def test_fresh_min_repro_confirmation_promotes_reproduced_with_disjoint_live_see
     assert manifest["threshold_override"]["enabled"] is False
     assert manifest["fresh_seeds"] == [100, 101, 102]
     assert manifest["expected_bucket_signatures"] == ["sig-0", "sig-1"]
+    assert manifest["reproduction_rate_basis"] == "signature"
+    assert manifest["type_confirmation_successes"] == 3
+    assert manifest["type_reproduction_rate"] == 1.0
+    assert manifest["type_reproduction_rate_wilson_95"] == [0.4385, 1.0]
+    assert manifest["signature_confirmation_successes"] == 3
+    assert manifest["signature_reproduction_rate"] == 1.0
+    assert manifest["signature_reproduction_rate_wilson_95"] == [0.4385, 1.0]
     assert manifest["reproduction_rate_wilson_95"] == [0.4385, 1.0]
     assert all(bundle["run_root"].startswith(f"min_repro/{payload['job_id']}/runs/") for bundle in manifest["source_bundles"])
 
     registry = json.loads((tmp_path / "finding_registry.json").read_text(encoding="utf-8"))
     assert registry["confirmed_findings"][0]["status"] == "reproduced"
+    assert registry["confirmed_findings"][0]["reproduction_rate_basis"] == "signature"
+    assert registry["confirmed_findings"][0]["signature_reproduction_rate"] == 1.0
+    assert registry["confirmed_findings"][0]["type_reproduction_rate"] == 1.0
     assert registry["confirmed_findings"][0]["reproduction_rate_wilson_95"] == [0.4385, 1.0]
+    assert registry["audit_hypothesis_cards"][0]["reproduction_rate"] == 1.0
+    assert registry["audit_hypothesis_cards"][0]["reproduction_rate_wilson_95"] == [0.4385, 1.0]
+    assert registry["audit_hypothesis_cards"][0]["reproduction_rate_basis"] == "signature"
     assert registry["audit_hypothesis_cards"][0]["min_repro"]["reproduction_rate_wilson_95"] == [0.4385, 1.0]
+    assert registry["audit_hypothesis_cards"][0]["min_repro"]["signature_reproduction_rate"] == 1.0
     assert registry["audit_hypothesis_cards"]
     assert a14_confirmed_requires_fresh_reproduction(tmp_path).passed
 
@@ -449,7 +463,18 @@ def test_fresh_min_repro_confirmation_requires_source_signature_match(tmp_path: 
 
     assert payload["status"] == "not_reproduced"
     assert payload["source_bundle_count"] == 0
+    assert payload["reproduction_rate_basis"] == "signature"
+    assert payload["type_confirmation_successes"] == 3
+    assert payload["type_reproduction_rate"] == 1.0
+    assert payload["signature_confirmation_successes"] == 0
+    assert payload["signature_reproduction_rate"] == 0.0
     manifest = json.loads((tmp_path / payload["manifest_path"]).read_text(encoding="utf-8"))
+    assert manifest["type_confirmation_successes"] == 3
+    assert manifest["type_reproduction_rate"] == 1.0
+    assert manifest["signature_confirmation_successes"] == 0
+    assert manifest["signature_reproduction_rate"] == 0.0
+    assert manifest["reproduction_rate"] == 0.0
+    assert manifest["reproduction_rate_basis"] == "signature"
     assert manifest["runs"][0]["finding_count"] == 1
     assert manifest["runs"][0]["matched_signature_finding_count"] == 0
     registry = json.loads((tmp_path / "finding_registry.json").read_text(encoding="utf-8"))
