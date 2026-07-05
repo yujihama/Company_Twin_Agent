@@ -105,6 +105,36 @@ def test_approval_deadline_overrun_delivers_timed_notice(tmp_path: Path) -> None
     assert a03_inbox_whitelist(tmp_path).passed
 
 
+def test_granted_approval_does_not_fire_deadline_overrun(tmp_path: Path) -> None:
+    from company_twin.kernel import KernelProfile, WorldKernel
+
+    recorder = RunRecorder(tmp_path, "approval-deadline-granted")
+    recorder.set_tick(1)
+    kernel = WorldKernel(
+        recorder,
+        KernelProfile(
+            seat_roles={"emp-A": "sales", "emp-M": "manager", "emp-Q": "second_line"},
+            approval_due_ticks=1,
+            approval_notice_recipients=("emp-Q",),
+        ),
+    )
+    app = kernel._ensure_application("APP-1", customer_id="CUS-1", product="p")
+    # Grants are appended as separate entries while the original request entry
+    # keeps status "requested"; an on-time grant must suppress the overdue notice.
+    app["approvals"] = [
+        {"approval_id": "APR-0001", "application_id": "APP-1", "requested_by": "emp-A", "approver_role": "manager", "status": "requested", "requested_tick": 1, "due_tick": 2},
+        {"approval_id": "APR-0001", "application_id": "APP-1", "approved_by": "emp-M", "condition": "", "status": "approved", "action_id": "ACT-1"},
+        {"approval_id": "APR-0003", "application_id": "APP-1", "requested_by": "emp-A", "approver_role": "manager", "status": "requested", "requested_tick": 1, "due_tick": 2},
+    ]
+
+    kernel.fire_timed_events(3)
+
+    ledger = read_jsonl(tmp_path / "world_ledger.jsonl")
+    overruns = [row for row in ledger if row["event_type"] == "approval_deadline_overrun"]
+    # Only the never-granted APR-0003 may fire; granted APR-0001 must stay silent.
+    assert [str((row.get("payload") or {}).get("approval_id")) for row in overruns] == ["APR-0003"]
+
+
 def test_seat_model_binding_reaches_runtime_factory(tmp_path: Path) -> None:
     design = load_design(Path.cwd())
     corpus = Corpus.from_design(design)
