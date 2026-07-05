@@ -26,6 +26,16 @@ from .harness import make_run_root, run_s0, run_s1_episode, run_s2_world
 from .holdout import build_holdout_injection_plan, write_holdout_inputs, write_holdout_report
 from .mutations import apply_corpus_mutations, build_delta_one_pair_manifest, lint_mutation_specs, load_mutation_catalog, mutation_specs_from_values
 from .oracles import execute_fresh_min_repro_confirmation, execute_min_repro_jobs, write_triage
+from .parallel_runner import (
+    BatchSpec,
+    BatchSpecError,
+    RATE_LIMIT_WARN_THRESHOLD,
+    build_retry_spec,
+    delete_partial_roots,
+    load_batch_manifest,
+    run_batch,
+    validate_batch_spec,
+)
 from .readiness import run_readiness_gate, write_readiness_reports
 from .semantic_grounding import (
     LocalSemanticJudge,
@@ -616,6 +626,91 @@ def lint(root: Annotated[Path | None, typer.Option("--root")] = None) -> None:
     payload = static_world_surface_lint(design)
     _echo_json(payload)
     if not payload["passed"]:
+        raise typer.Exit(code=1)
+
+
+@app.command("run-batch")
+def run_batch_cmd(
+    batch_spec: Annotated[Path | None, typer.Option("--batch-spec", help="JSON file with {\"runs\": [...], \"concurrency\": N, \"stagger_seconds\": S}")] = None,
+    concurrency: Annotated[int | None, typer.Option("--concurrency", help="Max simultaneous run subprocesses (default 3; see module docstring for observed OpenRouter contention)")] = None,
+    stagger_seconds: Annotated[float | None, typer.Option("--stagger-seconds", help="Delay between successive launches, in addition to the concurrency cap")] = None,
+    batch_dir: Annotated[Path | None, typer.Option("--batch-dir", help="Directory for per-run logs and batch_manifest.json; defaults to --root/runs/batch_<timestamp>")] = None,
+    retry_failed: Annotated[Path | None, typer.Option("--retry-failed", help="Path to a prior batch_manifest.json; re-run only its failed entries into the SAME run_roots")] = None,
+    delete_partial_roots_flag: Annotated[bool, typer.Option("--delete-partial-roots", help="With --retry-failed, delete each failed run's (partial) run_root before re-launching it. Never happens by default -- required explicitly, once, per retry")] = False,
+    root: Annotated[Path | None, typer.Option("--root")] = None,
+) -> None:
+    """WP-12: orchestrate independent S0/S1/S2/control-pair-campaign runs in parallel subprocesses.
+
+    This command ONLY launches runs -- it reuses the existing single-run CLI
+    commands (`s0`, `s1`, `s2`, `control-pair-campaign`) verbatim, one per
+    subprocess, and never itself computes or writes any campaign-level shared
+    artifact (no triage aggregation, no acceptance/readiness evaluation, no
+    control-pair-campaign collation). Run `triage` / `acceptance` /
+    `readiness*` / `control-pair-campaign` aggregation / `holdout-score` /
+    `sme-score` as separate SERIAL steps afterwards against the resulting
+    run_roots, exactly as you would after any sequential run.
+
+    Safety rails: every run_root in the batch must be distinct and must not
+    already exist on disk -- this is checked for the WHOLE batch before any
+    subprocess is launched, so a bad spec fails loudly with zero side
+    effects. One run failing never stops the batch; failures are recorded in
+    batch_manifest.json (exit code + per-run log path) and this command exits
+    non-zero if any run failed. Runs are bit-identical to running them one at
+    a time with the same seeds -- subprocess isolation means no run shares
+    mutable state with another; concurrency only changes wall-clock.
+
+    Rate-limit note (observed 2026-07-05, OpenRouter, qwen3.6-flash): 3
+    concurrent S2 worlds slowed each run ~20-30% while ~2.5x-ing aggregate
+    throughput -- the binding constraint is the provider's rate limit, not
+    local CPU/RAM. This command warns (does not block) above concurrency 4.
+    """
+    base = _root(root)
+
+    if retry_failed is not None:
+        if batch_spec is None:
+            raise typer.BadParameter("--retry-failed requires --batch-spec (the same spec the failed batch used)")
+        manifest = load_batch_manifest(retry_failed.resolve())
+        original_spec = BatchSpec.from_dict(json.loads(batch_spec.resolve().read_text(encoding="utf-8")))
+        try:
+            spec = build_retry_spec(manifest, original_spec=original_spec)
+        except BatchSpecError as exc:
+            typer.echo(f"error: {exc}", err=True)
+            raise typer.Exit(code=1) from exc
+        if delete_partial_roots_flag:
+            removed = delete_partial_roots(spec, base_dir=base)
+            for path in removed:
+                typer.echo(f"removed partial run_root: {path}")
+        target_batch_dir = (batch_dir or Path(manifest["batch_dir"])).resolve()
+    else:
+        if batch_spec is None:
+            raise typer.BadParameter("--batch-spec is required (JSON file describing the batch; see module docstring)")
+        spec = BatchSpec.from_dict(json.loads(batch_spec.resolve().read_text(encoding="utf-8")))
+        target_batch_dir = (batch_dir or make_run_root(base, "batch")).resolve()
+
+    if concurrency is not None:
+        spec.concurrency = concurrency
+    if stagger_seconds is not None:
+        spec.stagger_seconds = stagger_seconds
+
+    if spec.concurrency > RATE_LIMIT_WARN_THRESHOLD:
+        typer.echo(
+            f"warning: concurrency={spec.concurrency} exceeds {RATE_LIMIT_WARN_THRESHOLD}; "
+            "observed contention (2026-07-05, OpenRouter) was ~20-30% per-run slowdown at "
+            "concurrency=3 with ~2.5x throughput -- the OpenRouter rate limit is the binding "
+            "constraint, not local resources, so higher concurrency may not scale and can "
+            "surface as run failures instead of speedup.",
+            err=True,
+        )
+
+    try:
+        validate_batch_spec(spec, base_dir=base)
+    except BatchSpecError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+    manifest = run_batch(spec, base_dir=base, batch_dir=target_batch_dir)
+    _echo_json(manifest)
+    if not manifest["passed"]:
         raise typer.Exit(code=1)
 
 
