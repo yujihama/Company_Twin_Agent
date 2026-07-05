@@ -703,3 +703,37 @@ Scope boundary: this is again machinery + report-side hardening only. It does
 not itself run a live re-simulation, a live holdout campaign, or a human SME
 review; it makes each existing gate refuse to be gamed by a well-formed
 report with the wrong evidence quality behind it.
+
+### 17.5 Round-3 blind SME review: condition-parameter verbalization fix (2026-07-05 follow-up)
+
+Round 3 of the blind SME review flagged 11/40 records: customers narrating
+their own abstract experiment-condition label out loud ("標準的な条件で進めて
+いただけますと", "通常の案件となりますので", "通常通りに進めさせてください",
+"標準的な書類等で") -- a real customer never announces their own scenario
+attributes. Root cause: `customer_agent.persona_prompt`/`reply_prompt` embed
+`CustomerEvent.world_visible` verbatim as "your situation," and for the 28
+routine events `deck._routine_events` baked the literal label "通常案件Rxx"
+into that field, which the customer LLM then paraphrased back as
+self-description; one record also contained a non-Japanese token ("ご指引").
+
+Fixed as world-surface changes, with experimental parameters frozen: `deck.py`
+now renders routine/default `world_visible` text as concrete situational fact
+("顧客が{product}について説明を聞いたうえで申込の手続を進めたいと考えている。")
+with no "通常"/"標準的" self-label; `persona_prompt`/`reply_prompt` gained an
+explicit negative instruction (`customer_agent._NEGATIVE_META_LABEL_INSTRUCTION`)
+naming the exact banned self-labeling phrasings
+(`_BANNED_META_LABEL_PHRASES`) without changing product/deadline/latent_truth/
+flags/timing -- verified by the same byte-identical-deck pattern as §17.3
+(`tests/test_sme_round3_fixes.py::test_meta_label_fix_never_touches_structured_event_fields`).
+A best-effort language-mixing guard
+(`customer_agent.detect_non_japanese_tokens`) is wired into
+`agents.DeepAgentCustomer.__call__` only: it retries once through the
+ordinary `llm_invoke`/`llm_response` recording path if a non-Japanese token is
+detected, and keeps the text as-is (never a silent rewrite) if it persists --
+both attempts are ordinary recorded attempts in `attempts.jsonl`, auditable
+without any special-cased recorder semantics.
+
+Residual, deliberately not fixed: the corpus's product naming ("乗換保険") and
+the aggregate 4-products x near-sequential-deadlines statistical structure
+are recorded as known limitations, since the corpus document set is frozen
+for comparability across calibration rounds.

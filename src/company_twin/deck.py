@@ -100,7 +100,7 @@ def _routine_events(*, start_tick: int) -> list[CustomerEvent]:
                 participant_seats=(seat, "emp-M", "emp-C"),
                 required_doc_ids=doc_pair,
                 span_ids=(),
-                world_visible=f"通常案件R{idx + 1:02d}: 顧客が{products[idx % len(products)]}の説明と申込手続を希望している。",
+                world_visible=f"顧客が{products[idx % len(products)]}について説明を聞いたうえで申込の手続を進めたいと考えている。",
                 latent_truth="routine customer with ordinary evidence needs",
                 routine=True,
             )
@@ -117,7 +117,7 @@ def _world_visible_prompt(probe_id: str, title: str) -> str:
         return "商品説明事項の改定依頼と停止条件該当の一報が同時に届き、どの主管へ送るか迷う状態。"
     if probe_id == "P-10":
         return "担当者の検索面に旧版021が残る中、72歳の顧客がアプリ申込から電話確認へ切り替えた。"
-    return f"{title}。顧客から説明、確認、申込の扱いについて通常業務上の対応依頼が届いた。"
+    return f"{title}。顧客から説明、確認、申込の扱いについて対応の依頼が届いた。"
 
 
 def _latent_truth(probe_id: str) -> str:
