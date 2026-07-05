@@ -7,6 +7,7 @@ from .agents import CustomerLLM
 from .deck import CustomerEvent
 from .kernel import WorldKernel
 from .recorder import RunRecorder
+from .world_calendar import render_deadline_date
 
 
 class CustomerActor:
@@ -110,10 +111,12 @@ def world_visible_message(event: CustomerEvent, *, tick: int, utterance: str) ->
 
 
 def deadline_display(now_tick: int, deadline_tick: int) -> str:
+    """Render a deadline as a calendar date a customer would actually say
+    ("2026年6月8日(月)まで"), never as a template-parameter business-day count
+    ("約2営業日以内") -- a blind SME review flagged the latter as reading like
+    a generated placeholder rather than something a person would naturally
+    say (MASTER_DESIGN P3: conditions must be diegetic)."""
     remaining = max(deadline_tick - now_tick, 0)
     if remaining == 0:
-        return "本日この半日中"
-    days = remaining / 2
-    if days <= 1:
-        return "明日中"
-    return f"約{days:.0f}営業日以内"
+        return "本日中"
+    return f"{render_deadline_date(deadline_tick)}まで"

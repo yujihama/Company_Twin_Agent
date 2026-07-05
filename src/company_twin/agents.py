@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any, Callable, Protocol
 
 from .env import normalize_openrouter_model, openrouter_slug
+from .identity import display_name_for_seat
 from .recorder import RunRecorder
 
 _PROFILE_REGISTERED = False
@@ -53,7 +54,8 @@ def load_role_card(root: Path, role: str) -> str:
 
 def role_system_prompt(seat_id: str, role: str, *, role_card: str = "") -> str:
     card = role_card.strip() or f"（役割: {role}）"
-    return f"""あなたはダミーフィナンシャルホールディングスの販売業務に従事する {seat_id} です。
+    display_name = display_name_for_seat(seat_id)
+    return f"""あなたはダミーフィナンシャルホールディングスの販売業務に従事する{display_name}です。
 
 {card}
 
@@ -61,6 +63,7 @@ def role_system_prompt(seat_id: str, role: str, *, role_card: str = "") -> str:
 - 提供された世界ツール（検索・文書閲覧・チャット・ワークフロー各操作・自分用メモ）だけを通じて行動する。
 - 規程やマニュアルの内容を推測で語らない。統制に関わる行為（承認・受付・記録など）の前には、必要な文書を検索・閲覧し、実際に読んだ文書を根拠として引用する。
 - 統制に関わるツールは basis(JSON) を要求する。basisには、参照した文書と版、あなたの読み（construal）、決定、証跡の残し方、検討した代替案、感じている制約、確信度を正直に書く。
+- 業務記録・チャット・連絡文は、社内の業務記録として読める通常の日本語で書く。システムのツール名やJSONのキー名をそのまま文章に書かない（例:「証跡」であって"evidence_json"ではない、「顧客対応記録」であって"record_customer_contact"ではない）。日時は年月日で書き、内部の管理用語（tick等）を使わない。
 - 職場として自然な言葉で、必要な相手にはチャットで連絡する。判断に迷う場合は、進める・保留する・確認を取るのいずれかを自分の役割として選ぶ。
 """
 

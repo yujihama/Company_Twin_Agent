@@ -281,12 +281,21 @@ def _read(path: Path) -> str:
 
 
 def _raw_corpus_hash(design: DesignInputs) -> str:
+    from .corpus import RECORD_STANDARD_DOC_ID, RECORD_STANDARD_TEXT  # local import: avoids corpus<->world_config cycle
+
     entries = []
     for doc_id, meta in sorted(design.documents.items()):
         digest = ""
         if meta.path and meta.path.exists():
             digest = hashlib.sha256(meta.path.read_bytes()).hexdigest()
         entries.append({"doc_id": doc_id, "version": meta.version, "sha256": digest})
+    # The record-writing-standard document (Corpus._record_standard_document)
+    # is injected at the Corpus layer, not design.documents, so it would
+    # otherwise never move this hash even though it is real content every
+    # world now contains. Folding its content hash in here keeps
+    # raw_corpus_hash an honest fingerprint of "what a seat can actually
+    # read" without disturbing the manifest-tracked document count.
+    entries.append({"doc_id": RECORD_STANDARD_DOC_ID, "version": "1.1", "sha256": hashlib.sha256(RECORD_STANDARD_TEXT.encode("utf-8")).hexdigest()})
     return _json_hash(entries)
 
 

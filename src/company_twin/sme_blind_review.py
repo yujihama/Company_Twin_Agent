@@ -53,6 +53,22 @@ _SUPPLEMENTARY_BANNED_TERMS: tuple[str, ...] = (
     "プローブ",
 )
 
+# Supplementary defense-in-depth patterns for structural leaks a blind SME
+# review actually found in generated records: the simulation clock ("tick"/
+# "ティック") and symbolic seat ids ("emp-A", "emp-M様", or a broken
+# concatenation like "emp-Wemp-H") appearing directly in prose. The primary
+# fix is upstream (world_calendar/identity naturalize these before a seat LLM
+# ever writes them), so these patterns are a detection safety net here: any
+# match means an upstream naturalization gap slipped through, and the excerpt
+# is flagged/dropped rather than silently rewritten in place.
+_STRUCTURAL_LEAK_PATTERNS: tuple[tuple[str, str], ...] = (
+    (r"\bemp-[A-Za-z]\b", "symbolic_seat_id"),
+    (r"\bemp-[A-Za-z]emp-[A-Za-z]\b", "symbolic_seat_id"),
+    (r"第\s*\d+\s*ティック", "simulation_tick"),
+    (r"\btick\s*\d+\b", "simulation_tick"),
+    (r"ティック", "simulation_tick"),
+)
+
 REVIEW_QUESTIONS: tuple[dict[str, str], ...] = (
     {
         "question_id": "plausible_workplace_scene",
@@ -89,6 +105,14 @@ def sample_run_bundle_excerpts(run_root: Path, *, limit: int = 10) -> list[dict[
     business-event summary) and intentionally never surface raw experimenter
     fields (tool names, event_type strings, seat_id role-neutral ids stay
     business-plausible seat labels already used elsewhere in the world).
+
+    A ledger row that summarizes to bare boilerplate with no distinguishing
+    content (e.g. an inbox_delivered row whose message carries no body text)
+    is dropped rather than emitted -- a blind SME review flagged three
+    identical, contentless "連絡事項の共有" entries as an artificial marker
+    (empty formulaic entries are themselves a tell that nothing was actually
+    recorded). Dropping keeps every emitted excerpt honestly distinguishable
+    instead of padding the packet with repeated placeholders.
     """
     chat_rows = read_jsonl(run_root / "chat_channel.jsonl")
     ledger_rows = read_jsonl(run_root / "world_ledger.jsonl")
@@ -104,6 +128,7 @@ def sample_run_bundle_excerpts(run_root: Path, *, limit: int = 10) -> list[dict[
                 "text": body,
             }
         )
+    seen_summaries: set[str] = set()
     for row in ledger_rows:
         event_type = str(row.get("event_type") or "")
         phrasing = _LEDGER_EVENT_PHRASING.get(event_type)
@@ -111,16 +136,26 @@ def sample_run_bundle_excerpts(run_root: Path, *, limit: int = 10) -> list[dict[
             continue
         payload = row.get("payload") or {}
         summary = _summarize_ledger_payload(phrasing, payload)
-        if summary:
-            excerpts.append({"excerpt_id": f"ledger_{len(excerpts)}", "kind": "business_event", "text": summary})
+        if not summary or summary in seen_summaries:
+            continue
+        seen_summaries.add(summary)
+        excerpts.append({"excerpt_id": f"ledger_{len(excerpts)}", "kind": "business_event", "text": summary})
     return excerpts[:limit]
 
 
 def _summarize_ledger_payload(phrasing: str, payload: dict[str, Any]) -> str:
     body = str(payload.get("body") or payload.get("utterance") or "").strip()
+    if not body:
+        # inbox_delivered rows nest the actual message under "message"
+        # (recorder.record_inbox payload shape: {"to_seat", "message"}).
+        nested = payload.get("message") or {}
+        if isinstance(nested, dict):
+            body = str(nested.get("body") or nested.get("utterance") or nested.get("detail") or "").strip()
     if body:
         return f"{phrasing}: {body}"
-    return phrasing
+    # No distinguishing content available -- an honest caller should drop
+    # this rather than emit bare, repeatable boilerplate.
+    return ""
 
 
 _LEADING_BOUNDARY_RE = re.compile(r"^\\b")
@@ -156,15 +191,18 @@ def strip_experimenter_vocabulary(text: str) -> dict[str, Any]:
     consistent with what the lint gate would also accept, then additionally
     strips _SUPPLEMENTARY_BANNED_TERMS (katakana renderings not covered by
     the ASCII/kanji lint list, since free-sampled excerpts are natural
-    Japanese text rather than authored role-card prompts). Patterns are
-    rewritten via _ascii_safe_boundary() first: excerpts sampled from a run
-    bundle are natural Japanese business text, and a raw ``\\b`` boundary
-    silently fails to match an ASCII token directly abutting a Japanese
-    character (e.g. "のAMB-01"), which would let a span id leak through.
+    Japanese text rather than authored role-card prompts) and
+    _STRUCTURAL_LEAK_PATTERNS (simulation-clock "tick"/"ティック" phrasing and
+    symbolic "emp-" seat ids -- a detection safety net for the case where an
+    upstream naturalization gap lets one through). Patterns are rewritten via
+    _ascii_safe_boundary() first: excerpts sampled from a run bundle are
+    natural Japanese business text, and a raw ``\\b`` boundary silently fails
+    to match an ASCII token directly abutting a Japanese character (e.g.
+    "のAMB-01"), which would let a span id leak through.
     """
     redactions: list[str] = []
     cleaned = text
-    for raw_pattern, label in (*WORLD_PROMPT_BANNED_PATTERNS, *LEAK_PATTERNS):
+    for raw_pattern, label in (*WORLD_PROMPT_BANNED_PATTERNS, *LEAK_PATTERNS, *_STRUCTURAL_LEAK_PATTERNS):
         pattern = _ascii_safe_boundary(raw_pattern)
 
         def _redact(match: re.Match, label=label) -> str:

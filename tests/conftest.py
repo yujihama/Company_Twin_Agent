@@ -18,6 +18,38 @@ import pytest
 from company_twin.recorder import RunRecorder
 
 
+_CUSTOMER_LINE_RE = re.compile(r"顧客連絡（案件(?P<application_id>[^・]+)・(?P<product>[^)]+)）.*?内容:\s*(?P<utterance>.*)$")
+_CHAT_LINE_RE = re.compile(r"\]\s*.+?からの連絡（(?P<channel>[^)]+)）:\s*(?P<body>.*)$")
+
+
+def _parse_rendered_inbox_line(line: str) -> dict[str, Any] | None:
+    """Parse one line rendered by company_twin.harness._render_inbox_message.
+
+    The real seat harness now renders inbox messages as natural business
+    prose (see harness.py) instead of raw JSON, because a blind SME review
+    found that showing an LLM raw JSON/seat-id keys primed it to echo that
+    same artificial phrasing back into world-visible chat/records. This
+    test-only fake stands in for an LLM turn, so it parses that same prose
+    instead of json.loads()-ing a dict -- it must extract the same routing
+    fields (kind/application_id/customer_id/product/utterance/body) the real
+    LLM would read from the sentence.
+    """
+    customer_match = _CUSTOMER_LINE_RE.search(line)
+    if customer_match:
+        application_id = customer_match.group("application_id").strip()
+        return {
+            "kind": "customer_utterance",
+            "application_id": application_id,
+            "customer_id": application_id.replace("APP", "CUS"),
+            "product": customer_match.group("product").strip(),
+            "utterance": customer_match.group("utterance").strip(),
+        }
+    chat_match = _CHAT_LINE_RE.search(line)
+    if chat_match:
+        return {"kind": "chat", "channel": chat_match.group("channel").strip(), "body": chat_match.group("body").strip()}
+    return None
+
+
 class FakeSeatAgent:
     backend = "test-fake"
 
@@ -67,10 +99,11 @@ class FakeSeatAgent:
             return response
         for line in prompt.splitlines():
             line = line.strip()
-            if not line.startswith("- {"):
+            if not line.startswith("- "):
                 continue
-            message = json.loads(line[2:])
-            self._handle(message)
+            message = _parse_rendered_inbox_line(line[2:])
+            if message is not None:
+                self._handle(message)
         response = "処理しました。"
         self._record_response(prompt, response)
         return response

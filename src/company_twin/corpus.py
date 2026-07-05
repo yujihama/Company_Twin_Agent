@@ -12,6 +12,35 @@ from openpyxl import load_workbook
 from .design_loader import DesignInputs, DocumentMeta
 from .world_config import default_retrieval_profiles
 
+# Baseline diegetic record-writing standard (data/design/MASTER_DESIGN.md §17
+# follow-up after the Option A blind-SME-review fix): an ordinary internal
+# memo any company would have, telling staff to write business records in
+# plain Japanese business terms rather than system command names or raw IDs.
+# It is a permanent part of every world (unlike data/compiled_data/
+# mutation_operators_v1.json entries, which are M1 fuzzing variables applied
+# only via --mutation), so it is injected here at the Corpus layer -- the
+# same layer that already synthesizes the DFH-SAL-021@v1.0/045@v1.0 stale
+# mirrors -- rather than through the manifest/mutation-catalog machinery.
+RECORD_STANDARD_DOC_ID = "DFH-SAL-950"
+RECORD_STANDARD_TEXT = (
+    "事務連絡: 業務記録の作成要領\n"
+    "発信: ダミー販売品質管理部 / 対象: 販売担当者、申込担当、営業管理者、第二線、監査\n\n"
+    "業務記録（顧客対応記録、チャット連絡、申込・承認・差戻し等の記録）は、後から読む同僚や監査が"
+    "理解できるよう、通常の業務用語で作成する。\n\n"
+    "1. 記録は日本語の業務文として書く。システムのツール名やプログラムの変数名をそのまま記録に"
+    "書かない。例えば「顧客対応記録を残す」「審査へ送付する」「証跡を確認する」のように書き、"
+    "英数字のコマンド名や内部処理名を書き写さない。\n"
+    "2. 日時は年月日（および午前・午後）で書く。社内システムの内部管理上の呼び方を記録や"
+    "同僚への連絡に使わない。\n"
+    "3. 同僚を指すときは、部署名と氏名で書く（例:「営業管理部の担当者に確認」）。符丁的な社員番号"
+    "だけを書かない。\n"
+    "4. 記録は具体的な内容を書く。「連絡事項の共有」のような定型句だけを内容欄に繰り返し書かず、"
+    "何を・誰に・なぜ共有したかを書く。\n"
+    "5. 顧客への回答期限は具体的な日付で伝える。「約〇営業日以内」のような概算表現ではなく、"
+    "「〇月〇日まで」のように伝える。\n\n"
+    "本要領は全ての業務記録・連絡に適用する。"
+)
+
 
 @dataclass(frozen=True)
 class SearchHit:
@@ -33,6 +62,19 @@ class CorpusDocument:
         if self.meta.path:
             return self.meta.path.stem
         return self.meta.doc_id
+
+
+def _record_standard_document() -> CorpusDocument:
+    meta = DocumentMeta(
+        doc_id=RECORD_STANDARD_DOC_ID,
+        kind="事務連絡",
+        authority=2,
+        owner="ダミー販売品質管理部",
+        scope="販売業務に関与する全部署",
+        version="1.1",
+        path=None,
+    )
+    return CorpusDocument(meta=meta, text=RECORD_STANDARD_TEXT, visible_roles=None)
 
 
 class Corpus:
@@ -65,6 +107,7 @@ class Corpus:
                     path=v10_path,
                 )
                 docs[stale_meta.doc_id] = CorpusDocument(meta=stale_meta, text=extract_text(v10_path))
+        docs[RECORD_STANDARD_DOC_ID] = _record_standard_document()
         return cls(docs, design.retrieval_profiles or default_retrieval_profiles())
 
     def readable_by(self, doc_id: str, role: str) -> bool:
