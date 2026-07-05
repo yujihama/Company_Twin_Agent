@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 from typing import Annotated
 
@@ -20,6 +21,7 @@ from .campaign import run_control_pair_campaign, run_design_campaign, static_wor
 from .corpus import Corpus
 from .design_loader import load_design
 from .env import load_local_env, normalize_openrouter_model
+from .evidence_manifest import write_stage9_evidence_manifest
 from .harness import make_run_root, run_s0, run_s1_episode, run_s2_world
 from .holdout import build_holdout_injection_plan, write_holdout_inputs, write_holdout_report
 from .mutations import apply_corpus_mutations, build_delta_one_pair_manifest, lint_mutation_specs, load_mutation_catalog, mutation_specs_from_values
@@ -460,6 +462,20 @@ def readiness_reports(
     _echo_json(payload)
 
 
+@app.command("stage9-evidence-manifest")
+def stage9_evidence_manifest(
+    campaign_root: Annotated[Path, typer.Option("--campaign-root")],
+    root: Annotated[Path | None, typer.Option("--root")] = None,
+) -> None:
+    """Build stage9_evidence_manifest.json, binding every readiness evidence artifact
+    (backcasting/SME/holdout/g3/S2 bundles) to its provenance: git commit, command line,
+    corpus/mutation hashes, judge backend/model, sample seed/hash, reviewer_type, plan_hash.
+    World-version heterogeneity across evidence classes is recorded loudly, not hidden."""
+    base = _root(root)
+    payload = write_stage9_evidence_manifest(campaign_root.resolve(), command_line=list(sys.argv), code_root=base)
+    _echo_json(payload)
+
+
 @app.command("backcasting-extract")
 def backcasting_extract(
     campaign_root: Annotated[Path, typer.Option("--campaign-root")],
@@ -534,11 +550,13 @@ def backcasting_run(
 def holdout_plan(
     campaign_root: Annotated[Path, typer.Option("--campaign-root")],
     mutation: Annotated[list[str] | None, typer.Option("--mutation", help="Mutation id to include in the holdout injection plan; repeat for multiple. Defaults to the full catalog")] = None,
+    run_root: Annotated[list[str] | None, typer.Option("--run-root", help="Planned run-root name(s) attributed to every injection (explicit resolution; omitting this makes bundle attribution exploration-mode, which cannot pass)")] = None,
+    planned_ticks: Annotated[int, typer.Option("--planned-ticks", help="Expected world_ledger tick coverage for a live S2 bundle attributed to this plan's injections")] = 0,
     root: Annotated[Path | None, typer.Option("--root")] = None,
 ) -> None:
     """WP-14: build a holdout injection plan from the WP-06 mutation catalog and write holdout_inputs.json."""
     base = _root(root)
-    plan = build_holdout_injection_plan(base, mutation_ids=mutation)
+    plan = build_holdout_injection_plan(base, mutation_ids=mutation, run_roots=run_root, planned_ticks=planned_ticks)
     write_holdout_inputs(campaign_root.resolve(), plan)
     _echo_json(plan)
 
@@ -546,9 +564,10 @@ def holdout_plan(
 @app.command("holdout-score")
 def holdout_score(
     campaign_root: Annotated[Path, typer.Option("--campaign-root")],
+    control_run_root: Annotated[list[str] | None, typer.Option("--control-run-root", help="Designated no-mutation control run-root name (e.g. an anchor/plain S2 bundle) to score with the same detectors; repeat for multiple")] = None,
 ) -> None:
     """WP-14: score holdout_inputs.json against existing run bundles under --campaign-root and write holdout_report.json."""
-    payload = write_holdout_report(campaign_root.resolve())
+    payload = write_holdout_report(campaign_root.resolve(), control_run_roots=control_run_root)
     _echo_json(payload)
     if not payload["passed"]:
         raise typer.Exit(code=1)
@@ -559,9 +578,14 @@ def sme_pack(
     campaign_root: Annotated[Path, typer.Option("--campaign-root")],
     run_root: Annotated[list[Path], typer.Option("--run-root", help="Run bundle to sample excerpts from; repeat for multiple")],
     samples_per_run: Annotated[int, typer.Option("--samples-per-run")] = 10,
+    reviewer_type: Annotated[str, typer.Option("--reviewer-type", help="human_sme (default) | ai_proxy")] = "human_sme",
+    reviewer_note: Annotated[str | None, typer.Option("--reviewer-note", help="Free-form reviewer prompt/model/blindness note preserved into the packet and report")] = None,
 ) -> None:
     """WP-14: build a leak-stripped SME blind-review packet; writes reviewer-facing sme_blind_review_inputs.json plus experimenter-side sme_blind_review_id_map.json."""
-    packet, id_map = build_blind_review_packet([path.resolve() for path in run_root], samples_per_run=samples_per_run)
+    reviewer = {"note": reviewer_note} if reviewer_note else None
+    packet, id_map = build_blind_review_packet(
+        [path.resolve() for path in run_root], samples_per_run=samples_per_run, reviewer_type=reviewer_type, reviewer=reviewer
+    )
     write_sme_blind_review_inputs(campaign_root.resolve(), packet, id_map)
     _echo_json(packet)
 

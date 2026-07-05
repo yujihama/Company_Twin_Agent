@@ -284,11 +284,29 @@ def strip_experimenter_vocabulary(text: str) -> dict[str, Any]:
     return {"text": cleaned, "redactions": redactions, "was_clean": not redactions}
 
 
-def build_blind_review_packet(run_roots: list[Path], *, samples_per_run: int = 10) -> tuple[dict[str, Any], dict[str, Any]]:
+REVIEWER_TYPES: tuple[str, ...] = ("human_sme", "ai_proxy")
+
+
+def build_blind_review_packet(
+    run_roots: list[Path],
+    *,
+    samples_per_run: int = 10,
+    reviewer_type: str = "human_sme",
+    reviewer: dict[str, Any] | None = None,
+) -> tuple[dict[str, Any], dict[str, Any]]:
     """Build a blind-review packet and its experimenter-side id map.
 
     Returns ``(packet, id_map)``. The packet is the only file a reviewer ever
     sees; the id map stays on the experimenter side.
+
+    ``reviewer_type`` is ``"human_sme"`` (default) or ``"ai_proxy"``: an
+    ai_proxy pass is an internal calibration signal, not a Stage 9
+    external-claim SME review, and is labeled accordingly in the report
+    (``claim_level: "internal_calibration"`` vs ``"human_sme"`` -- see
+    write_sme_blind_review_report). ``reviewer`` is an optional free-form
+    dict for reviewer prompt/model/blindness notes (formalizing a field
+    already used informally in practice); it is preserved verbatim into the
+    packet and report if present, and is never required.
 
     Every excerpt is stripped via strip_experimenter_vocabulary() before being
     added to the packet. strip_experimenter_vocabulary() always neutralizes
@@ -310,6 +328,8 @@ def build_blind_review_packet(run_roots: list[Path], *, samples_per_run: int = 1
     internally sufficient for score_sme_blind_review()/
     write_sme_blind_review_report().
     """
+    if reviewer_type not in REVIEWER_TYPES:
+        raise ValueError(f"reviewer_type must be one of {REVIEWER_TYPES}, got {reviewer_type!r}")
     items: list[dict[str, Any]] = []
     entries: list[dict[str, Any]] = []
     dropped: list[dict[str, Any]] = []
@@ -355,12 +375,15 @@ def build_blind_review_packet(run_roots: list[Path], *, samples_per_run: int = 1
         "item_count": len(items),
         "items": items,
         "packet_hash": packet_hash,
+        "reviewer_type": reviewer_type,
         "note": (
             "Reviewer-facing packet. Fill in each item's `response` as "
             '{"plausible_workplace_scene": 1-5, "internally_consistent": 1-5, "no_artificial_markers": "yes"|"no"}. '
             "Null responses count as unreviewed, never as passing."
         ),
     }
+    if reviewer is not None:
+        packet["reviewer"] = dict(reviewer)
     id_map = {
         "schema_version": SME_BLIND_REVIEW_ID_MAP_SCHEMA_VERSION,
         "kind": "blind_review_id_map",
@@ -369,6 +392,7 @@ def build_blind_review_packet(run_roots: list[Path], *, samples_per_run: int = 1
         "dropped_items": dropped,
         "entries": entries,
         "packet_hash": packet_hash,
+        "reviewer_type": reviewer_type,
         "note": (
             "Experimenter-side file only -- never send this to a reviewer. It maps each neutral "
             "reviewer-facing item_id back to its source run bundle and records drop/redaction bookkeeping."
@@ -460,8 +484,29 @@ def write_sme_blind_review_report(campaign_root: Path) -> dict[str, Any]:
     write_sme_blind_review_inputs runs) always scores reviewed_count=0 and is
     therefore always blocked -- see readiness._sme_blind_review_check for the
     structural check that rejects a bare flag without a rows breakdown.
+
+    Expert-review hardening (SME gate honesty):
+    - sme_blind_review_id_map.json is REQUIRED alongside the packet; this
+      report reads `dropped_count` from it, not from the packet (the packet
+      never carries drop bookkeeping -- see build_blind_review_packet). A
+      missing id map is an honest block, not a silent skip.
+    - Any leaked_vocabulary_redacted drop (dropped_count > 0) counts as an
+      ARTIFACT DETECTION, not an exclusion: it means the world itself leaked
+      experimenter vocabulary into a rendered record, which is a defect to
+      fix in the world (MASTER_DESIGN.md section 17.2's diegetic
+      record-quality fix), not something to quietly paper over by dropping
+      the offending excerpt from the packet. dropped_count > 0 therefore
+      fails this report with that stated reason, regardless of how well the
+      remaining (clean) items scored.
+    - reviewer_type ("human_sme" | "ai_proxy") is read from the packet and
+      carried into the report as claim_level: an ai_proxy pass is labeled
+      "internal_calibration" (a self-consistency signal only); a human_sme
+      pass is labeled "human_sme" (see MASTER_DESIGN.md section 12/17's
+      two-level readiness split). Any free-form `reviewer` prompt/model/
+      blindness notes present on the packet are preserved into the report.
     """
     inputs_path = campaign_root / "sme_blind_review_inputs.json"
+    id_map_path = campaign_root / "sme_blind_review_id_map.json"
     if not inputs_path.exists():
         payload = {
             "schema_version": REPORT_SCHEMA_VERSION,
@@ -481,16 +526,52 @@ def write_sme_blind_review_report(campaign_root: Path) -> dict[str, Any]:
         (campaign_root / "sme_blind_review.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
         return payload
     packet = json.loads(inputs_path.read_text(encoding="utf-8"))
+    reviewer_type = str(packet.get("reviewer_type") or "human_sme")
+    claim_level = "internal_calibration" if reviewer_type == "ai_proxy" else "human_sme"
+
+    if not id_map_path.exists():
+        payload = {
+            "schema_version": REPORT_SCHEMA_VERSION,
+            "report_type": "sme_blind_review",
+            "status": "blocked",
+            "passed": False,
+            "reviewer_type": reviewer_type,
+            "claim_level": claim_level,
+            "checks": [
+                {
+                    "name": "sme_blind_review_id_map_supplied",
+                    "passed": False,
+                    "required_input": "sme_blind_review_id_map.json",
+                    "detail": (
+                        "sme_blind_review_id_map.json is required alongside the packet -- "
+                        "dropped_count (leaked-vocabulary artifact detections) can only be read from it."
+                    ),
+                }
+            ],
+            "notes": [],
+        }
+        (campaign_root / "sme_blind_review.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        return payload
+    id_map = json.loads(id_map_path.read_text(encoding="utf-8"))
+    dropped_count = int(id_map.get("dropped_count") or 0)
+
     scoring = score_sme_blind_review(packet)
     target = float(packet.get("plausibility_target") or SME_PLAUSIBILITY_TARGET)
     min_samples = int(packet.get("min_reviewed_samples") or SME_MIN_REVIEWED_SAMPLES)
     enough_reviewed = scoring["reviewed_count"] >= min_samples
     no_artificial_flags = scoring["artificial_marker_flag_count"] == 0
-    ok = enough_reviewed and no_artificial_flags and scoring["plausibility_rate"] >= target
+    no_leak_drops = dropped_count == 0
+    ok = enough_reviewed and no_artificial_flags and no_leak_drops and scoring["plausibility_rate"] >= target
     if not enough_reviewed:
         detail = f"reviewed_count={scoring['reviewed_count']} < min_reviewed_samples={min_samples}"
     elif not no_artificial_flags:
         detail = f"artificial_marker_flag_count={scoring['artificial_marker_flag_count']} (must be 0)"
+    elif not no_leak_drops:
+        detail = (
+            f"dropped_count={dropped_count} leaked_vocabulary_redacted excerpt(s) detected in "
+            "sme_blind_review_id_map.json -- this is an artifact detection (the world leaked "
+            "experimenter vocabulary into a rendered record); fix the world, not the packet"
+        )
     elif not ok:
         detail = f"plausibility_rate={scoring['plausibility_rate']:.4f} < target={target}"
     else:
@@ -506,6 +587,7 @@ def write_sme_blind_review_report(campaign_root: Path) -> dict[str, Any]:
             "unreviewed_count": scoring["unreviewed_count"],
             "passing_count": scoring["passing_count"],
             "artificial_marker_flag_count": scoring["artificial_marker_flag_count"],
+            "dropped_count": dropped_count,
             "plausibility_rate": scoring["plausibility_rate"],
             "rows": scoring["rows"],
         }
@@ -515,12 +597,18 @@ def write_sme_blind_review_report(campaign_root: Path) -> dict[str, Any]:
         "report_type": "sme_blind_review",
         "status": "passed" if ok else "blocked",
         "passed": ok,
+        "reviewer_type": reviewer_type,
+        "claim_level": claim_level,
         "checks": checks,
         "notes": [
             "Packet items are stripped of experimenter-plane vocabulary before reaching a reviewer (strip_experimenter_vocabulary).",
             "An unfilled or under-filled packet always fails honestly; this report never marks a pass without scored reviewer rows.",
+            "dropped_count > 0 (from sme_blind_review_id_map.json) is an artifact detection, not exclusion bookkeeping: it fails this report because the world itself leaked vocabulary, not because the sample was incomplete.",
+            f"reviewer_type={reviewer_type!r} -> claim_level={claim_level!r}: an ai_proxy pass is an internal calibration signal only, never an external human_sme claim.",
         ],
         "scoring": scoring,
     }
+    if packet.get("reviewer") is not None:
+        payload["reviewer"] = packet["reviewer"]
     (campaign_root / "sme_blind_review.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     return payload

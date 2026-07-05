@@ -4,17 +4,41 @@ import json
 from pathlib import Path
 from typing import Any
 
-from .semantic_grounding import READINESS_ALLOWED_JUDGE_BACKENDS
+from .semantic_grounding import G3_NEGATIVE_CALIBRATION_SCHEMA_VERSION, READINESS_ALLOWED_JUDGE_BACKENDS
 
 REPORT_SCHEMA_VERSION = "company_twin.readiness_report.v1"
 
+# Machine-checkable G3 negative-calibration artifact: a JSON file recording
+# specificity results (true-negative rate on known-clean cases) for the g3
+# semantic judge. This is the real artifact `company_twin.cli
+# g3-score-calibration` writes over docs/g3_negative_calibration_samples.jsonl
+# (semantic_grounding.score_g3_calibration_file/summarize_g3_calibration_scores,
+# schema_version=G3_NEGATIVE_CALIBRATION_SCHEMA_VERSION, field
+# overall_specificity_rate). This check is intentionally a simple
+# presence+shape check, not a re-derivation -- see
+# _g3_negative_calibration_check. A generic "g3_negative_calibration.json"
+# name is also accepted for a hand-placed/renamed artifact.
+G3_NEGATIVE_CALIBRATION_FILENAMES: tuple[str, ...] = (
+    "g3_negative_calibration_result.json",
+    "g3_negative_calibration_result.local.json",
+    "g3_negative_calibration.json",
+)
+
 
 def run_readiness_gate(campaign_root: Path, *, semantic_threshold: float = 0.8) -> dict[str, Any]:
-    """Stage 9 experiment-readiness gate.
+    """Stage 9 **internal observation readiness** gate.
 
-    This is intentionally separate from harness-safety acceptance. A harness can
-    be live and unfakeable while still not being ready for design-level
-    experiment conclusions.
+    MASTER_DESIGN.md section 12/17.3 (two-level readiness, dated 2026-07-05):
+    this gate accepts ai_proxy SME review and single-seed holdout evidence --
+    it certifies that the harness produces internally self-consistent
+    evidence, not that the evidence supports an external human-reviewed
+    claim. It REQUIRES the Stage 9 evidence manifest
+    (stage9_evidence_manifest_consistent) in addition to the pre-existing
+    10-item gate: harness-safety acceptance is necessary but not sufficient
+    for Stage 9 readiness, and internal observation readiness is necessary
+    but not sufficient for an external claim -- see
+    build_external_claim_readiness_summary() for the stricter, mostly-false
+    companion block.
     """
     checks = [
         _acceptance_check(campaign_root),
@@ -27,16 +51,185 @@ def run_readiness_gate(campaign_root: Path, *, semantic_threshold: float = 0.8) 
         _backcasting_check(campaign_root),
         _sme_blind_review_check(campaign_root),
         _holdout_check(campaign_root),
+        _stage9_evidence_manifest_check(campaign_root),
     ]
+    external_claim_readiness = build_external_claim_readiness_summary(campaign_root)
     payload = {
         "campaign_root": str(campaign_root),
         "gate": "stage9_experiment_readiness",
         "passed": all(check["passed"] for check in checks),
         "checks": checks,
         "note": "Harness-safety acceptance is necessary but not sufficient for Stage 9 readiness.",
+        "internal_readiness": {
+            "label": "internal_observation_readiness",
+            "passed": all(check["passed"] for check in checks),
+            "checks": checks,
+            "note": (
+                "Internal observation readiness: the existing 10-item gate plus the Stage 9 evidence "
+                "manifest consistency check. Accepts ai_proxy SME review and single-seed holdout evidence. "
+                "This certifies internally self-consistent evidence, not an external human-reviewed claim."
+            ),
+        },
+        "external_claim_readiness": external_claim_readiness,
     }
     (campaign_root / "readiness_report.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     return payload
+
+
+def _stage9_evidence_manifest_check(campaign_root: Path) -> dict[str, Any]:
+    """Manifest must exist AND its recorded values must match the current
+    report files (packet_hash vs SME inputs, plan_hash vs holdout_inputs,
+    sample seed/hash vs backcasting results, judge fields vs g3 files).
+    Mismatch or absence -> the overall gate cannot reach 10/10 (11/11
+    including this check)."""
+    from .evidence_manifest import check_manifest_consistency
+
+    result = check_manifest_consistency(campaign_root)
+    return {
+        "check": "stage9_evidence_manifest_consistent",
+        "passed": bool(result["passed"]),
+        "detail": result.get("detail", ""),
+        "manifest_present": result.get("manifest_present"),
+        "mismatches": result.get("mismatches"),
+        "world_versions": result.get("world_versions"),
+    }
+
+
+def _g3_negative_calibration_check(campaign_root: Path) -> dict[str, Any]:
+    """External-claim item: look for a machine-checkable G3 negative
+    calibration artifact (specificity results on known-clean cases), either
+    under campaign_root or under docs/. Recognizes the real artifact written
+    by `company_twin.cli g3-score-calibration` over
+    docs/g3_negative_calibration_samples.jsonl
+    (semantic_grounding.score_g3_calibration_file /
+    summarize_g3_calibration_scores: schema_version
+    G3_NEGATIVE_CALIBRATION_SCHEMA_VERSION, field `overall_specificity_rate`,
+    `judge.readiness_eligible`) as well as a generic hand-placed
+    specificity/true_negative_rate artifact. This is a simple presence+shape
+    check -- not a re-derivation of the calibration itself. A readiness-
+    eligible (openrouter-backend) judge is required for this item to pass;
+    a local-proxy specificity run is recorded but does not satisfy it (the
+    same allowlist g3/backcasting readiness already enforce)."""
+    candidates = [campaign_root / name for name in G3_NEGATIVE_CALIBRATION_FILENAMES]
+    candidates += [campaign_root.parent / "docs" / name for name in G3_NEGATIVE_CALIBRATION_FILENAMES]
+    # Also check a repo-relative docs/ path when campaign_root is nested under runs/.
+    for parent in campaign_root.parents:
+        candidates.extend(parent / "docs" / name for name in G3_NEGATIVE_CALIBRATION_FILENAMES)
+    best_non_eligible: dict[str, Any] | None = None
+    for path in candidates:
+        if not path.exists():
+            continue
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(payload, dict):
+            continue
+        specificity = payload.get("overall_specificity_rate")
+        if specificity is None:
+            specificity = payload.get("specificity")
+        if specificity is None:
+            specificity = payload.get("true_negative_rate")
+        if specificity is None:
+            continue
+        judge = payload.get("judge") or {}
+        is_real_schema = payload.get("schema_version") == G3_NEGATIVE_CALIBRATION_SCHEMA_VERSION
+        readiness_eligible = bool(judge.get("readiness_eligible")) if is_real_schema else True
+        result = {
+            "check": "g3_negative_calibration_recorded",
+            "passed": readiness_eligible,
+            "detail": "" if readiness_eligible else f"{path.name}: judge.readiness_eligible is not true (judge={judge!r}); a local-proxy specificity run does not satisfy this item",
+            "artifact_path": str(path),
+            "specificity": specificity,
+            "judge": judge if is_real_schema else None,
+        }
+        if readiness_eligible:
+            return result
+        best_non_eligible = best_non_eligible or result
+    if best_non_eligible is not None:
+        return best_non_eligible
+    return {
+        "check": "g3_negative_calibration_recorded",
+        "passed": False,
+        "detail": (
+            "no g3_negative_calibration_result.json (or docs/g3_negative_calibration.json) found with a "
+            "specificity/overall_specificity_rate field; G3 negative calibration (specificity on known-clean "
+            "cases) has not been recorded as a machine-checkable artifact. Run `company_twin.cli "
+            "g3-score-calibration --calibration-file docs/g3_negative_calibration_samples.jsonl "
+            "--output docs/g3_negative_calibration_result.json --judge-model <openrouter-model>`."
+        ),
+    }
+
+
+def build_external_claim_readiness_summary(campaign_root: Path) -> dict[str, Any]:
+    """External-claim readiness summary block (MASTER_DESIGN.md section 12/17.3).
+
+    Informational-but-honest: this block is expected to be mostly false for
+    now. It is stricter than internal observation readiness and requires:
+    - a human_sme (not ai_proxy) SME blind review;
+    - a recorded G3 negative-calibration artifact (specificity on known-clean
+      cases), so a semantic judge that never says "not grounded" cannot pass
+      the gate through g3 alone;
+    - holdout evidence that includes BOTH positive (mutated) and negative
+      (no-mutation control) injections, not positive-only;
+    - all evidence drawn from a single post-fix world version (no
+      effective_corpus_hash heterogeneity across evidence classes -- see
+      evidence_manifest.world_versions).
+    """
+    items: list[dict[str, Any]] = []
+
+    sme_report = _read_json(campaign_root / "sme_blind_review.json")
+    reviewer_type = sme_report.get("reviewer_type")
+    human_sme_ok = bool(sme_report.get("passed")) and reviewer_type == "human_sme"
+    items.append(
+        {
+            "item": "human_sme_review",
+            "passed": human_sme_ok,
+            "detail": "" if human_sme_ok else f"sme_blind_review.json: passed={sme_report.get('passed')}, reviewer_type={reviewer_type!r} (must be human_sme)",
+        }
+    )
+
+    g3_negative_calibration = _g3_negative_calibration_check(campaign_root)
+    items.append({"item": g3_negative_calibration["check"], **{k: v for k, v in g3_negative_calibration.items() if k != "check"}})
+
+    holdout_report = _read_json(campaign_root / "holdout_report.json")
+    holdout_ok = bool(holdout_report.get("passed")) and holdout_report.get("controls") is not None
+    controls = holdout_report.get("controls") or {}
+    items.append(
+        {
+            "item": "holdout_with_positive_and_negative_controls",
+            "passed": holdout_ok,
+            "detail": "" if holdout_ok else (
+                f"holdout_report.json: passed={holdout_report.get('passed')}, "
+                f"controls_present={holdout_report.get('controls') is not None} "
+                "(requires both positive/mutated injections and a controls section with no-mutation runs)"
+            ),
+            "control_run_count": controls.get("control_run_count"),
+        }
+    )
+
+    manifest_result = _stage9_evidence_manifest_check(campaign_root)
+    world_versions = manifest_result.get("world_versions") or {}
+    single_world_version = bool(manifest_result.get("manifest_present")) and not bool(world_versions.get("heterogeneous", True)) and world_versions.get("distinct_hash_count", 0) >= 1
+    items.append(
+        {
+            "item": "single_post_fix_world_version",
+            "passed": single_world_version,
+            "detail": "" if single_world_version else f"world_versions={world_versions!r} (heterogeneous or manifest missing)",
+        }
+    )
+
+    return {
+        "label": "external_claim_readiness",
+        "passed": all(item["passed"] for item in items),
+        "items": items,
+        "note": (
+            "Informational-but-honest, expected mostly false for now: this block requires human_sme "
+            "review (not ai_proxy), a recorded G3 negative-calibration artifact, holdout evidence with "
+            "both positive and negative (no-mutation control) injections, and all evidence from a single "
+            "post-fix world version. It never gates internal_readiness/run_readiness_gate's passed field."
+        ),
+    }
 
 
 def write_readiness_reports(

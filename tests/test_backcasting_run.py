@@ -428,6 +428,11 @@ def test_run_backcasting_resimulation_records_readiness_eligible_true_for_openro
 
 
 def test_backcasting_run_then_report_round_trip(tmp_path: Path, design, corpus, extraction) -> None:
+    """Expert-review hardening: a proxy (non-openrouter) judge must never make
+    the readiness report pass, even at reproduction_rate == 1.0. This is the
+    false-green path the report-side judge-eligibility check closes -- see
+    test_backcasting_run_then_report_round_trip_passes_with_openrouter_judge
+    for the passing counterpart with a readiness-eligible judge."""
     _write_inputs(tmp_path, extraction)
 
     run_payload = _run(tmp_path, design, corpus, sample_size=10, judge=FakeJudge(label=REPRODUCED))
@@ -435,9 +440,11 @@ def test_backcasting_run_then_report_round_trip(tmp_path: Path, design, corpus, 
 
     report = write_backcasting_report(tmp_path)
 
-    assert report["passed"] is True
     assert report["scoring"]["scored_result_count"] == 10
     assert report["scoring"]["reproduction_rate"] == 1.0
+    assert report["passed"] is False
+    assert report["checks"][0]["envelope_check"]["passed"] is False
+    assert "readiness_eligible" in report["checks"][0]["envelope_check"]["detail"]
 
 
 def test_backcasting_run_then_report_round_trip_below_target(tmp_path: Path, design, corpus, extraction) -> None:
@@ -448,6 +455,124 @@ def test_backcasting_run_then_report_round_trip_below_target(tmp_path: Path, des
 
     assert report["passed"] is False
     assert report["scoring"]["reproduction_rate"] == 0.0
+
+
+def test_backcasting_run_then_report_round_trip_passes_with_openrouter_judge(tmp_path: Path, design, corpus, extraction) -> None:
+    """The readiness-eligible counterpart: an openrouter-backend judge with
+    the expected prompt_version, a consistent pre-registered sample, and full
+    coverage of the selected cases must pass end-to-end."""
+    _write_inputs(tmp_path, extraction)
+
+    class FakeOpenRouterBackedJudge:
+        backend = "openrouter"
+        model = "fake-openrouter-model"
+
+        def judge(self, *, situation: str, documented_response: str, seat_answer: str) -> dict[str, Any]:
+            return {"label": REPRODUCED, "confidence": 0.9, "rationale": "stubbed openrouter-backend judge for offline test"}
+
+    _run(tmp_path, design, corpus, sample_size=10, judge=FakeOpenRouterBackedJudge())
+    report = write_backcasting_report(tmp_path)
+
+    assert report["passed"] is True
+    assert report["checks"][0]["envelope_check"]["passed"] is True
+    assert report["scoring"]["reproduction_rate"] == 1.0
+    assert "grounded_reproduction_rate" in report
+
+
+# ---------------------------------------------------------------------------
+# Expert-review hardening: report-side envelope checks (schema/sample/judge)
+# ---------------------------------------------------------------------------
+
+
+def _openrouter_judge():
+    class FakeOpenRouterBackedJudge:
+        backend = "openrouter"
+        model = "fake-openrouter-model"
+
+        def judge(self, *, situation: str, documented_response: str, seat_answer: str) -> dict[str, Any]:
+            return {"label": REPRODUCED, "confidence": 0.9, "rationale": "stubbed openrouter-backend judge for offline test"}
+
+    return FakeOpenRouterBackedJudge()
+
+
+def test_backcasting_report_blocked_on_schema_version_mismatch(tmp_path: Path, design, corpus, extraction) -> None:
+    _write_inputs(tmp_path, extraction)
+    _run(tmp_path, design, corpus, sample_size=3, judge=_openrouter_judge())
+    results_path = tmp_path / "backcasting_resimulation_results.json"
+    payload = json.loads(results_path.read_text(encoding="utf-8"))
+    payload["schema_version"] = "company_twin.backcasting_resimulation_results.v0-stale"
+    results_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    report = write_backcasting_report(tmp_path)
+
+    assert report["passed"] is False
+    assert "schema_version mismatch" in report["checks"][0]["envelope_check"]["detail"]
+
+
+def test_backcasting_report_blocked_on_sample_seed_mismatch(tmp_path: Path, design, corpus, extraction) -> None:
+    """Ungameability: if sample.sample_seed is edited post-hoc so it no longer
+    reproduces sample.selected_case_ids via select_backcasting_sample(), the
+    report must block rather than silently trust the recorded selection."""
+    _write_inputs(tmp_path, extraction)
+    _run(tmp_path, design, corpus, sample_size=3, sample_seed=0, judge=_openrouter_judge())
+    results_path = tmp_path / "backcasting_resimulation_results.json"
+    payload = json.loads(results_path.read_text(encoding="utf-8"))
+    payload["sample"]["sample_seed"] = 999  # no longer matches selected_case_ids
+    results_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    report = write_backcasting_report(tmp_path)
+
+    assert report["passed"] is False
+    assert "selected_case_ids sha256" in report["checks"][0]["envelope_check"]["detail"]
+
+
+def test_backcasting_report_blocked_when_results_missing_a_selected_case(tmp_path: Path, design, corpus, extraction) -> None:
+    """Ungameability: dropping an unfavorable case from `results` after the
+    fact must block the report, not silently raise the measured rate."""
+    _write_inputs(tmp_path, extraction)
+    _run(tmp_path, design, corpus, sample_size=3, judge=_openrouter_judge())
+    results_path = tmp_path / "backcasting_resimulation_results.json"
+    payload = json.loads(results_path.read_text(encoding="utf-8"))
+    payload["results"].pop()
+    results_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    report = write_backcasting_report(tmp_path)
+
+    assert report["passed"] is False
+    assert "results count" in report["checks"][0]["envelope_check"]["detail"]
+
+
+def test_backcasting_report_blocked_on_duplicate_case_id(tmp_path: Path, design, corpus, extraction) -> None:
+    _write_inputs(tmp_path, extraction)
+    _run(tmp_path, design, corpus, sample_size=3, judge=_openrouter_judge())
+    results_path = tmp_path / "backcasting_resimulation_results.json"
+    payload = json.loads(results_path.read_text(encoding="utf-8"))
+    payload["results"][0] = dict(payload["results"][1])  # duplicate an existing case_id
+    results_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    report = write_backcasting_report(tmp_path)
+
+    assert report["passed"] is False
+    envelope_detail = report["checks"][0]["envelope_check"]["detail"]
+    assert "results count" in envelope_detail or "duplicate case_id" in envelope_detail
+
+
+def test_backcasting_report_surfaces_grounded_metrics_when_citations_unverified(tmp_path: Path, design, corpus, extraction) -> None:
+    """New metrics: zero_viewed_docs_count / cited_but_not_viewed_count /
+    grounded_reproduction_rate must reflect rows where the judge marked
+    'reproduced' but the seat never actually viewed a document -- this is the
+    exact live-pass failure mode from MASTER_DESIGN.md section 17.1."""
+    _write_inputs(tmp_path, extraction)
+    _run(tmp_path, design, corpus, sample_size=4, judge=_openrouter_judge(), factory=_fake_factory(skip_reading=True, self_reported_override=["DFH-SAL-021"]))
+
+    report = write_backcasting_report(tmp_path)
+
+    assert report["zero_viewed_docs_count"] == 4
+    assert report["cited_but_not_viewed_count"] == 4
+    assert report["grounded_reproduction_rate"] == 0.0
+    # Official reproduction_rate is unaffected by groundedness (judge said reproduced).
+    assert report["scoring"]["reproduction_rate"] == 1.0
+    assert "zero_viewed_docs_count" in report
 
 
 def test_backcasting_run_writes_per_case_run_artifacts_under_campaign_root(tmp_path: Path, design, corpus, extraction) -> None:

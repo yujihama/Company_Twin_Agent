@@ -53,6 +53,7 @@ def build_holdout_injection_plan(
     *,
     mutation_ids: list[str] | None = None,
     run_roots: list[str] | None = None,
+    planned_ticks: int = 0,
 ) -> dict[str, Any]:
     """Build a WP-14 holdout injection plan from the WP-06 mutation catalog.
 
@@ -61,6 +62,11 @@ def build_holdout_injection_plan(
     later live run can be verified to have applied exactly the planned
     mutation. Planning is a pure function of the catalog; it does not touch
     the network and does not execute any run.
+
+    `planned_ticks` (default 0 = no tick-coverage requirement, for backward
+    compatibility with plans built before this field existed) is the expected
+    world_ledger tick coverage a live S2 bundle attributed to this injection
+    must reach; see holdout.verify_holdout_bundles/write_holdout_report.
     """
     catalog = load_mutation_catalog(root)
     if not catalog:
@@ -89,6 +95,7 @@ def build_holdout_injection_plan(
                 "expected_finding_types": expected_finding_types,
                 "spec_hash": _json_hash(spec),
                 "planned_run_roots": list(run_roots or []),
+                "planned_ticks": int(planned_ticks),
             }
         )
     payload = {
@@ -402,13 +409,219 @@ def write_holdout_inputs(campaign_root: Path, injection_plan: dict[str, Any]) ->
     return injection_plan
 
 
-def write_holdout_report(campaign_root: Path, *, run_lookup: dict[str, Path] | None = None) -> dict[str, Any]:
+# ---------------------------------------------------------------------------
+# Expert-review hardening: bundle-attribution verification + control runs
+# ---------------------------------------------------------------------------
+#
+# compute_holdout_detection_rate() (above) answers "did L0/L1 fire on a run
+# attributed to this mutation". It does NOT verify that the attributed run
+# bundle actually applied the exact planned mutation (rather than merely
+# sharing a mutation_id string), that the run reached S2 with adequate tick
+# coverage, or that resolution wasn't silent exploration-mode scanning. Those
+# are the concrete false-green holes this section closes, in the report path
+# (write_holdout_report), without changing compute_holdout_detection_rate's
+# existing scoring contract (which many pre-existing S1-fixture tests rely
+# on for scoring semantics independent of stage/tick verification).
+# (_read_json is defined near the bottom of this module and reused here.)
+
+
+def _world_ledger_max_tick(run_root: Path) -> int:
+    path = run_root / "world_ledger.jsonl"
+    if not path.exists():
+        return 0
+    max_tick = 0
+    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        if not line.strip():
+            continue
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(row, dict) and isinstance(row.get("tick"), int):
+            max_tick = max(max_tick, row["tick"])
+    return max_tick
+
+
+def _has_failure_marker(run_root: Path, meta: dict[str, Any]) -> bool:
+    if meta.get("failed") is True or meta.get("failure") not in (None, "", False):
+        return True
+    if (run_root / "FAILED").exists() or (run_root / "failure_marker.json").exists():
+        return True
+    return False
+
+
+def _verify_one_injection_bundle(campaign_root: Path, injection: dict[str, Any], *, run_roots: list[Path], resolution_mode: str) -> dict[str, Any]:
+    spec_hash = injection.get("spec_hash")
+    mutation_id = str(injection.get("mutation_id") or "")
+    planned_ticks = int(injection.get("planned_ticks") or 0)
+    problems: list[str] = []
+    per_run: list[dict[str, Any]] = []
+    if not run_roots:
+        problems.append("no run bundles attributed to this injection")
+    for run_root in run_roots:
+        config = _read_json(run_root / "config.json")
+        meta = _read_json(run_root / "meta.json")
+        corpus = ((config.get("world") or {}).get("corpus") or {})
+        mutation_entries = corpus.get("mutations") or []
+        entry_hashes = {_json_hash(entry) for entry in mutation_entries if isinstance(entry, dict)}
+        entry_mutation_ids = {str(entry.get("mutation_id") or "") for entry in mutation_entries if isinstance(entry, dict)}
+        spec_hash_consistent = bool(spec_hash) and (spec_hash in entry_hashes or mutation_id in entry_mutation_ids)
+        stage = meta.get("stage")
+        is_s2 = stage == "S2"
+        max_tick = _world_ledger_max_tick(run_root)
+        tick_coverage_ok = planned_ticks <= 0 or max_tick >= planned_ticks
+        failure_marker = _has_failure_marker(run_root, meta)
+        run_ok = spec_hash_consistent and is_s2 and tick_coverage_ok and not failure_marker
+        if not spec_hash_consistent:
+            problems.append(f"{run_root.name}: config.json mutation entries do not carry spec_hash={spec_hash!r}/mutation_id={mutation_id!r}")
+        if not is_s2:
+            problems.append(f"{run_root.name}: stage={stage!r}, expected S2")
+        if not tick_coverage_ok:
+            problems.append(f"{run_root.name}: world_ledger max tick={max_tick} < planned_ticks={planned_ticks}")
+        if failure_marker:
+            problems.append(f"{run_root.name}: failure marker present")
+        per_run.append(
+            {
+                "run_root": run_root.name,
+                "spec_hash_consistent": spec_hash_consistent,
+                "stage": stage,
+                "is_s2": is_s2,
+                "max_tick": max_tick,
+                "planned_ticks": planned_ticks,
+                "tick_coverage_ok": tick_coverage_ok,
+                "failure_marker": failure_marker,
+                "effective_corpus_hash": corpus.get("effective_corpus_hash"),
+                "mutation_hash": corpus.get("mutation_hash"),
+                "verified": run_ok,
+            }
+        )
+    exploration_mode = resolution_mode == "exploration"
+    if exploration_mode:
+        problems.append("resolved via implicit run-root scanning (no planned_run_roots, no explicit run_lookup resolution record) -- recorded as exploration-mode, cannot pass")
+    verified = bool(run_roots) and all(row["verified"] for row in per_run) and not exploration_mode
+    return {
+        "injection_id": injection.get("injection_id"),
+        "mutation_id": mutation_id,
+        "spec_hash": spec_hash,
+        "resolution_mode": resolution_mode,
+        "verified": verified,
+        "runs": per_run,
+        "detail": "" if verified else "; ".join(problems),
+    }
+
+
+def verify_holdout_bundles(campaign_root: Path, injection_plan: dict[str, Any], *, run_lookup: dict[str, Path] | None = None) -> dict[str, Any]:
+    """Verify, per planned injection, that the attributed run bundle(s) really
+    applied the planned mutation and reached usable S2 coverage.
+
+    resolution_mode is "explicit" when the injection carries
+    `planned_run_roots` or an explicit `run_lookup` entry was supplied for it
+    (a recorded resolution decision), and "exploration" when neither is
+    present and the run bundle was found purely by scanning campaign_root for
+    a matching mutation_id (_matching_mutation_run_roots) -- that implicit
+    scanning path can attribute a run that merely happens to share a
+    mutation_id, so it is recorded as exploration-mode and cannot verify.
+    """
+    injections = injection_plan.get("injections") or []
+    per_injection: list[dict[str, Any]] = []
+    for injection in injections:
+        injection_id = str(injection.get("injection_id") or "")
+        explicit_lookup = run_lookup is not None and injection_id in run_lookup
+        declared_roots = list(injection.get("planned_run_roots") or [])
+        if explicit_lookup:
+            resolution_mode = "explicit"
+            run_roots = [run_lookup[injection_id]]
+        elif declared_roots:
+            resolution_mode = "explicit"
+            run_roots = [campaign_root / name for name in declared_roots]
+        else:
+            resolution_mode = "exploration"
+            run_roots = _matching_mutation_run_roots(campaign_root, str(injection.get("mutation_id") or ""))
+        per_injection.append(_verify_one_injection_bundle(campaign_root, injection, run_roots=run_roots, resolution_mode=resolution_mode))
+    verified_count = sum(1 for row in per_injection if row["verified"])
+    total = len(per_injection)
+    return {
+        "kind": "holdout_bundle_verification",
+        "plan_hash": injection_plan.get("plan_hash"),
+        "injection_count": total,
+        "verified_count": verified_count,
+        "all_verified": total > 0 and verified_count == total,
+        "any_exploration_mode": any(row["resolution_mode"] == "exploration" for row in per_injection),
+        "per_injection": per_injection,
+    }
+
+
+# Designated no-mutation control runs (e.g. the campaign's anchor/plain S2
+# bundles): scoring these with the SAME detectors as the real injections
+# reports their false-alarm profile (how often an L0/L1 signal that matches
+# some *other* injection's expected_finding_types fires on an unmutated run).
+# This never gates pass/fail (a missing controls section is a warning, not a
+# failure), but anomalous control hits are recorded so they are visible.
+def score_holdout_controls(campaign_root: Path, injection_plan: dict[str, Any], *, control_run_roots: list[str] | None) -> dict[str, Any] | None:
+    if not control_run_roots:
+        return None
+    injections = injection_plan.get("injections") or []
+    all_expected_finding_types = sorted({finding_type for injection in injections for finding_type in (injection.get("expected_finding_types") or [])})
+    per_control: list[dict[str, Any]] = []
+    anomalous_hit_count = 0
+    for name in control_run_roots:
+        run_root = campaign_root / name
+        metrics = _read_json(run_root / "triage" / "metrics.json")
+        finding_types = metrics.get("finding_types") or {}
+        rule_hit = metrics.get("rule_hit_rate") or {}
+        observed_finding_types = sorted(set(finding_types) | {str(row.get("finding_type") or "") for row in rule_hit.values() if int(row.get("hit_count") or 0) > 0})
+        false_alarm_finding_types = sorted(set(observed_finding_types) & set(all_expected_finding_types))
+        if false_alarm_finding_types:
+            anomalous_hit_count += 1
+        per_control.append(
+            {
+                "run_root": name,
+                "observed_finding_types": observed_finding_types,
+                "false_alarm_finding_types": false_alarm_finding_types,
+                "has_anomalous_hit": bool(false_alarm_finding_types),
+            }
+        )
+    return {
+        "kind": "holdout_controls",
+        "control_run_count": len(control_run_roots),
+        "expected_finding_types_checked": all_expected_finding_types,
+        "anomalous_hit_count": anomalous_hit_count,
+        "per_control": per_control,
+        "note": (
+            "Controls score designated no-mutation (anchor/plain S2) run bundles with the same "
+            "detectors as the real injections, reporting their false-alarm profile (expected-finding-type "
+            "hits on unmutated runs). A missing controls section is surfaced as a warning; anomalous "
+            "control hits are recorded here (visible) but do not auto-fail the holdout gate."
+        ),
+    }
+
+
+def write_holdout_report(
+    campaign_root: Path,
+    *,
+    run_lookup: dict[str, Path] | None = None,
+    control_run_roots: list[str] | None = None,
+) -> dict[str, Any]:
     """Score the plan recorded at holdout_inputs.json and write holdout_report.json.
 
     Ungameability: the report is rejected by readiness unless it carries
     per-injection evidence rows (see readiness._holdout_check). A bare
     ``{"passed": true}`` with no per_injection breakdown is structurally
     insufficient, not just conventionally discouraged.
+
+    Expert-review hardening: this report also references `plan_hash` from
+    holdout_inputs.json and runs `verify_holdout_bundles()` for every
+    injection -- config.json's mutation entries/mutation_hash must be
+    consistent with the injection's spec_hash/mutation_id, the attributed run
+    must be stage S2 with tick coverage >= the injection's planned_ticks and
+    no failure marker, and an injection resolved purely by implicit
+    run-root scanning (no planned_run_roots, no explicit run_lookup entry) is
+    recorded as exploration-mode, which cannot pass this report even if
+    compute_holdout_detection_rate's strict_detection_rate clears target.
+    `control_run_roots` (designated no-mutation control bundles, e.g. the
+    campaign's anchor/plain S2 runs) are scored with the same detectors for a
+    false-alarm profile; a missing controls section is a warning, not a
+    failure -- see score_holdout_controls.
     """
     inputs_path = campaign_root / "holdout_inputs.json"
     if not inputs_path.exists():
@@ -431,17 +644,24 @@ def write_holdout_report(campaign_root: Path, *, run_lookup: dict[str, Path] | N
         return payload
     injection_plan = json.loads(inputs_path.read_text(encoding="utf-8"))
     measurement = compute_holdout_detection_rate(campaign_root, injection_plan, run_lookup=run_lookup)
+    bundle_verification = verify_holdout_bundles(campaign_root, injection_plan, run_lookup=run_lookup)
     target = measurement["detection_target"]
-    ok = bool(measurement["passed"])
+    rate_ok = bool(measurement["passed"])
+    bundles_ok = bundle_verification["all_verified"]
+    ok = rate_ok and bundles_ok
+    rate_detail = "" if rate_ok else (
+        f"strict_detection_rate={measurement['strict_detection_rate']:.4f} < target={target} "
+        f"(detected {measurement['strict_detected_count']}/{measurement['injection_count']}; "
+        f"lenient_detection_rate={measurement['lenient_detection_rate']:.4f} for comparison)"
+    )
+    detail = rate_detail if not rate_ok else ("" if bundles_ok else "bundle attribution verification failed: " + "; ".join(
+        row["detail"] for row in bundle_verification["per_injection"] if row["detail"]
+    ))
     checks = [
         {
             "name": "holdout_detection_rate_target",
             "passed": ok,
-            "detail": "" if ok else (
-                f"strict_detection_rate={measurement['strict_detection_rate']:.4f} < target={target} "
-                f"(detected {measurement['strict_detected_count']}/{measurement['injection_count']}; "
-                f"lenient_detection_rate={measurement['lenient_detection_rate']:.4f} for comparison)"
-            ),
+            "detail": detail,
             "detection_rate_basis": "strict",
             "detection_rate": measurement["detection_rate"],
             "detection_target": target,
@@ -452,14 +672,18 @@ def write_holdout_report(campaign_root: Path, *, run_lookup: dict[str, Path] | N
             "lenient_detection_rate": measurement["lenient_detection_rate"],
             "lenient_detected_count": measurement["lenient_detected_count"],
             "per_injection": measurement["per_injection"],
+            "bundle_verification_passed": bundles_ok,
+            "any_exploration_mode": bundle_verification["any_exploration_mode"],
         }
     ]
+    controls = score_holdout_controls(campaign_root, injection_plan, control_run_roots=control_run_roots)
     payload = {
         "schema_version": REPORT_SCHEMA_VERSION,
         "report_type": "holdout",
         "status": "passed" if ok else "blocked",
         "passed": ok,
         "detection_rate_basis": "strict",
+        "plan_hash": injection_plan.get("plan_hash"),
         "checks": checks,
         "notes": [
             "detection_rate_basis=strict: the official pass/fail gate (>= 0.80) is strict_detection_rate, "
@@ -469,9 +693,19 @@ def write_holdout_report(campaign_root: Path, *, run_lookup: dict[str, Path] | N
             "alongside strict for visibility/comparison only; it never gates and can be inflated by an "
             "unrelated finding co-occurring on a mutated run.",
             "Detection-rate measurement runs against live campaign data; this report only scores whatever run bundles exist under campaign_root.",
+            "bundle_verification additionally requires config.json mutation entries/mutation_hash consistent with "
+            "each injection's spec_hash/mutation_id, stage S2 with tick coverage >= planned_ticks, no failure marker, "
+            "and an explicit (non-exploration-mode) run-root resolution; a bare strict_detection_rate pass without "
+            "this cannot pass the gate.",
+            "controls is a warning, not an auto-fail: a missing controls section is surfaced but does not block; "
+            "anomalous hits on a designated no-mutation control run are recorded (visible), not silently hidden.",
         ],
         "measurement": measurement,
+        "bundle_verification": bundle_verification,
+        "controls": controls,
     }
+    if controls is None:
+        payload["notes"].append("WARNING: no controls section -- no designated no-mutation control run_roots were supplied to write_holdout_report(control_run_roots=...).")
     (campaign_root / "holdout_report.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     return payload
 
