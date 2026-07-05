@@ -825,3 +825,66 @@ Backward compatibility: a plan built before the `arm` field existed has
 every injection default to `positive_control` (the old behavior, and the
 strictest interpretation -- nothing is quietly exempted from the
 denominator just because the plan predates arms).
+
+## 18. WP-12 parallel world-run executor (並列実行、2026-07-05)
+
+Phase-3 experiments run batches of independent S0/S1/S2/control-pair worlds
+(e.g. a delta-one control-pair set at K=5 seeds is 10+ live runs of 35-60
+minutes each). `company_twin.parallel_runner` (CLI: `run-batch`) orchestrates
+these as parallel subprocesses so wall-clock scales with `--concurrency`
+instead of run count.
+
+**What it is.** A batch spec (JSON: a list of independent run definitions --
+stage `s0`/`s1`/`s2`/`control-pair-campaign`, seed, ticks, prompt_mode,
+model, mutation ids, run_root -- plus batch-level `--concurrency` (default 3)
+and an optional `--stagger-seconds` delay between launches) is executed by
+spawning `python -m company_twin.cli <stage> ...` once per run, i.e. the
+exact existing single-run commands already documented in §9.5/§17, each in
+its own OS process (never `os.fork`/threads -- this project runs on Windows,
+where fork does not exist; subprocess isolation is used unconditionally).
+
+**Measurement semantics are unchanged.** Each subprocess is a fresh
+interpreter with its own corpus/kernel/recorder/world state and no shared
+mutable object with any sibling run -- exactly the isolation §9.5 already
+requires of "1世界=1プロセス、共有物ゼロ". A run launched via `run-batch` is
+bit-identical to the same run launched by hand sequentially, given the same
+seed; concurrency changes only when bytes land on disk, never what they
+contain. `run-batch` therefore never appears in any evidence/score
+computation and carries no measurement-semantics risk of its own.
+
+**Serial-collation boundary.** `run-batch` only launches runs and records
+their outcome in `batch_manifest.json` (per-run start/end time, exit code,
+log path, plus the executing git commit). It NEVER writes any campaign-level
+shared artifact -- no triage aggregation, no `control-pair-campaign`
+collation, no acceptance/readiness evaluation. `triage`, `acceptance`,
+`readiness*`, `control-pair-campaign` aggregation, `holdout-score`,
+`sme-score` remain separate, serial, later steps run by hand (or by another
+script) against the resulting run_roots, identically to the post-processing
+of any sequential run. This mirrors the boundary already drawn for WP-06/
+WP-07 (§8.2/§8.4: the mutation runtime mechanism and manifest shape are
+supplied without themselves constituting attribution evidence) and for
+WP-14 (§17: the offline calibration machinery computes without itself
+running the live pass) -- an execution/orchestration layer stays out of the
+evidence/scoring layer it feeds.
+
+**Safety rails.** Every run_root in a batch must be pairwise distinct and
+must not already exist on disk; this is checked for the WHOLE batch BEFORE
+any subprocess is launched, so a spec typo fails loudly with zero side
+effects rather than silently overwriting or partially clobbering a prior
+campaign's evidence (the same "fail loudly, no silent overwrite" posture as
+the rest of this harness). One run failing (non-zero exit) never aborts the
+batch -- every other run still gets to completion; failures are recorded
+with exit code and log path, and the batch process exits non-zero if any run
+failed. `--retry-failed <batch_manifest>` re-runs only the failed entries
+into the SAME run_roots, and only after deleting each failed run's partial
+root -- gated behind an explicit `--delete-partial-roots` flag, never a
+default action.
+
+**Rate-limit awareness.** The binding constraint observed in practice
+(2026-07-05, OpenRouter, qwen3.6-flash) is the provider's per-key rate limit,
+not local CPU/RAM/disk: 3 concurrent S2 runs slowed each individual run by
+roughly 20-30% while multiplying aggregate throughput by roughly 2.5x.
+`run-batch` defaults `--concurrency` to 3 and prints a (non-blocking)
+warning above 4, since higher concurrency does not scale linearly against a
+shared provider-side limit and can trade individual-run latency for little
+or no net throughput gain.
