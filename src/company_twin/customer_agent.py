@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 from typing import Any
 
 from .agents import CustomerLLM
@@ -376,6 +377,21 @@ def world_visible_message(event: CustomerEvent, *, tick: int, utterance: str) ->
         "product": event.product,
         "deadline_display": deadline_display(tick, event.deadline_tick),
         "utterance": utterance,
+        # customer_stage: a whitelisted structured field (never the
+        # customer's own words, and not routing/simulation metadata -- see
+        # kernel.INBOX_ALLOWED_KEYS) so a downstream internal-share render
+        # (sme_blind_review._summarize_inbox_customer_share) can render the
+        # customer's actual stage instead of asserting a fixed "申込希望あり"
+        # for every stage -- round-4 blind SME review
+        # (data/design/MASTER_DESIGN.md §17.8). NOTE: the receiving seat
+        # (`primary_seat`) is deliberately NOT added here -- it is
+        # experimenter-plane routing metadata forbidden from ever appearing
+        # inside a world-visible inbox message (kernel.FORBIDDEN_INBOX_KEYS).
+        # The memo renderer instead seeds its phrasing pool from the ledger
+        # row's own `to_seat` field, which recorder.record_inbox already
+        # writes at the ledger-payload level (sibling to `message`, never
+        # inside it), so no new experimenter-plane leak is introduced.
+        "customer_stage": event.customer_stage,
     }
 
 
@@ -405,6 +421,31 @@ def deadline_display(now_tick: int, deadline_tick: int) -> str:
 # never here, so both the original and retried calls are captured as
 # ordinary llm_invoke/llm_response attempts in attempts.jsonl -- an honest,
 # auditable record rather than a silent rewrite.
+#
+# Round-4 blind SME review follow-up (data/design/MASTER_DESIGN.md §17.8):
+# Latin-script mixing. Round 4 flagged a CUSTOMER utterance containing
+# 「お Busy だと思いますが」 -- a standalone Latin word ("Busy") embedded
+# mid-sentence in otherwise-Japanese text, which the Simplified-Chinese-only
+# checks above cannot catch (it is neither a banned whole-token nor a
+# Simplified-Chinese character). Extended below with a regex that flags any
+# standalone Latin-alphabet word in the text, EXCEPT an evidence-based
+# allowlist of legitimate business Latin already used inside this world's own
+# corpus/role-card text (document ids like "DFH-SAL-001", and business
+# acronyms/loanwords such as "eKYC"/"CRM"/"FAQ"/"KPI" that appear in the
+# role-card and compiled-corpus text seats and customers are grounded in --
+# see tests/test_sme_round4_fixes.py for the exact corpus citations). This
+# check applies to the CUSTOMER utterance path only (wired into
+# agents.DeepAgentCustomer.__call__, same as the rest of this guard); seat-
+# authored text is the measurement subject and must never be filtered or
+# retried on this basis.
+#
+# Residual, deliberately not fixed: a semantically-odd-but-still-Japanese
+# phrase (e.g. "手放しの範囲" used in a context where it does not quite fit) is
+# undetectable by any token/character/script-level check -- there is no
+# script or vocabulary signal to key on, only a fluency judgment a human
+# reader would need to make. This remains an accepted residual risk of the
+# same kind the sme_blind_review gate (§17.6) already tracks under
+# `design_content`/`statistical_structure`, not something this lint attempts.
 # ---------------------------------------------------------------------------
 
 # Simplified-Chinese-only characters: grammatical/function characters that
@@ -428,14 +469,50 @@ _NON_JAPANESE_TOKENS: tuple[str, ...] = (
     "不好意思",
 )
 
+# Evidence-based allowlist for standalone Latin-script tokens (round-4 fix):
+# every entry below is attested business vocabulary actually used somewhere
+# in this world's own corpus/role-card/compiled-corpus text, not a guess.
+#   - "DFH-SAL-\d+" (regex, matched separately below): the frozen DFH pack
+#     v0 document-id family (data/raw_data/**/DFH-SAL-NNN_*.docx; the exact
+#     ids cited in deck.py's PROBE_ROUTES/_routine_events, e.g. DFH-SAL-018,
+#     DFH-SAL-021, DFH-SAL-024).
+#   - "eKYC": role_cards/application.md line 4 ("本人確認（eKYC）結果").
+#   - "CRM": data/compiled_data/manifest_v2.json / 00_corpus_manifest_v2.yaml
+#     ("scope: 申込受付、eKYC、CRM、審査担当").
+#   - "FAQ": role_cards/sales.md ("現場FAQや現場判断事例"), second_line.md
+#     ("現場の運用メモやFAQ").
+#   - "KPI", "KRI": role_cards/second_line.md ("例外・苦情・KPI/KRIの傾向確認").
+#   - "BtoB": data/compiled_data/deck_v2.json / world_config_v2.yaml (probe
+#     P-05 title "加盟店BtoB(担当F)", world_visible text, seat routing).
+# "PC" is intentionally NOT included: no occurrence was found anywhere in the
+# corpus/design-doc text searched for this fix, so it would be a guess, not
+# evidence, and is left out per the "evidence, not guesses" requirement.
+_LATIN_TOKEN_ALLOWLIST: frozenset[str] = frozenset({"eKYC", "CRM", "FAQ", "KPI", "KRI", "BtoB"})
+
+# A standalone Latin-script "word": one or more ASCII letters, optionally
+# followed by digits (so "eKYC"/"CRM"/"KPI2" match as one token, but this
+# never matches a DFH-SAL-### doc id on its own -- that family is checked
+# separately via _DOC_ID_PATTERN so a bare "DFH"/"SAL" fragment is never
+# mistakenly treated as the allowed doc-id token).
+_LATIN_WORD_PATTERN = re.compile(r"[A-Za-z]+[A-Za-z0-9]*")
+# Note: a plain `\bDFH-SAL-\d+\b` fails against natural Japanese text, since
+# Python's Unicode-aware `\w`/`\b` treats any Japanese kanji/kana as a word
+# character -- "DFH-SAL-001の書類" has no boundary between "1" and "の", so a
+# raw \b silently fails to match (the same issue documented in
+# sme_blind_review._ascii_safe_boundary). Using an explicit "not an ASCII
+# word character" lookaround instead of \b avoids that failure.
+_DOC_ID_PATTERN = re.compile(r"(?<![A-Za-z0-9_])DFH-SAL-\d+(?![A-Za-z0-9_])")
+
 
 def detect_non_japanese_tokens(text: str) -> list[str]:
     """Return the distinct non-Japanese signals found in `text`, if any.
 
-    Best-effort and deterministic: checks a fixed token list plus a
-    Simplified-Chinese-only character set. Empty list means "nothing
-    detected", not "confirmed pure Japanese" -- this is a safety-net lint,
-    not a language classifier.
+    Best-effort and deterministic: checks a fixed token list, a
+    Simplified-Chinese-only character set, and (round-4 addition) standalone
+    Latin-script words not on `_LATIN_TOKEN_ALLOWLIST` or matching the
+    DFH-SAL document-id pattern. Empty list means "nothing detected", not
+    "confirmed pure Japanese" -- this is a safety-net lint, not a language
+    classifier or full script/language identifier.
     """
     hits: list[str] = []
     for token in _NON_JAPANESE_TOKENS:
@@ -444,4 +521,14 @@ def detect_non_japanese_tokens(text: str) -> list[str]:
     for ch in text:
         if ch in _SIMPLIFIED_CHINESE_ONLY_CHARS and ch not in hits:
             hits.append(ch)
+    doc_id_spans = [match.span() for match in _DOC_ID_PATTERN.finditer(text)]
+    for match in _LATIN_WORD_PATTERN.finditer(text):
+        word = match.group(0)
+        if word in _LATIN_TOKEN_ALLOWLIST:
+            continue
+        start, end = match.span()
+        if any(doc_start <= start and end <= doc_end for doc_start, doc_end in doc_id_spans):
+            continue
+        if word not in hits:
+            hits.append(word)
     return hits

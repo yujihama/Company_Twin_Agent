@@ -38,8 +38,19 @@ class InboxLeakError(RuntimeError):
 # every inbox message is validated against a per-kind key whitelist BEFORE it
 # becomes world-visible. Experimenter vocabulary (probe/span/latent/routing)
 # must never appear here; adding a key requires editing this table on purpose.
+#
+# "customer_stage" (round-4 blind SME review, data/design/MASTER_DESIGN.md
+# §17.8) is ordinary business-facing content -- which stage the customer is
+# at (consultation / application_intent / procedural_request) is exactly the
+# kind of thing a seat would plausibly infer straight from the customer's own
+# utterance, unlike probe/span/latent-truth/routing fields, which are
+# simulation-internal and never surface to the world. It is NOT the same
+# thing as "primary_seat" (still forbidden below): that is experimenter-plane
+# routing metadata, not customer-facing content.
 INBOX_ALLOWED_KEYS: dict[str, frozenset[str]] = {
-    "customer_utterance": frozenset({"kind", "tick", "event_id", "customer_id", "application_id", "product", "deadline_display", "utterance"}),
+    "customer_utterance": frozenset(
+        {"kind", "tick", "event_id", "customer_id", "application_id", "product", "deadline_display", "utterance", "customer_stage"}
+    ),
     "chat": frozenset({"kind", "tick", "from", "channel", "body"}),
     "timed_notice": frozenset({"kind", "tick", "notice", "detail"}),
 }

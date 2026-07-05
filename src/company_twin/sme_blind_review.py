@@ -32,6 +32,7 @@ No LLM or network call is made anywhere in this module.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from pathlib import Path
@@ -162,24 +163,42 @@ def sample_run_bundle_excerpts(run_root: Path, *, limit: int = 10) -> list[dict[
     -- not just within the ledger loop and not just on exact string match --
     so one underlying event can never surface twice under two different
     labels.
+
+    Round-4 blind SME review (data/design/MASTER_DESIGN.md §17.8): round 2's
+    text-level fixes made the two excerpts for one customer event non-
+    identical (a first-person utterance vs. a third-person internal-share
+    memo), so the normalized-content dedup above no longer catches them --
+    but the reviewer packet still paired each customer utterance with its own
+    inbox-share memo about the same event, alternating mechanically through
+    the deck (~20 utterance+memo pairs). A real blind-review sample would not
+    systematically include both a customer's own words AND a colleague's
+    paraphrase of the same conversation. Fixed by tracking the underlying
+    `event_id` a `customer_utterance` excerpt and an `inbox_delivered`
+    customer-share excerpt both derive from (via `_linked_customer_event_id`)
+    and sampling AT MOST ONE excerpt per event_id among that pair of kinds;
+    once an event_id's excerpt is taken, the other kind for the same event is
+    skipped and a later, still-available excerpt (any kind, including a
+    different customer event or a chat/other business-event row) fills the
+    freed slot instead, so the packet size is not silently shrunk by the
+    one-per-event rule.
     """
     chat_rows = read_jsonl(run_root / "chat_channel.jsonl")
     ledger_rows = read_jsonl(run_root / "world_ledger.jsonl")
-    excerpts: list[dict[str, Any]] = []
+    candidates: list[dict[str, Any]] = []
     seen_normalized: set[str] = set()
 
-    def _try_add(excerpt_id: str, kind: str, text: str) -> None:
+    def _try_stage(kind: str, text: str, *, linked_event_id: str | None) -> None:
         normalized = _normalize_excerpt_content(text)
         if not normalized or normalized in seen_normalized:
             return
         seen_normalized.add(normalized)
-        excerpts.append({"excerpt_id": excerpt_id, "kind": kind, "text": text})
+        candidates.append({"kind": kind, "text": text, "linked_event_id": linked_event_id})
 
     for row in chat_rows:
         body = str(row.get("body") or "").strip()
         if not body:
             continue
-        _try_add(f"chat_{len(excerpts)}", "chat_message", body)
+        _try_stage("chat_message", body, linked_event_id=None)
     for row in ledger_rows:
         event_type = str(row.get("event_type") or "")
         phrasing = _LEDGER_EVENT_PHRASING.get(event_type)
@@ -189,8 +208,59 @@ def sample_run_bundle_excerpts(run_root: Path, *, limit: int = 10) -> list[dict[
         summary = _summarize_ledger_payload(event_type, phrasing, payload)
         if not summary:
             continue
-        _try_add(f"ledger_{len(excerpts)}", "business_event", summary)
-    return excerpts[:limit]
+        _try_stage("business_event", summary, linked_event_id=_linked_customer_event_id(event_type, payload))
+
+    excerpts: list[dict[str, Any]] = []
+    used_event_ids: set[str] = set()
+    deferred: list[dict[str, Any]] = []
+    for candidate in candidates:
+        if len(excerpts) >= limit:
+            break
+        linked_event_id = candidate["linked_event_id"]
+        if linked_event_id and linked_event_id in used_event_ids:
+            deferred.append(candidate)
+            continue
+        if linked_event_id:
+            used_event_ids.add(linked_event_id)
+        excerpts.append(candidate)
+    # Backfill freed slots (a deferred excerpt whose event_id was already
+    # used elsewhere) with whatever candidates remain, up to `limit` -- a
+    # deferred candidate is admissible here too as long as its own
+    # linked_event_id was not itself separately consumed by another kept
+    # excerpt in the meantime.
+    for candidate in deferred:
+        if len(excerpts) >= limit:
+            break
+        linked_event_id = candidate["linked_event_id"]
+        if linked_event_id and linked_event_id in used_event_ids:
+            continue
+        if linked_event_id:
+            used_event_ids.add(linked_event_id)
+        excerpts.append(candidate)
+    return [
+        {"excerpt_id": f"{'chat' if item['kind'] == 'chat_message' else 'ledger'}_{idx}", "kind": item["kind"], "text": item["text"]}
+        for idx, item in enumerate(excerpts)
+    ]
+
+
+def _linked_customer_event_id(event_type: str, payload: dict[str, Any]) -> str | None:
+    """Return the underlying CustomerEvent.event_id a ledger row derives
+    from, for the two kinds that can duplicate one customer event in the
+    packet (a `customer_utterance` row, and an `inbox_delivered` row whose
+    nested message is that same customer's utterance being shared to their
+    primary seat's inbox). Returns None for anything else -- e.g.
+    `month_end_close` or an `inbox_delivered` row carrying an internal chat
+    message have no such linkage and must never be constrained by it.
+    """
+    if event_type == "customer_utterance":
+        event_id = str(payload.get("event_id") or "").strip()
+        return event_id or None
+    if event_type == "inbox_delivered":
+        nested = payload.get("message") or {}
+        if isinstance(nested, dict) and str(nested.get("kind") or "") == "customer_utterance":
+            event_id = str(nested.get("event_id") or "").strip()
+            return event_id or None
+    return None
 
 
 def _summarize_ledger_payload(event_type: str, phrasing: str, payload: dict[str, Any]) -> str:
@@ -203,8 +273,13 @@ def _summarize_ledger_payload(event_type: str, phrasing: str, payload: dict[str,
             # structured fields (product/deadline/application_id), never by
             # copying the customer's first-person utterance text (that
             # would duplicate the "顧客とのやり取り" excerpt sampled from the
-            # customer_utterance ledger row for the same event).
-            return _summarize_inbox_customer_share(nested)
+            # customer_utterance ledger row for the same event). The
+            # receiving seat (`to_seat`) lives at the ledger-payload level,
+            # sibling to `message` (recorder.record_inbox's payload shape:
+            # {"to_seat", "message"}) -- never inside the world-visible
+            # message itself, since a seat id there would be forbidden
+            # routing metadata (kernel.FORBIDDEN_INBOX_KEYS).
+            return _summarize_inbox_customer_share(nested, to_seat=str(payload.get("to_seat") or ""))
     body = str(payload.get("body") or payload.get("utterance") or "").strip()
     if not body:
         # inbox_delivered rows nest the actual message under "message"
@@ -219,17 +294,112 @@ def _summarize_ledger_payload(event_type: str, phrasing: str, payload: dict[str,
     return ""
 
 
-def _summarize_inbox_customer_share(message: dict[str, Any]) -> str:
+# ---------------------------------------------------------------------------
+# Round-4 blind SME review follow-up (data/design/MASTER_DESIGN.md §17.8):
+# stage-aware, seeded internal-share memo phrasing.
+#
+# Round 4 flagged two compounding defects in every "連絡事項の共有" memo:
+# (1) all ~20 memos rendered from the identical single skeleton
+# "お客様より{product}の申込希望あり。期日は{date}。" -- differing only in the
+# product/date substitutions, which reads as generated data; (2) the
+# skeleton unconditionally asserted "申込希望あり" (an application request)
+# even for a customer whose event was only at the consultation/hesitation
+# stage (R-007/R-015/R-031) -- an internal record that misstates the
+# customer's actual stage is a content-fidelity bug, not just a style issue.
+#
+# Both are fixed together: `customer_agent.world_visible_message` now carries
+# the event's `customer_stage` (a genuine structured field driving the
+# customer's own persona prompt too -- see deck.py) into the ledger payload,
+# and this renderer selects (a) a stage-appropriate skeleton -- never
+# claiming an application request for a "consultation"-stage event -- and
+# (b) one of several skeletons per stage, chosen deterministically from
+# (customer_id, event_id, receiving seat) so the same stage never collapses
+# onto one fixed sentence across many memos. This mirrors
+# `customer_agent._seeded_index`'s stable-hash pattern (never Python's
+# global `random` or a time-based seed), so a given run bundle always
+# renders the same memo text on rerun. No new semantic content is invented:
+# each skeleton only states what the structured fields already assert
+# (stage, product, deadline); it never asserts an application commitment
+# that the underlying event did not have.
+# ---------------------------------------------------------------------------
+
+_SHARE_MEMO_SKELETONS_BY_STAGE: dict[str, tuple[str, ...]] = {
+    "consultation": (
+        "お客様より{product}についてご相談あり。",
+        "{product}について、お客様よりご説明を聞きたいとのご連絡あり。",
+        "お客様が{product}の件で、申込むかどうかまだ検討中とのこと。",
+        "{product}に関して、お客様より一度話を聞きたいとの申し出あり。",
+    ),
+    "application_intent": (
+        "お客様より{product}の申込希望あり。",
+        "{product}について、お客様より申込を進めたいとのご連絡あり。",
+        "お客様が{product}の申込手続を希望している。",
+        "{product}の申込希望の連絡がお客様よりあり。",
+    ),
+    "procedural_request": (
+        "お客様より{product}の手続状況について確認依頼あり。",
+        "{product}の申込手続の途中で、お客様より必要書類等の確認依頼あり。",
+        "お客様が{product}の手続の進み方について確認したいとのこと。",
+        "{product}に関して、お客様より手続上の確認依頼の連絡あり。",
+    ),
+}
+
+_SHARE_MEMO_SKELETONS_NO_PRODUCT: dict[str, tuple[str, ...]] = {
+    "consultation": ("お客様よりご相談あり。", "お客様がまだ検討中とのこと。"),
+    "application_intent": ("お客様より申込希望あり。", "お客様が申込手続を希望している。"),
+    "procedural_request": ("お客様より手続状況について確認依頼あり。", "お客様が手続の進み方を確認したいとのこと。"),
+}
+
+
+def _seeded_share_memo_index(*, customer_id: str, event_id: str, seat_id: str, pool_size: int) -> int:
+    """Deterministic memo-skeleton index from (customer_id, event_id, seat).
+
+    Same stable-hash pattern as `customer_agent._seeded_index` /
+    `identity.display_name_for_seat`: never Python's global `random` or a
+    time-based seed, so the same underlying event and receiving seat always
+    render the same memo skeleton across reruns, while different
+    seats/events spread naturally across the pool.
+    """
+    if pool_size <= 0:
+        return 0
+    digest = hashlib.sha256(f"share_memo:{customer_id}:{event_id}:{seat_id}".encode("utf-8")).hexdigest()
+    return int(digest, 16) % pool_size
+
+
+def _summarize_inbox_customer_share(message: dict[str, Any], *, to_seat: str = "") -> str:
     """Render a customer_utterance inbox delivery as a natural internal-share
     summary built only from whitelisted structured fields (never the
-    customer's own words) -- e.g. "連絡事項の共有: お客様より投資信託の申込希望あり。
-    期日は4月3日。". Deterministic: same fields always render the same text.
+    customer's own words) -- e.g. "連絡事項の共有: お客様より投資信託についてご相談
+    あり。". Stage-aware (never asserts an application request for a
+    consultation-stage event) and seeded per (customer_id, event_id,
+    receiving seat) across several skeletons per stage, so memos are not
+    byte-identical clones of each other. Deterministic: the same fields
+    always render the same text.
+
+    `to_seat` is the ledger-payload-level receiving seat id (sibling to the
+    `message` dict, from recorder.record_inbox's {"to_seat", "message"}
+    shape) -- it is never read off `message` itself, since a seat id inside
+    the world-visible message would be forbidden routing metadata (see
+    kernel.FORBIDDEN_INBOX_KEYS / customer_agent.world_visible_message).
     """
     product = str(message.get("product") or "").strip()
     deadline_display = str(message.get("deadline_display") or "").strip()
+    stage = str(message.get("customer_stage") or "application_intent").strip()
+    if stage not in _SHARE_MEMO_SKELETONS_BY_STAGE:
+        stage = "application_intent"
     if not product and not deadline_display:
         return ""
-    parts = [f"お客様より{product}の申込希望あり。" if product else "お客様より申込希望あり。"]
+    customer_id = str(message.get("customer_id") or "")
+    event_id = str(message.get("event_id") or "")
+    seat_id = to_seat
+    if product:
+        pool = _SHARE_MEMO_SKELETONS_BY_STAGE[stage]
+        idx = _seeded_share_memo_index(customer_id=customer_id, event_id=event_id, seat_id=seat_id, pool_size=len(pool))
+        parts = [pool[idx].format(product=product)]
+    else:
+        pool = _SHARE_MEMO_SKELETONS_NO_PRODUCT[stage]
+        idx = _seeded_share_memo_index(customer_id=customer_id, event_id=event_id, seat_id=seat_id, pool_size=len(pool))
+        parts = [pool[idx]]
     if deadline_display:
         deadline_text = deadline_display[:-2] if deadline_display.endswith("まで") else deadline_display
         parts.append(f"期日は{deadline_text}。")

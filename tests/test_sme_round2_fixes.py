@@ -45,7 +45,7 @@ from company_twin.customer_agent import (
 from company_twin.deck import CustomerEvent, build_customer_deck
 from company_twin.design_loader import load_design
 from company_twin.mutations import LEAK_PATTERNS
-from company_twin.sme_blind_review import sample_run_bundle_excerpts, strip_experimenter_vocabulary
+from company_twin.sme_blind_review import _summarize_inbox_customer_share, sample_run_bundle_excerpts, strip_experimenter_vocabulary
 
 
 def _design():
@@ -175,47 +175,36 @@ def test_control_condition_pool_prefers_omission_over_literal_declaration():
 # ---------------------------------------------------------------------------
 
 
-def test_inbox_delivered_customer_share_never_echoes_utterance_verbatim(tmp_path):
-    run_root = tmp_path / "run_verbatim_check"
-    run_root.mkdir(parents=True, exist_ok=True)
-    (run_root / "chat_channel.jsonl").write_text("", encoding="utf-8")
+def test_inbox_delivered_customer_share_never_echoes_utterance_verbatim():
+    # Round 4 (data/design/MASTER_DESIGN.md §17.8) made sample_run_bundle_excerpts
+    # sample at most one excerpt per underlying customer event, so a run
+    # bundle containing only one utterance+share pair for one event no
+    # longer necessarily emits the share excerpt (the utterance excerpt,
+    # which appears first in the ledger, wins that slot instead -- see
+    # tests/test_sme_round4_fixes.py for that sampling-policy coverage).
+    # This test now exercises the renderer itself directly: whatever the
+    # sampling policy is, the share summary it *would* render must never
+    # copy the customer's own words verbatim.
     utterance = "投資信託の申込をお願いしたいのですが、期日までに間に合いますか。"
-    ledger_rows = [
-        {
-            "event_type": "customer_utterance",
-            "payload": {"event_id": "EVT-1", "customer_id": "CUS-1", "utterance": utterance, "reply": False},
-        },
-        {
-            "event_type": "inbox_delivered",
-            "payload": {
-                "to_seat": "emp-A",
-                "message": {
-                    "kind": "customer_utterance",
-                    "tick": 1,
-                    "event_id": "EVT-1",
-                    "customer_id": "CUS-1",
-                    "application_id": "APP-1",
-                    "product": "投資信託",
-                    "deadline_display": "2026年4月3日(金)まで",
-                    "utterance": utterance,
-                },
-            },
-        },
-    ]
-    (run_root / "world_ledger.jsonl").write_text(
-        "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in ledger_rows), encoding="utf-8"
-    )
-    (run_root / "attempts.jsonl").write_text("", encoding="utf-8")
+    message = {
+        "kind": "customer_utterance",
+        "tick": 1,
+        "event_id": "EVT-1",
+        "customer_id": "CUS-1",
+        "application_id": "APP-1",
+        "product": "投資信託",
+        "deadline_display": "2026年4月3日(金)まで",
+        "utterance": utterance,
+        "customer_stage": "application_intent",
+    }
 
-    excerpts = sample_run_bundle_excerpts(run_root)
+    summary = _summarize_inbox_customer_share(message, to_seat="emp-A")
 
-    share_excerpts = [excerpt for excerpt in excerpts if excerpt["text"].startswith("連絡事項の共有")]
-    assert share_excerpts, "expected an internal-share excerpt to be sampled"
-    for excerpt in share_excerpts:
-        assert utterance not in excerpt["text"]
+    assert summary.startswith("連絡事項の共有")
+    assert utterance not in summary
     # The internal share must instead read as a natural third-person summary
     # derived from structured fields.
-    assert any("投資信託" in excerpt["text"] for excerpt in share_excerpts)
+    assert "投資信託" in summary
 
 
 def test_inbox_delivered_customer_share_summary_passes_leak_lint(tmp_path):
