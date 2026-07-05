@@ -245,17 +245,24 @@ def test_specificity_summary_computes_per_category_and_overall_rates_on_syntheti
         {"sample_id": "C", "category": "weak_support", "human_label": "unsupported", "judge_label": "unsupported", "correct": True},
         {"sample_id": "D", "category": "weak_support", "human_label": "unsupported", "judge_label": "unsupported", "correct": True},
         {"sample_id": "E", "category": "missing_handle", "human_label": "not_evaluated", "judge_label": "not_evaluated", "correct": True},
+        {"sample_id": "F", "category": "weak_support", "human_label": "unsupported", "judge_label": "contradicted", "correct": False},
     ]
 
     summary = summarize_g3_calibration_scores(rows, judge=_StubJudge(), source_path="synthetic-mini-set")
 
-    assert summary["case_count"] == 5
+    assert summary["case_count"] == 6
     assert summary["correct_count"] == 4
-    assert summary["incorrect_count"] == 1
-    assert summary["overall_specificity_rate"] == 4 / 5
-    assert summary["by_category"]["contradicted"] == {"total": 2, "correct": 1, "incorrect": 1, "specificity_rate": 0.5}
-    assert summary["by_category"]["weak_support"] == {"total": 2, "correct": 2, "incorrect": 0, "specificity_rate": 1.0}
-    assert summary["by_category"]["missing_handle"] == {"total": 1, "correct": 1, "incorrect": 0, "specificity_rate": 1.0}
+    assert summary["incorrect_count"] == 2
+    assert summary["overall_specificity_rate"] == 4 / 6
+    # Rejection counts any non-"supported" verdict on a known-bad case, so
+    # sample F (weak_support judged with the harsher "contradicted" label) is
+    # incorrect on exact-label agreement but still a rejection. Sample B
+    # (judged "supported") is the only acceptance.
+    assert summary["rejected_count"] == 5
+    assert summary["overall_rejection_rate"] == 5 / 6
+    assert summary["by_category"]["contradicted"] == {"total": 2, "correct": 1, "incorrect": 1, "rejected": 1, "specificity_rate": 0.5, "rejection_rate": 0.5}
+    assert summary["by_category"]["weak_support"] == {"total": 3, "correct": 2, "incorrect": 1, "rejected": 3, "specificity_rate": 2 / 3, "rejection_rate": 1.0}
+    assert summary["by_category"]["missing_handle"] == {"total": 1, "correct": 1, "incorrect": 0, "rejected": 1, "specificity_rate": 1.0, "rejection_rate": 1.0}
     assert summary["judge"]["backend"] == "openrouter"
     assert summary["judge"]["readiness_eligible"] is True
     assert summary["source_path"] == "synthetic-mini-set"
