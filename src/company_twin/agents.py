@@ -134,7 +134,9 @@ def default_seat_factory(*, root: Path, model: str | None) -> SeatFactory:
 
 CUSTOMER_SYSTEM_PROMPT = """あなたは金融サービスの申込・相談を行う一般のお客様本人です。
 与えられた「あなたの状況」と「あなた自身しか知らない内心」に沿って、担当者に伝える発話を一つ、日本語で自然に生成してください。
-内心の記述をそのまま読み上げたり、設定や指示という言葉を使ったりせず、その人物として話してください。発話は2〜4文。"""
+内心の記述をそのまま読み上げたり、設定や指示という言葉を使ったりせず、その人物として話してください。発話は2〜4文。
+自分の状況を「標準的な条件」「通常の案件」「通常どおり」「一般的な手続き」のような分類ラベルで形容してはいけません。普通の客は自分の事情をそのように呼びません。要望や事情は具体的な言葉でそのまま伝えてください。
+発話は必ず自然な日本語のみで生成し、他の言語の単語や漢字表現を混ぜないでください。"""
 
 
 class DeepAgentCustomer:
@@ -149,19 +151,44 @@ class DeepAgentCustomer:
         self._agent = create_deep_agent(model=_chat_model(self.model), tools=[], system_prompt=CUSTOMER_SYSTEM_PROMPT, subagents=[], name="company-twin-customer")
 
     def __call__(self, persona_prompt: str) -> str:
+        # Language-mixing guard (data/design/MASTER_DESIGN.md §17.5, round-3
+        # blind SME review): detect obviously non-Japanese tokens in the
+        # generated utterance and retry once with a corrective instruction.
+        # Detection lives in customer_agent (imported lazily here to avoid a
+        # circular import, since customer_agent imports CustomerLLM from this
+        # module). The retry is best-effort and deterministic in structure --
+        # if the second attempt still trips the detector, the text is kept
+        # as-is (honest: we never silently rewrite the utterance). Both calls
+        # go through the ordinary llm_invoke/llm_response recording path, so
+        # every attempt -- original and retry -- is auditable in
+        # attempts.jsonl without any special-cased recorder semantics.
+        from .customer_agent import detect_non_japanese_tokens
+
+        text = self._invoke(persona_prompt)
+        hits = detect_non_japanese_tokens(text)
+        if hits:
+            corrective_prompt = (
+                f"{persona_prompt}\n\n"
+                "注意: 直前の発話案に日本語として不自然な語（他言語由来の表現）が含まれていました。"
+                "自然な日本語のみを使って、同じ内容をもう一度生成してください。"
+            )
+            text = self._invoke(corrective_prompt)
+        return text
+
+    def _invoke(self, prompt: str) -> str:
         self.recorder.record_attempt(
             seat_id="customer",
             tool="llm_invoke",
-            args={"backend": self.backend, "model": self.model, "role": "customer", "prompt_chars": len(persona_prompt), "phase": "start"},
+            args={"backend": self.backend, "model": self.model, "role": "customer", "prompt_chars": len(prompt), "phase": "start"},
             success=True,
             result={"phase": "start"},
         )
-        result = self._agent.invoke({"messages": [{"role": "user", "content": persona_prompt}]}, config={"recursion_limit": 8})
+        result = self._agent.invoke({"messages": [{"role": "user", "content": prompt}]}, config={"recursion_limit": 8})
         text = final_text(result).strip()
         self.recorder.record_attempt(
             seat_id="customer",
             tool="llm_response",
-            args={"backend": self.backend, "model": self.model, "role": "customer", "prompt_chars": len(persona_prompt)},
+            args={"backend": self.backend, "model": self.model, "role": "customer", "prompt_chars": len(prompt)},
             success=True,
             result={"response_chars": len(text)},
         )

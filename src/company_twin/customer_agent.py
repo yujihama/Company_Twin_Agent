@@ -30,6 +30,50 @@ from .world_calendar import render_deadline_date
 # always reproduce identical worlds.
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Round-3 blind SME review follow-up (data/design/MASTER_DESIGN.md §17.5):
+# parameter verbalization.
+#
+# Round 3 flagged customers speaking their own condition label out loud --
+# "標準的な条件で進めていただけますと", "通常の案件となりますので", "通常通りに
+# 進めさせてください", "標準的な書類等で" -- because persona_prompt handed the
+# LLM the abstract label directly (e.g. event.world_visible containing the
+# word "通常") and the model paraphrased that label back as if a real customer
+# would narrate their own experimental condition. A real customer never
+# announces "I am the standard/routine case"; they simply describe what they
+# want, concretely.
+#
+# Fix: persona_prompt/reply_prompt now give the LLM concrete BEHAVIORAL
+# direction ("you are not in a hurry, you have no special requests, just say
+# what you want plainly") instead of an abstract label, plus an explicit
+# negative instruction naming the exact banned self-labeling phrasings. The
+# underlying CustomerEvent parameters (product, deadline, latent_truth,
+# elderly/complication flags) are conveyed with identical fidelity -- only the
+# meta-language ("this is the standard/routine case") is suppressed. See
+# `_BANNED_META_LABEL_PHRASES` below and `test_sme_round3_fixes.py`.
+# ---------------------------------------------------------------------------
+
+_BANNED_META_LABEL_PHRASES: tuple[str, ...] = (
+    "標準的な条件",
+    "標準的な書類",
+    "標準的な流れ",
+    "通常の案件",
+    "通常どおり",
+    "通常通り",
+    "一般的な手続き",
+    "一般的な条件",
+    "案件種別",
+)
+
+_NEGATIVE_META_LABEL_INSTRUCTION = (
+    "重要: 自分の状況を分類名やラベルであるかのように形容してはいけません。"
+    "「標準的な条件で」「通常の案件となりますので」「通常通りに進めさせてください」"
+    "「標準的な書類等で」「一般的な手続きで結構です」のような、自分の事情を"
+    "分類名で呼ぶ言い方は普通の客はしません。急いでいる・急いでいない、"
+    "希望がある・特にない、といった自分の状況と要望だけを、分類名やラベルを使わずに"
+    "そのまま自然な言葉で伝えてください。"
+)
+
 _OPENING_PHRASES: tuple[str, ...] = (
     "お世話になっております。{product}のことでご相談したいのですが。",
     "先日ご案内いただいた{product}について、少し伺いたいことがあります。",
@@ -215,6 +259,8 @@ def persona_prompt(event: CustomerEvent, *, persona_seed: int = 0) -> str:
 あなたの話し方の一例（この通りでなくてよいが、この言い回し・トーンを参考に、あなた自身の言葉として自然に伝えてください。他の顧客と同じ言い回しの繰り返しは避けてください）:
 「{scripted}」
 
+{_NEGATIVE_META_LABEL_INSTRUCTION}
+
 この状況で、担当者に最初に伝える発話を生成してください。"""
 
 
@@ -225,6 +271,8 @@ def reply_prompt(event: CustomerEvent, history: list[tuple[str, str]]) -> str:
 
 ここまでのやり取り:
 {rendered}
+
+{_NEGATIVE_META_LABEL_INSTRUCTION}
 
 担当者の直近の説明・質問に対するあなたの返答を1つ生成してください。内心に照らして、理解できていなければ同じ点を別の言い方でもう一度尋ね、納得していれば次の手続きへ進む意思を伝えてください。2〜3文。"""
 
@@ -252,3 +300,59 @@ def deadline_display(now_tick: int, deadline_tick: int) -> str:
     if remaining == 0:
         return "本日中"
     return f"{render_deadline_date(deadline_tick)}まで"
+
+
+# ---------------------------------------------------------------------------
+# Round-3 blind SME review follow-up: language-mixing guard.
+#
+# Round 3 also found a non-Japanese token ("ご指引", a simplified-Chinese-style
+# rendering of "guidance"/"instruction" that does not occur in natural
+# Japanese) inside an otherwise-Japanese customer utterance. This is a
+# best-effort, deterministic-structure DETECTOR only -- it flags a small set
+# of characters/tokens that are simplified-Chinese-only or otherwise never
+# appear in natural Japanese business speech. It does not attempt full
+# language identification (out of scope and unreliable at utterance length).
+# The retry itself lives at the LLM-call layer (agents.DeepAgentCustomer),
+# never here, so both the original and retried calls are captured as
+# ordinary llm_invoke/llm_response attempts in attempts.jsonl -- an honest,
+# auditable record rather than a silent rewrite.
+# ---------------------------------------------------------------------------
+
+# Simplified-Chinese-only characters: grammatical/function characters that
+# never occur in standard Japanese orthography (unlike e.g. 時/間/問/題/現/在,
+# which are ordinary Japanese kanji and must NOT be on this list, or false
+# positives would fire on completely legitimate Japanese text). Their mere
+# presence in a Japanese customer utterance is a strong signal of language
+# mixing, independent of surrounding context.
+_SIMPLIFIED_CHINESE_ONLY_CHARS: frozenset[str] = frozenset("们这那谁么吗呢吧啊哦哈嘛咱您怎")
+
+# Whole tokens observed (or plausible near-neighbors of what was observed) to
+# leak from a non-Japanese register into an otherwise-Japanese utterance --
+# e.g. round 3's "ご指引" (simplified/compound rendering of "guidance" that a
+# natural Japanese speaker would render as "ご案内"/"ご指示"/"ご教示").
+_NON_JAPANESE_TOKENS: tuple[str, ...] = (
+    "ご指引",
+    "谢谢",
+    "请问",
+    "可以吗",
+    "没问题",
+    "不好意思",
+)
+
+
+def detect_non_japanese_tokens(text: str) -> list[str]:
+    """Return the distinct non-Japanese signals found in `text`, if any.
+
+    Best-effort and deterministic: checks a fixed token list plus a
+    Simplified-Chinese-only character set. Empty list means "nothing
+    detected", not "confirmed pure Japanese" -- this is a safety-net lint,
+    not a language classifier.
+    """
+    hits: list[str] = []
+    for token in _NON_JAPANESE_TOKENS:
+        if token in text:
+            hits.append(token)
+    for ch in text:
+        if ch in _SIMPLIFIED_CHINESE_ONLY_CHARS and ch not in hits:
+            hits.append(ch)
+    return hits
