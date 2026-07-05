@@ -14,7 +14,13 @@ from company_twin.design_loader import load_design, stable_text_sha256
 from company_twin.harness import _s0_prompt, _turn_prompt, run_s1_episode
 from company_twin.kernel import WorldKernel, KernelProfile
 from company_twin.recorder import RunRecorder, read_jsonl
-from company_twin.readiness import REPORT_SCHEMA_VERSION, run_readiness_gate, write_readiness_reports
+from company_twin.readiness import (
+    REPORT_SCHEMA_VERSION,
+    ROUTINE_SMOKE_MAX_CORRUPT_LINE_RATIO,
+    _routine_smoke_report,
+    run_readiness_gate,
+    write_readiness_reports,
+)
 from company_twin.tools import ROLE_TOOL_BUNDLES, build_role_tools
 from company_twin.world_config import build_world_config
 from conftest import fake_seat_factory
@@ -427,6 +433,98 @@ def test_readiness_reports_are_schema_backed_and_do_not_fake_stage9_pass(tmp_pat
     failed = {check["check"] for check in readiness["checks"] if not check["passed"]}
     assert "backcasting_passed" in failed
     assert "semantic_grounding_all3_threshold" in failed
+
+
+# ── Routine smoke robustness: corrupt JSONL lines must be surfaced, not fatal ─
+
+def _routine_s2_bundle(
+    root: Path,
+    *,
+    utterances: int = 30,
+    month_end: bool = True,
+    seats: tuple[str, ...] = ("emp-A", "emp-B"),
+    extra_attempt_bytes: bytes = b"",
+    with_metrics: bool = True,
+) -> None:
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "meta.json").write_text(json.dumps({"stage": "S2", "live": True}), encoding="utf-8")
+    events = [{"event_type": "customer_utterance"} for _ in range(utterances)]
+    if month_end:
+        events.append({"event_type": "month_end_close"})
+    _write_jsonl(root / "world_ledger.jsonl", events)
+    attempts = b"".join(json.dumps({"origin": "agent", "seat_id": seat}).encode("utf-8") + b"\n" for seat in seats)
+    (root / "attempts.jsonl").write_bytes(attempts + extra_attempt_bytes)
+    if with_metrics:
+        (root / "triage").mkdir(exist_ok=True)
+        (root / "triage" / "metrics.json").write_text(json.dumps({"stage": "S2"}), encoding="utf-8")
+
+
+def test_routine_smoke_survives_corrupt_jsonl_line_and_surfaces_counts(tmp_path: Path) -> None:
+    # Reproduces the real Track A crash: a stray non-UTF-8 byte mid-file
+    # (s2_seed0/attempts.jsonl, byte 0xa7) must not abort report generation.
+    corrupt = b"\xa7\xe3\x83\xb3partial flushed line\n"
+    _routine_s2_bundle(tmp_path / "s2_seed0", utterances=150, extra_attempt_bytes=corrupt)
+
+    payload = _routine_smoke_report(tmp_path)
+
+    assert payload["passed"] is True
+    corruption = next(c for c in payload["checks"] if c["name"] == "jsonl_corruption_within_tolerance")
+    assert corruption["passed"] is True
+    observed = corruption["observed"]
+    assert observed["corrupted_line_count"] == 1
+    assert observed["unparsed_line_count"] == 1
+    assert observed["undecodable_line_count"] == 1
+    assert observed["corrupted_files"] == {"s2_seed0/attempts.jsonl": 1}
+    assert 0 < observed["corruption_ratio"] <= ROUTINE_SMOKE_MAX_CORRUPT_LINE_RATIO
+
+    # End-to-end: the written report flips the readiness item to PASS.
+    write_readiness_reports(tmp_path)
+    gate = run_readiness_gate(tmp_path)
+    routine = next(c for c in gate["checks"] if c["check"] == "routine_smoke_passed")
+    assert routine["passed"] is True
+
+
+def test_routine_smoke_fails_when_corruption_ratio_excessive(tmp_path: Path) -> None:
+    garbage = b"".join(b"\xa7 garbage line\n" for _ in range(10))
+    _routine_s2_bundle(tmp_path / "s2_seed0", utterances=30, extra_attempt_bytes=garbage)
+
+    payload = _routine_smoke_report(tmp_path)
+
+    # Content thresholds pass on parsed data, but excessive corruption must
+    # block the report: degraded evidence is not clean evidence.
+    corruption = next(c for c in payload["checks"] if c["name"] == "jsonl_corruption_within_tolerance")
+    assert corruption["passed"] is False
+    assert corruption["observed"]["corrupted_line_count"] == 10
+    content_checks = {c["name"]: c["passed"] for c in payload["checks"] if c["name"] != "jsonl_corruption_within_tolerance"}
+    assert all(content_checks.values())
+    assert payload["passed"] is False
+
+
+def test_routine_smoke_surfaces_run_roots_missing_triage_metrics(tmp_path: Path) -> None:
+    _routine_s2_bundle(tmp_path / "s2_seed0", with_metrics=False)
+    _routine_s2_bundle(tmp_path / "s2_seed1")
+
+    payload = _routine_smoke_report(tmp_path)
+
+    assert payload["run_roots_missing_triage_metrics"] == ["s2_seed0"]
+    assert payload["passed"] is True
+
+
+def test_routine_smoke_still_fails_honestly_on_insufficient_parsed_data(tmp_path: Path) -> None:
+    # Tolerant reading must never turn missing evidence into a pass: skipped
+    # corrupt lines do not count toward thresholds.
+    _routine_s2_bundle(tmp_path / "s2_seed0", utterances=5, extra_attempt_bytes=b"\xa7bad\n")
+
+    payload = _routine_smoke_report(tmp_path)
+
+    assert payload["passed"] is False
+    minimum = next(c for c in payload["checks"] if c["name"] == "routine_customer_utterances_minimum")
+    assert minimum["passed"] is False and minimum["observed"] == 5
+
+    write_readiness_reports(tmp_path)
+    gate = run_readiness_gate(tmp_path)
+    routine = next(c for c in gate["checks"] if c["check"] == "routine_smoke_passed")
+    assert routine["passed"] is False
 
 
 def test_ensemble_triage_groups_by_config_across_seeds(tmp_path: Path) -> None:

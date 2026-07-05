@@ -181,21 +181,43 @@ def _report(report_type: str, checks: list[dict[str, Any]], *, notes: list[str] 
     }
 
 
+ROUTINE_SMOKE_MAX_CORRUPT_LINE_RATIO = 0.01
+
+
 def _routine_smoke_report(campaign_root: Path, *, required_customer_utterances: int = 28) -> dict[str, Any]:
     s2_roots = _s2_roots(campaign_root)
     utterances = 0
     month_end = False
     active_seats: set[str] = set()
+    parsed_lines = 0
+    unparsed_lines = 0
+    undecodable_lines = 0
+    corrupted_lines = 0
+    corrupted_files: dict[str, int] = {}
+    missing_triage_metrics: list[str] = []
     for root in s2_roots:
-        for row in _read_jsonl(root / "world_ledger.jsonl"):
+        if not (root / "triage" / "metrics.json").exists():
+            missing_triage_metrics.append(root.name)
+        ledger_rows, ledger_stats = _read_jsonl_tolerant(root / "world_ledger.jsonl")
+        attempt_rows, attempt_stats = _read_jsonl_tolerant(root / "attempts.jsonl")
+        for filename, stats in (("world_ledger.jsonl", ledger_stats), ("attempts.jsonl", attempt_stats)):
+            parsed_lines += stats["parsed"]
+            unparsed_lines += stats["unparsed"]
+            undecodable_lines += stats["undecodable"]
+            corrupted_lines += stats["corrupted"]
+            if stats["corrupted"]:
+                corrupted_files[f"{root.name}/{filename}"] = stats["corrupted"]
+        for row in ledger_rows:
             event_type = row.get("event_type")
             if event_type == "customer_utterance":
                 utterances += 1
             if event_type == "month_end_close":
                 month_end = True
-        for row in _read_jsonl(root / "attempts.jsonl"):
+        for row in attempt_rows:
             if row.get("origin") == "agent" and row.get("seat_id"):
                 active_seats.add(str(row["seat_id"]))
+    total_lines = parsed_lines + unparsed_lines
+    corruption_ratio = (corrupted_lines / total_lines) if total_lines else 0.0
     checks = [
         {"name": "s2_bundle_present", "passed": bool(s2_roots), "observed": len(s2_roots)},
         {
@@ -206,8 +228,30 @@ def _routine_smoke_report(campaign_root: Path, *, required_customer_utterances: 
         },
         {"name": "month_end_present", "passed": month_end, "observed": month_end},
         {"name": "multiple_agent_seats_active", "passed": len(active_seats) >= 2, "observed": sorted(active_seats)},
+        {
+            "name": "jsonl_corruption_within_tolerance",
+            "passed": corruption_ratio <= ROUTINE_SMOKE_MAX_CORRUPT_LINE_RATIO,
+            "observed": {
+                "parsed_line_count": parsed_lines,
+                "unparsed_line_count": unparsed_lines,
+                "undecodable_line_count": undecodable_lines,
+                "corrupted_line_count": corrupted_lines,
+                "corruption_ratio": corruption_ratio,
+                "corrupted_files": corrupted_files,
+            },
+            "max_corrupt_line_ratio": ROUTINE_SMOKE_MAX_CORRUPT_LINE_RATIO,
+        },
     ]
-    return _report("routine_smoke", checks, notes=["Stage 9 C-smoke expects routine coverage, not only a smoke S2 bundle."])
+    payload = _report(
+        "routine_smoke",
+        checks,
+        notes=[
+            "Stage 9 C-smoke expects routine coverage, not only a smoke S2 bundle.",
+            "Corrupt JSONL lines are skipped for event counting but always counted and surfaced; thresholds are evaluated on successfully parsed data only.",
+        ],
+    )
+    payload["run_roots_missing_triage_metrics"] = missing_triage_metrics
+    return payload
 
 
 def _retrieval_audit_report(corpus: Any | None) -> dict[str, Any]:
@@ -287,14 +331,45 @@ def _s2_roots(campaign_root: Path) -> list[Path]:
     return roots
 
 
-def _read_jsonl(path: Path) -> list[dict[str, Any]]:
+def _read_jsonl_tolerant(path: Path) -> tuple[list[dict[str, Any]], dict[str, int]]:
+    """Read JSONL rows, skipping unusable lines while counting every degradation.
+
+    Live S2 logs can contain partially flushed lines (observed on real Track A
+    data: a stray non-UTF-8 byte in s2_seed0/attempts.jsonl). Readiness report
+    generation must not crash on one corrupt byte, but it must never silently
+    pretend the file was clean: callers surface these counts in the report
+    payload and gate on the corruption ratio.
+
+    Stats semantics per non-empty line:
+    - parsed: decoded to a JSON object; used for threshold evaluation.
+    - unparsed: failed json parsing or was not an object; skipped.
+    - undecodable: contained invalid UTF-8 bytes (replacement chars present).
+    - corrupted: unparsed or undecodable (unique line count).
+    """
+    stats = {"parsed": 0, "unparsed": 0, "undecodable": 0, "corrupted": 0}
     if not path.exists():
-        return []
+        return [], stats
     rows: list[dict[str, Any]] = []
-    for line in path.read_text(encoding="utf-8").splitlines():
-        if line.strip():
-            rows.append(json.loads(line))
-    return rows
+    text = path.read_bytes().decode("utf-8", errors="replace")
+    for line in text.splitlines():
+        if not line.strip():
+            continue
+        undecodable = "�" in line
+        if undecodable:
+            stats["undecodable"] += 1
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError:
+            row = None
+        if not isinstance(row, dict):
+            stats["unparsed"] += 1
+            stats["corrupted"] += 1
+            continue
+        stats["parsed"] += 1
+        if undecodable:
+            stats["corrupted"] += 1
+        rows.append(row)
+    return rows, stats
 
 
 def _semantic_observation(run_root: Path, metrics: dict[str, Any]) -> dict[str, Any]:
