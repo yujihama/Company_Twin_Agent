@@ -379,8 +379,22 @@ def test_external_claim_readiness_holdout_requires_controls_section(tmp_path: Pa
     root = tmp_path / "s2_holdout_0"
     root.mkdir(parents=True, exist_ok=True)
     (root / "triage").mkdir(exist_ok=True)
+    expected_finding_type = injection["expected_finding_types"][0]
+    # Activation evidence (2026-07-06 approved activation-aware holdout
+    # protocol, MASTER_DESIGN.md section 17.9): a genuine opportunity_count
+    # for the expected finding type (via rule_hit_rate) plus a successful
+    # read_document attempt on the injection's target_doc_id (exposure) --
+    # without both, this run would be scored as unactivated and fail outright
+    # regardless of the finding_types below.
     (root / "triage" / "metrics.json").write_text(
-        json.dumps({"stage": "S2", "finding_types": {injection["expected_finding_types"][0]: 1}, "rule_hit_rate": {}, "detection_miss_rate": {}}),
+        json.dumps(
+            {
+                "stage": "S2",
+                "finding_types": {expected_finding_type: 1},
+                "rule_hit_rate": {"MON-ACTIVATION-TEST": {"finding_type": expected_finding_type, "opportunity_count": 3, "hit_count": 1}},
+                "detection_miss_rate": {},
+            }
+        ),
         encoding="utf-8",
     )
     (root / "config.json").write_text(
@@ -389,6 +403,24 @@ def test_external_claim_readiness_holdout_requires_controls_section(tmp_path: Pa
     )
     (root / "meta.json").write_text(json.dumps({"stage": "S2", "mutation_ids": [injection["mutation_id"]]}), encoding="utf-8")
     (root / "world_ledger.jsonl").write_text("".join(json.dumps({"tick": t}) + "\n" for t in range(1, 5)), encoding="utf-8")
+    (root / "attempts.jsonl").write_text(
+        json.dumps(
+            {
+                "ts": "2026-07-06T00:00:00+00:00",
+                "run_id": "test",
+                "tick": 1,
+                "seat_id": "seat_sales_1",
+                "tool": "read_document",
+                "args": {"doc_id": injection["target_doc_id"]},
+                "success": True,
+                "result": {"citation_handle": "H-1", "doc_id": injection["target_doc_id"], "version": "1.1"},
+                "denied_reason": None,
+                "origin": "agent",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
 
     # No controls supplied -> external item stays false even though the holdout report passes.
     write_holdout_report(tmp_path, run_lookup={injection["injection_id"]: root})

@@ -564,6 +564,7 @@ def holdout_plan(
     auto_run_roots: Annotated[bool, typer.Option("--auto-run-roots", help="Give each injection exactly one planned run root named after its injection_id (holdout_<mutation_id>) -- the one-to-one attribution a multi-mutation plan needs; mutually exclusive with --run-root")] = False,
     planned_ticks: Annotated[int, typer.Option("--planned-ticks", help="Expected world_ledger tick coverage for a live S2 bundle attributed to this plan's injections")] = 0,
     control_run_root: Annotated[list[str] | None, typer.Option("--control-run-root", help="Designated no-mutation control run-root name, sealed into the plan (part of plan_hash) for delta-aware detection and benign-control baseline scoring; repeat for multiple")] = None,
+    seeds_per_injection: Annotated[int, typer.Option("--seeds-per-injection", help="Number of independent seeded run roots to plan per injection (requires --auto-run-roots when > 1); sealed into plan_hash. Default 1 keeps the pre-existing holdout_<mutation_id> naming")] = 1,
     root: Annotated[Path | None, typer.Option("--root")] = None,
 ) -> None:
     """WP-14: build a holdout injection plan from the WP-06 mutation catalog and write holdout_inputs.json."""
@@ -575,6 +576,7 @@ def holdout_plan(
         auto_run_roots=auto_run_roots,
         planned_ticks=planned_ticks,
         control_run_roots=control_run_root,
+        seeds_per_injection=seeds_per_injection,
     )
     write_holdout_inputs(campaign_root.resolve(), plan)
     _echo_json(plan)

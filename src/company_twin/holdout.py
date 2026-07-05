@@ -40,6 +40,25 @@ operator, not one expected to introduce a new anomaly) are excluded from the
 positive-control denominator and instead scored by score_benign_controls on
 whether nothing went newly wrong, reported in their own section.
 
+2026-07-06 approved activation-aware holdout protocol (MASTER_DESIGN.md
+section 17.9): a positive-control trial can only demonstrate detection if the
+injected stimulus was actually ACTIVATED in that run -- EXPOSURE (the
+injected/patched document was actually read by a seat) AND OPPORTUNITY (at
+least one expected finding type had a genuine opportunity_count > 0 in the
+run's triage metrics). This closes the false-negative-looking hole found via
+a holdout-activation diagnosis (MASTER_DESIGN.md section 17.7): a run can
+score as an undetected miss when in truth the injected stimulus never reached
+the world surface / never had an opportunity to be observed, which is not a
+detection failure at all. Every run scored per injection now records
+exposure/opportunity/activated; strict detection is evaluated only over
+ACTIVATED trials, and an injection with ZERO activated trials among its
+planned runs FAILS OUTRIGHT (inactivation is recorded honestly, never used to
+excuse an injection from the denominator or quietly drop it). See
+`_run_activation`, `_score_injection`, and `build_holdout_injection_plan`'s
+`seeds_per_injection` (multi-seed support, K>1 gives each injection K planned
+run roots named `holdout_<mutation_id>_seed<N>`; K=1 keeps the pre-existing
+`holdout_<mutation_id>` naming for backward compatibility).
+
 This module never calls an LLM or external API. Detection-rate measurement
 against live campaign data happens later, by pointing compute_holdout_detection_rate
 at real run bundles; this module only supplies the plan/measurement machinery
@@ -53,6 +72,7 @@ from typing import Any
 
 from .mutations import load_mutation_catalog
 from .readiness import REPORT_SCHEMA_VERSION
+from .recorder import read_jsonl
 from .world_config import _json_hash
 
 HOLDOUT_INPUTS_SCHEMA_VERSION = "company_twin.holdout_inputs.v1"
@@ -93,6 +113,7 @@ def build_holdout_injection_plan(
     auto_run_roots: bool = False,
     planned_ticks: int = 0,
     control_run_roots: list[str] | None = None,
+    seeds_per_injection: int = 1,
 ) -> dict[str, Any]:
     """Build a WP-14 holdout injection plan from the WP-06 mutation catalog.
 
@@ -117,7 +138,25 @@ def build_holdout_injection_plan(
     `score_benign_controls` both compare against the exact control set that
     was pre-registered at plan-build time, not one chosen post-hoc at scoring
     time.
+
+    `seeds_per_injection` (default 1, backward compatible) is the number of
+    independent seeded runs `auto_run_roots` plans for EACH injection --
+    2026-07-06 approved activation-aware holdout protocol (MASTER_DESIGN.md
+    section 17.9), multi-seed support. With K=1 (the default), an injection's
+    `planned_run_roots` is `["holdout_<mutation_id>"]`, unchanged from before
+    this field existed. With K>1, `auto_run_roots` must also be set (each
+    injection needs one-to-one attribution per seed) and `planned_run_roots`
+    becomes `["holdout_<mutation_id>_seed1", ..., "holdout_<mutation_id>_seedK"]`;
+    this K is sealed into `plan_hash` (a plan built with a different K for the
+    same mutation set hashes differently, even though `run_roots`/
+    `auto_run_roots` alone don't change). An injection is DETECTED when at
+    least one of its K seeded trials is both activated and a strict hit; see
+    `compute_holdout_detection_rate`/`_score_injection`.
     """
+    if seeds_per_injection < 1:
+        raise ValueError("seeds_per_injection must be >= 1")
+    if seeds_per_injection > 1 and not auto_run_roots:
+        raise ValueError("seeds_per_injection > 1 requires auto_run_roots=True (each injection needs one-to-one per-seed attribution)")
     if auto_run_roots and run_roots:
         raise ValueError("pass either run_roots (shared, attributed to every injection) or auto_run_roots (per-injection root named after the injection_id), not both")
     catalog = load_mutation_catalog(root)
@@ -138,6 +177,13 @@ def build_holdout_injection_plan(
                 "it can be scored"
             )
         operator = str(spec.get("operator") or "")
+        if auto_run_roots:
+            if seeds_per_injection > 1:
+                planned_run_roots = [f"holdout_{mutation_id}_seed{seed}" for seed in range(1, seeds_per_injection + 1)]
+            else:
+                planned_run_roots = [f"holdout_{mutation_id}"]
+        else:
+            planned_run_roots = list(run_roots or [])
         injections.append(
             {
                 "injection_id": f"holdout_{mutation_id}",
@@ -147,14 +193,16 @@ def build_holdout_injection_plan(
                 "target_doc_id": spec.get("doc_id") or spec.get("target_doc_id"),
                 "expected_finding_types": expected_finding_types,
                 "spec_hash": _json_hash(spec),
-                # auto_run_roots gives each injection exactly its own run root,
-                # named after the injection_id, so a multi-mutation plan can be
+                # auto_run_roots gives each injection its own run root(s),
+                # named after the injection_id (one per seed when
+                # seeds_per_injection > 1), so a multi-mutation plan can be
                 # sealed with one-to-one bundle attribution before any run
                 # exists (shared run_roots would attribute every bundle to
                 # every injection and correctly fail verification).
-                "planned_run_roots": [f"holdout_{mutation_id}"] if auto_run_roots else list(run_roots or []),
+                "planned_run_roots": planned_run_roots,
                 "planned_ticks": int(planned_ticks),
                 "arm": _default_arm_for_operator(operator),
+                "seeds_per_injection": int(seeds_per_injection),
             }
         )
     payload = {
@@ -315,9 +363,11 @@ def compute_holdout_detection_rate(
     lenient_detected_count = 0
     strict_detected_count = 0
     positive_control_count = 0
+    unactivated_positive_control_count = 0
     for injection in injections:
         mutation_id = str(injection.get("mutation_id") or "")
         expected_finding_types = list(injection.get("expected_finding_types") or [])
+        target_doc_id = str(injection.get("target_doc_id") or "")
         arm = _injection_arm(injection)
         run_roots = _resolve_run_roots(campaign_root, injection, run_lookup=run_lookup)
         evidence = _score_injection(
@@ -326,6 +376,7 @@ def compute_holdout_detection_rate(
             run_roots,
             expected_finding_types=expected_finding_types,
             control_run_roots=control_run_roots,
+            target_doc_id=target_doc_id,
         )
         if arm == ARM_POSITIVE_CONTROL:
             positive_control_count += 1
@@ -333,6 +384,8 @@ def compute_holdout_detection_rate(
                 lenient_detected_count += 1
             if evidence["strict_detected"]:
                 strict_detected_count += 1
+            if not evidence["activation"]["any_activated"]:
+                unactivated_positive_control_count += 1
         per_injection.append(
             {
                 "injection_id": injection.get("injection_id"),
@@ -340,10 +393,19 @@ def compute_holdout_detection_rate(
                 "spec_hash": injection.get("spec_hash"),
                 "arm": arm,
                 "expected_finding_types": expected_finding_types,
+                "target_doc_id": target_doc_id,
                 # Backward-compatible alias: "detected"/"reason" reflect the
                 # official strict basis, matching the top-level passed field.
                 "detected": evidence["strict_detected"],
                 "reason": evidence["strict_reason"],
+                # activation_summary duplicates evidence["activation"] under a
+                # more discoverable top-level key for report consumers that
+                # don't want to reach into the raw evidence blob.
+                "activation_summary": {
+                    "activated_trials": evidence["activation"]["activated_trials"],
+                    "total_trials": evidence["activation"]["total_trials"],
+                    "any_activated": evidence["activation"]["any_activated"],
+                },
                 **evidence,
             }
         )
@@ -373,6 +435,12 @@ def compute_holdout_detection_rate(
         "strict_detection_rate": strict_detection_rate,
         "lenient_detected_count": lenient_detected_count,
         "lenient_detection_rate": lenient_detection_rate,
+        # 2026-07-06 approved activation-aware holdout protocol
+        # (MASTER_DESIGN.md section 17.9): how many positive_control
+        # injections had ZERO activated trials among their planned runs --
+        # these fail outright (see _score_injection), recorded here for
+        # visibility at the measurement level too.
+        "unactivated_positive_control_count": unactivated_positive_control_count,
         "per_injection": per_injection,
     }
 
@@ -438,6 +506,118 @@ def _run_finding_type_rates(run_root: Path) -> dict[str, dict[str, Any]]:
     return rates
 
 
+# ---------------------------------------------------------------------------
+# 2026-07-06 approved activation-aware holdout protocol (MASTER_DESIGN.md
+# section 17.9)
+# ---------------------------------------------------------------------------
+#
+# A positive-control trial can only demonstrate detection if the injected
+# stimulus was actually ACTIVATED: EXPOSURE (the injected/patched document was
+# actually read by at least one seat) AND OPPORTUNITY (at least one of the
+# injection's expected finding types had a genuine opportunity_count > 0 in
+# the run's triage rule_hit_rate metrics -- the denominators already recorded
+# on every scored bundle). Without both, an "undetected" run is not evidence
+# of a detection miss: the stimulus never reached the world surface, or there
+# was nothing for a detector to have a chance to fire on, by construction
+# (see MASTER_DESIGN.md section 17.6's role_table_fix_quality_owner finding,
+# and section 17.7's probe-stimulus-delivery gap, both cases where an
+# "undetected" run in fact had zero opportunity/exposure).
+
+
+def _run_exposure(run_root: Path, target_doc_id: str) -> dict[str, Any]:
+    """Was `target_doc_id` (the injected/patched document) actually read by
+    at least one seat in this run bundle?
+
+    Checked two ways, either of which is sufficient evidence of exposure:
+    - a successful `read_document` attempt in attempts.jsonl whose
+      `args.doc_id` equals target_doc_id;
+    - a basis_records.jsonl row whose `retrieved` list cites a `doc_id`
+      equal to target_doc_id (a recorded interpretation basis that actually
+      cites the document, independent of the raw attempt log).
+
+    Returns exposed (bool) plus the concrete evidence refs found, so the
+    activation record is itself auditable rather than a bare boolean.
+    """
+    if not target_doc_id:
+        return {"exposed": False, "target_doc_id": target_doc_id, "read_document_hits": [], "basis_citation_hits": [], "detail": "injection has no target_doc_id to check exposure against"}
+    read_document_hits: list[dict[str, Any]] = []
+    for row in read_jsonl(run_root / "attempts.jsonl"):
+        if row.get("tool") != "read_document" or not row.get("success"):
+            continue
+        doc_id = str((row.get("args") or {}).get("doc_id") or "")
+        if doc_id == target_doc_id:
+            read_document_hits.append({"seat_id": row.get("seat_id"), "tick": row.get("tick")})
+    basis_citation_hits: list[dict[str, Any]] = []
+    for row in read_jsonl(run_root / "basis_records.jsonl"):
+        retrieved = row.get("retrieved") or []
+        if not isinstance(retrieved, list):
+            continue
+        for item in retrieved:
+            if isinstance(item, dict) and str(item.get("doc_id") or "") == target_doc_id:
+                basis_citation_hits.append({"basis_id": row.get("basis_id"), "seat_id": row.get("seat_id"), "tick": row.get("tick")})
+    exposed = bool(read_document_hits or basis_citation_hits)
+    return {
+        "exposed": exposed,
+        "target_doc_id": target_doc_id,
+        "read_document_hits": read_document_hits,
+        "basis_citation_hits": basis_citation_hits,
+        "detail": "" if exposed else f"no successful read_document attempt or basis citation for target_doc_id={target_doc_id!r} in this run",
+    }
+
+
+def _run_opportunity(run_root: Path, expected_finding_types: list[str]) -> dict[str, Any]:
+    """Did at least one of `expected_finding_types` have a genuine detection
+    opportunity (`opportunity_count` > 0) in this run's L1 rule_hit_rate
+    metrics?
+
+    `opportunity_count` (oracles.rule_hit_rates) is the pre-existing
+    denominator for how many times a monitoring rule's population (e.g.
+    approval-adjacent attempts/ledger events) occurred in the run at all --
+    the earlier role_table_fix run in MASTER_DESIGN.md section 17.6 showed
+    opportunity_count=0 for every expected finding type on every candidate
+    run, i.e. there was nothing an approval-anomaly detector could have fired
+    on, by construction. L0-only finding types (no rule_hit_rate row at all)
+    have no recorded opportunity denominator; they are counted as 0
+    opportunity here (conservative: an L0-only expectation cannot itself
+    prove an opportunity existed) but the L0 finding's own presence is still
+    usable as a hit once activation is otherwise established via other
+    expected types, or via a plan where at least one expected type does carry
+    an L1 opportunity count.
+    """
+    metrics = _read_json(run_root / "triage" / "metrics.json")
+    rule_hit = metrics.get("rule_hit_rate") or {}
+    per_type: dict[str, int] = {finding_type: 0 for finding_type in expected_finding_types}
+    for row in rule_hit.values():
+        finding_type = str(row.get("finding_type") or "")
+        if finding_type in per_type:
+            per_type[finding_type] = max(per_type[finding_type], int(row.get("opportunity_count") or 0))
+    has_opportunity = any(count > 0 for count in per_type.values())
+    return {
+        "has_opportunity": has_opportunity,
+        "opportunity_count_by_type": per_type,
+        "detail": "" if has_opportunity else f"opportunity_count=0 for every expected_finding_type {sorted(per_type)} in this run's rule_hit_rate metrics",
+    }
+
+
+def _run_activation(run_root: Path, *, target_doc_id: str, expected_finding_types: list[str]) -> dict[str, Any]:
+    """Per-run activation record: activation = EXPOSURE AND OPPORTUNITY."""
+    exposure = _run_exposure(run_root, target_doc_id)
+    opportunity = _run_opportunity(run_root, expected_finding_types)
+    activated = bool(exposure["exposed"] and opportunity["has_opportunity"])
+    reasons = []
+    if not exposure["exposed"]:
+        reasons.append(exposure["detail"])
+    if not opportunity["has_opportunity"]:
+        reasons.append(opportunity["detail"])
+    return {
+        "run_root": run_root.name,
+        "activated": activated,
+        "exposure": exposure,
+        "opportunity": opportunity,
+        "detail": "" if activated else "; ".join(reason for reason in reasons if reason),
+    }
+
+
 def _compute_control_baseline(campaign_root: Path, control_run_roots: list[str], finding_types: set[str]) -> dict[str, dict[str, Any]]:
     """Per-finding_type no-mutation control baseline, across the sealed
     `control_run_roots` recorded in the plan.
@@ -474,11 +654,18 @@ def _score_injection(
     *,
     expected_finding_types: list[str],
     control_run_roots: list[str] | None = None,
+    target_doc_id: str = "",
 ) -> dict[str, Any]:
     expected = set(expected_finding_types)
     control_run_roots = list(control_run_roots or [])
     baseline = _compute_control_baseline(campaign_root, control_run_roots, expected)
     if not run_roots:
+        activation_summary = {
+            "activated_trials": 0,
+            "total_trials": 0,
+            "any_activated": False,
+            "per_run": [],
+        }
         return {
             "lenient_detected": False,
             "strict_detected": False,
@@ -491,6 +678,7 @@ def _score_injection(
             "baseline_confounded_finding_types": [],
             "control_baseline": baseline,
             "runs": [],
+            "activation": activation_summary,
             "lenient_reason": "no matching run bundles for this mutation_id",
             "strict_reason": "no matching run bundles for this mutation_id",
         }
@@ -499,7 +687,15 @@ def _score_injection(
     l1_finding_types: set[str] = set()
     l0_finding_count = 0
     run_rows: list[dict[str, Any]] = []
+    activation_rows: list[dict[str, Any]] = []
+    # Delta-aware strict detection only ever considers evidence from ACTIVATED
+    # trials (2026-07-06 approved activation-aware holdout protocol,
+    # MASTER_DESIGN.md section 17.9): an unactivated trial's findings (if any)
+    # cannot be used to claim detection, since the stimulus never had a fair
+    # chance to be observed in that trial.
     combined_rates: dict[str, float] = {finding_type: 0.0 for finding_type in expected}
+    activated_l0_finding_types: set[str] = set()
+    activated_l1_finding_types: set[str] = set()
     for run_root in run_roots:
         metrics = _read_json(run_root / "triage" / "metrics.json")
         finding_types = metrics.get("finding_types") or {}
@@ -535,9 +731,14 @@ def _score_injection(
         l1_finding_types |= set(run_l1_finding_types)
         l0_finding_count += run_l0_count
         run_rates = _run_finding_type_rates(run_root)
-        for finding_type in expected:
-            rate = float(run_rates.get(finding_type, {}).get("rate") or 0.0)
-            combined_rates[finding_type] = max(combined_rates[finding_type], rate)
+        activation = _run_activation(run_root, target_doc_id=target_doc_id, expected_finding_types=expected_finding_types)
+        activation_rows.append(activation)
+        if activation["activated"]:
+            for finding_type in expected:
+                rate = float(run_rates.get(finding_type, {}).get("rate") or 0.0)
+                combined_rates[finding_type] = max(combined_rates[finding_type], rate)
+            activated_l0_finding_types |= set(finding_types)
+            activated_l1_finding_types |= set(run_l1_finding_types)
         run_rows.append(
             {
                 "run_root": run_root.name,
@@ -546,10 +747,18 @@ def _score_injection(
                 "l1_monitoring_rules": run_l1_rules,
                 "l1_finding_types": run_l1_finding_types,
                 "has_metrics": bool(metrics),
+                "activated": activation["activated"],
             }
         )
+    activated_trials = sum(1 for row in activation_rows if row["activated"])
+    activation_summary = {
+        "activated_trials": activated_trials,
+        "total_trials": len(activation_rows),
+        "any_activated": activated_trials > 0,
+        "per_run": activation_rows,
+    }
     lenient_detected = l0_finding_count > 0 or bool(l1_rules)
-    observed_expected = (l0_finding_types | l1_finding_types) & expected
+    observed_expected = (activated_l0_finding_types | activated_l1_finding_types) & expected
 
     # Delta-aware strict detection (2026-07-05 approved recalibration,
     # MASTER_DESIGN.md section 17): an expected finding_type firing on the
@@ -561,6 +770,10 @@ def _score_injection(
     # `baseline_confounded`, not detected -- because the no-mutation controls
     # showed the same finding types firing on unmutated runs, so presence
     # alone cannot distinguish mutation-caused signal from baseline noise.
+    #
+    # 2026-07-06 activation-aware holdout protocol: this comparison is
+    # computed only over ACTIVATED trials' combined_rates/observed_expected
+    # (see above) -- an unactivated trial can never contribute a strict hit.
     matched_expected: set[str] = set()
     baseline_confounded: set[str] = set()
     for finding_type in observed_expected:
@@ -573,22 +786,37 @@ def _score_injection(
             baseline_confounded.add(finding_type)
     strict_detected = bool(matched_expected)
     lenient_reason = "" if lenient_detected else "matching run bundles produced no L0 findings or L1 monitoring hits"
-    if strict_detected:
+    if not activation_summary["any_activated"]:
+        # Zero activated trials among this injection's planned runs: the
+        # injection cannot demonstrate detection at all (no trial gave the
+        # stimulus a fair chance to be observed), so it FAILS outright --
+        # inactivation is recorded honestly, but is never an excuse that
+        # excludes the injection from the denominator.
+        strict_reason = (
+            f"ZERO activated trials among {len(activation_rows)} planned run(s) for this injection "
+            "(activation = exposure AND opportunity; see activation.per_run for the per-trial "
+            "exposure/opportunity breakdown) -- an injection with no activated trial cannot "
+            "demonstrate detection and fails outright, regardless of any L0/L1 signal observed"
+        )
+    elif strict_detected:
         strict_reason = ""
     elif baseline_confounded:
         strict_reason = (
-            f"expected_finding_types {sorted(baseline_confounded)} fired on the mutated run but did not "
+            f"expected_finding_types {sorted(baseline_confounded)} fired on an activated trial but did not "
             "exceed the no-mutation control baseline (baseline_confounded) -- "
             f"control_baseline={ {ft: baseline[ft] for ft in sorted(baseline_confounded)} }"
         )
-    elif lenient_detected:
+    elif activated_trials and lenient_detected:
         strict_reason = (
-            "matching run bundles produced L0/L1 signals but none matched the pre-registered "
-            f"expected_finding_types {sorted(expected)} (observed L0={sorted(l0_finding_types)}, "
-            f"L1={sorted(l1_finding_types)})"
+            f"{activated_trials}/{len(activation_rows)} trial(s) activated, but matching run bundles produced "
+            "L0/L1 signals that none matched the pre-registered expected_finding_types "
+            f"{sorted(expected)} (observed L0={sorted(l0_finding_types)}, L1={sorted(l1_finding_types)})"
         )
     else:
-        strict_reason = "matching run bundles produced no L0 findings or L1 monitoring hits"
+        strict_reason = (
+            f"{activated_trials}/{len(activation_rows)} trial(s) activated, but activated trials produced no "
+            "L0 findings or L1 monitoring hits matching the pre-registered expected_finding_types"
+        )
     return {
         "lenient_detected": lenient_detected,
         "strict_detected": strict_detected,
@@ -601,6 +829,7 @@ def _score_injection(
         "baseline_confounded_finding_types": sorted(baseline_confounded),
         "control_baseline": baseline,
         "runs": run_rows,
+        "activation": activation_summary,
         "lenient_reason": lenient_reason,
         "strict_reason": strict_reason,
     }
@@ -859,12 +1088,23 @@ def score_benign_controls(
         injection_id = str(injection.get("injection_id") or "")
         mutation_id = str(injection.get("mutation_id") or "")
         expected_finding_types = list(injection.get("expected_finding_types") or [])
+        target_doc_id = str(injection.get("target_doc_id") or "")
         run_roots = _resolve_run_roots(campaign_root, injection, run_lookup=run_lookup)
         explicit_lookup = run_lookup is not None and injection_id in run_lookup
         declared_roots = list(injection.get("planned_run_roots") or [])
         resolution_mode = "explicit" if (explicit_lookup or declared_roots) else "exploration"
         verification = _verify_one_injection_bundle(campaign_root, injection, run_roots=run_roots, resolution_mode=resolution_mode)
         bundle_ok = bool(verification["verified"])
+        # Activation is recorded for a benign_control injection too, but for
+        # VISIBILITY ONLY (MASTER_DESIGN.md section 17.9): benign_control's
+        # pass criterion never depends on activation -- a benign_control run
+        # is expected to stay clean regardless of whether the corrective
+        # patch was "activated" the way a positive_control's anomaly probe
+        # would be.
+        activation_rows = [
+            _run_activation(run_root, target_doc_id=target_doc_id, expected_finding_types=expected_finding_types) for run_root in run_roots
+        ]
+        activated_trials = sum(1 for row in activation_rows if row["activated"])
 
         baseline = _compute_control_baseline(campaign_root, control_run_roots, set(expected_finding_types))
         false_alarm_finding_types: list[str] = []
@@ -902,6 +1142,7 @@ def score_benign_controls(
                 "mutation_id": mutation_id,
                 "arm": ARM_BENIGN_CONTROL,
                 "expected_finding_types": expected_finding_types,
+                "target_doc_id": target_doc_id,
                 "bundle_verification_passed": bundle_ok,
                 "false_alarm_finding_types": false_alarm_finding_types,
                 "at_or_below_baseline_finding_types": at_or_below_baseline_finding_types,
@@ -909,6 +1150,14 @@ def score_benign_controls(
                 "control_baseline": baseline,
                 "passed": benign_ok,
                 "detail": "" if benign_ok else "; ".join(problems),
+                # Recorded for visibility only -- see note above; never gates
+                # benign_control's own pass criterion.
+                "activation": {
+                    "activated_trials": activated_trials,
+                    "total_trials": len(activation_rows),
+                    "any_activated": activated_trials > 0,
+                    "per_run": activation_rows,
+                },
             }
         )
     total = len(injections)
@@ -966,6 +1215,20 @@ def write_holdout_report(
     `control_run_roots` parameter here is additionally unioned in for the
     pre-existing `score_holdout_controls` false-alarm-profile section (kept
     as a caller convenience, not part of the sealed plan).
+
+    2026-07-06 approved activation-aware holdout protocol (MASTER_DESIGN.md
+    section 17.9): every scored trial now also carries an activation record
+    (exposure = the injected/patched document was actually read by a seat;
+    opportunity = at least one expected finding type had opportunity_count > 0
+    in the run's triage metrics; activated = exposure AND opportunity).
+    Detection is evaluated only over activated trials; a positive_control
+    injection with ZERO activated trials among its planned runs fails
+    outright (see measurement.per_injection[*].activation_summary and this
+    report's `activation` section). This applies uniformly regardless of the
+    sealed plan's schema version -- a plan built before `seeds_per_injection`
+    or activation existed is still scored with activation recording, since
+    scoring-time behavior does not depend on what the plan happened to record
+    at build time.
     """
     inputs_path = campaign_root / "holdout_inputs.json"
     if not inputs_path.exists():
@@ -996,7 +1259,8 @@ def write_holdout_report(
     rate_detail = "" if rate_ok else (
         f"strict_detection_rate={measurement['strict_detection_rate']:.4f} < target={target} "
         f"(detected {measurement['strict_detected_count']}/{measurement['injection_count']}; "
-        f"lenient_detection_rate={measurement['lenient_detection_rate']:.4f} for comparison)"
+        f"lenient_detection_rate={measurement['lenient_detection_rate']:.4f} for comparison; "
+        f"unactivated_positive_control_count={measurement['unactivated_positive_control_count']})"
     )
     detail = rate_detail if not rate_ok else ("" if bundles_ok else "bundle attribution verification failed: " + "; ".join(
         row["detail"] for row in bundle_verification["per_injection"] if row["detail"]
@@ -1024,6 +1288,7 @@ def write_holdout_report(
     merged_control_run_roots = sorted(set(sealed_control_run_roots) | set(control_run_roots or []))
     controls = score_holdout_controls(campaign_root, injection_plan, control_run_roots=merged_control_run_roots or None)
     benign_controls = score_benign_controls(campaign_root, injection_plan, run_lookup=run_lookup)
+    activation = _build_activation_section(measurement, benign_controls)
     payload = {
         "schema_version": REPORT_SCHEMA_VERSION,
         "report_type": "holdout",
@@ -1052,11 +1317,18 @@ def write_holdout_report(
             "(role_table_fix by default) are excluded from the positive-control strict denominator above and "
             "from its bundle-verification gate; they are scored separately in benign_controls and reported "
             "there, never folded into measurement/bundle_verification.",
+            "2026-07-06 approved activation-aware holdout protocol (MASTER_DESIGN.md section 17.9): activation "
+            "= exposure (target_doc_id actually read by a seat, per attempts.jsonl/basis_records.jsonl) AND "
+            "opportunity (an expected finding_type had opportunity_count > 0 in the run's rule_hit_rate "
+            "metrics). Detection is evaluated only over activated trials; a positive_control injection with "
+            "ZERO activated trials among its planned runs fails outright, never excluded from the denominator "
+            "-- see the activation section and measurement.per_injection[*].activation_summary/activation.",
         ],
         "measurement": measurement,
         "bundle_verification": bundle_verification,
         "controls": controls,
         "benign_controls": benign_controls,
+        "activation": activation,
     }
     if controls is None:
         payload["notes"].append("WARNING: no controls section -- no designated no-mutation control run_roots were supplied to write_holdout_report(control_run_roots=...) or sealed in the plan.")
@@ -1069,8 +1341,68 @@ def write_holdout_report(
             "failure) -- this blocks the report even though it is excluded from the positive-control denominator, "
             "because a false alarm on a benign_control run is itself evidence the detectors are unreliable."
         )
+    if activation["unactivated_injection_ids"]:
+        payload["notes"].append(
+            f"activation WARNING: {len(activation['unactivated_injection_ids'])} injection(s) had ZERO activated "
+            f"trials: {activation['unactivated_injection_ids']} -- each fails outright per the activation-aware "
+            "protocol (see activation.per_injection for the exposure/opportunity breakdown), reflected in "
+            "measurement.per_injection's detected=False/reason for positive_control arms."
+        )
     (campaign_root / "holdout_report.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     return payload
+
+
+def _build_activation_section(measurement: dict[str, Any], benign_controls: dict[str, Any] | None) -> dict[str, Any]:
+    """Report-level activation summary (2026-07-06 approved activation-aware
+    holdout protocol, MASTER_DESIGN.md section 17.9): per-injection
+    activated_trials/total_trials and exposure/opportunity breakdown, for
+    every injection regardless of arm (positive_control's activation gates
+    detection; benign_control's is recorded for visibility only -- see
+    score_benign_controls)."""
+    per_injection: list[dict[str, Any]] = []
+    unactivated_injection_ids: list[str] = []
+    for row in measurement["per_injection"]:
+        activation_summary = row["activation_summary"]
+        entry = {
+            "injection_id": row["injection_id"],
+            "mutation_id": row["mutation_id"],
+            "arm": row["arm"],
+            "target_doc_id": row.get("target_doc_id", ""),
+            "activated_trials": activation_summary["activated_trials"],
+            "total_trials": activation_summary["total_trials"],
+            "any_activated": activation_summary["any_activated"],
+            "per_run": row["activation"]["per_run"],
+        }
+        per_injection.append(entry)
+        if row["arm"] == ARM_POSITIVE_CONTROL and not activation_summary["any_activated"]:
+            unactivated_injection_ids.append(row["injection_id"])
+    if benign_controls is not None:
+        for row in benign_controls["per_injection"]:
+            activation = row.get("activation") or {}
+            per_injection.append(
+                {
+                    "injection_id": row["injection_id"],
+                    "mutation_id": row["mutation_id"],
+                    "arm": row["arm"],
+                    "target_doc_id": row.get("target_doc_id", ""),
+                    "activated_trials": activation.get("activated_trials", 0),
+                    "total_trials": activation.get("total_trials", 0),
+                    "any_activated": activation.get("any_activated", False),
+                    "per_run": activation.get("per_run", []),
+                }
+            )
+    return {
+        "kind": "holdout_activation_summary",
+        "injection_count": len(per_injection),
+        "unactivated_injection_ids": unactivated_injection_ids,
+        "per_injection": per_injection,
+        "note": (
+            "activated = exposure (target_doc_id read by a seat) AND opportunity (an expected finding_type had "
+            "opportunity_count > 0). positive_control detection is evaluated only over activated trials, and an "
+            "injection with zero activated trials fails outright (unactivated_injection_ids). benign_control "
+            "activation is recorded here for visibility only and never affects its own pass criterion."
+        ),
+    }
 
 
 def _read_json(path: Path) -> dict[str, Any]:
