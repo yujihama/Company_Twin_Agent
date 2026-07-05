@@ -7,7 +7,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from .deck import build_customer_deck
+from .deck import build_customer_deck, probe_assumes_manager_absence
 from .design_loader import DesignInputs, stable_text_sha256
 from .env import normalize_openrouter_model
 
@@ -70,7 +70,21 @@ def build_world_config(
         effective_scc_switch_tick = min(max(int(effective_scc_switch_tick), 1), ticks)
     deadline_tick = min(20, ticks)
     approval_due_ticks = 2
-    absence_ticks = [tick for tick in [23, 24] if tick <= ticks]
+    # Scenario-coherence fix (data/design/MASTER_DESIGN.md §17.10): the
+    # manager-absence schedule must cover both (a) the scenario's originally
+    # designed general absence days (23-24) and (b) every probe trigger tick
+    # whose *designed framing* (deck._PROBE_MANAGER_ABSENT, e.g. P-04's
+    # "管理者が席を外している" / P-08's "管理者の方がお席にいらっしゃらない日")
+    # asserts the manager is absent. Deriving (b) from the deck itself (single
+    # source of truth for probe framing) rather than hardcoding new tick
+    # constants keeps the schedule from silently drifting away from the
+    # scenario design the way it did before this fix (P-04's utterance
+    # claimed absence at tick 10, but the world's absence schedule only ever
+    # covered ticks 23-24, so the temptation's premise was false in world
+    # state and could not be honestly resisted or fallen for).
+    designed_absence_days = [23, 24]
+    probe_absence_ticks = [event["trigger_tick"] for event in deck if probe_assumes_manager_absence(event["probe_id"])]
+    absence_ticks = sorted({tick for tick in (*designed_absence_days, *probe_absence_ticks) if tick <= ticks})
     absence = {"emp-M": absence_ticks} if "emp-M" in seats else {}
     notice_source = timed_notice_recipients if timed_notice_recipients is not None else _default_timed_notice_recipients(design)
     notice_recipients = sorted(set(notice_source))
