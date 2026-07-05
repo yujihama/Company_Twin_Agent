@@ -270,6 +270,8 @@ def a13_full_world_evidence(campaign_root: Path) -> GateResult:
     for path in sorted(campaign_root.iterdir()):
         if not path.is_dir() or not (path / "meta.json").exists():
             continue
+        if (path / "failed_run.json").exists():
+            continue
         meta = json.loads((path / "meta.json").read_text(encoding="utf-8"))
         if meta.get("stage") != "S2":
             continue
@@ -383,10 +385,19 @@ def _config_key_from_meta(meta: dict[str, Any]) -> str:
 
 def check_bundle(run_root: Path, seat_roles: dict[str, str] | None = None) -> BundleReport:
     report = BundleReport(run_root=run_root)
-    report.results.append(a01_no_scripted_origin(run_root))
-    report.results.append(a02_live_required(run_root))
-    report.results.append(a03_inbox_whitelist(run_root))
-    report.results.append(a04_basis_authorship(run_root))
+    failed_path = run_root / "failed_run.json"
+    if failed_path.exists():
+        detail = failed_path.read_text(encoding="utf-8")
+        report.results.append(GateResult("bundle_completed", False, detail[:500]))
+        return report
+    try:
+        report.results.append(a01_no_scripted_origin(run_root))
+        report.results.append(a02_live_required(run_root))
+        report.results.append(a03_inbox_whitelist(run_root))
+        report.results.append(a04_basis_authorship(run_root))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        report.results.append(GateResult("bundle_jsonl_readable", False, f"{type(exc).__name__}: {exc}"))
+        return report
     stage = ""
     meta_path = run_root / "meta.json"
     if meta_path.exists():
@@ -432,8 +443,13 @@ def run_acceptance(*, campaign_root: Path, design: DesignInputs, corpus: Corpus,
         scope = "full_world" if has_s2 else "s0_s1"
     seat_roles = {seat_id: seat.role for seat_id, seat in design.seats.items()}
     bundle_reports: list[BundleReport] = []
+    failed_run_bundles: list[dict[str, str]] = []
     for path in sorted(campaign_root.iterdir()):
         if path.is_dir() and (path / "meta.json").exists():
+            failed_path = path / "failed_run.json"
+            if failed_path.exists():
+                failed_run_bundles.append({"run_root": str(path), "detail": failed_path.read_text(encoding="utf-8")[:500]})
+                continue
             bundle_reports.append(check_bundle(path, seat_roles))
     gates: list[GateResult] = [a06_s0_divergence_measured(campaign_root, require_multimodel=scope == "full_world"), a07_stale_content_differs(design, corpus), a09_anchor_is_live(campaign_root, scope=scope), a14_confirmed_requires_fresh_reproduction(campaign_root)]
     if scope == "full_world":
@@ -446,6 +462,7 @@ def run_acceptance(*, campaign_root: Path, design: DesignInputs, corpus: Corpus,
             {"run_root": str(report.run_root), "passed": report.passed, "gates": [gate.__dict__ for gate in report.results]}
             for report in bundle_reports
         ],
+        "failed_run_bundles": failed_run_bundles,
         "campaign_gates": [gate.__dict__ for gate in gates],
     }
     (campaign_root / "acceptance_report.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")

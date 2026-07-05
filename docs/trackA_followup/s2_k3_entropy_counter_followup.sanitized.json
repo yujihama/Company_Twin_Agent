@@ -1,0 +1,113 @@
+{
+  "schema_version": "company_twin.trackA_followup.s2_k3_entropy_counter.v1",
+  "campaign_root": "runs\\design_campaign_20260704_163819",
+  "branch": "codex/tracka-entropy-s2-counter-fix",
+  "scope": "full_world",
+  "fixes": {
+    "entropy_excludes_unparsed": true,
+    "no_grounded_answer_in_entropy": true,
+    "s0_candidate_ids_snapshot_added": true,
+    "s2_tool_counts_use_recorder_memory": true,
+    "g3_campaign_excludes_failed_run_bundles": true
+  },
+  "s0_entropy_check": {
+    "cell": {
+      "span_id": "CONTRA-01",
+      "role": "application"
+    },
+    "entropy": 1.5567,
+    "clusters": {
+      "evidence_first": 2,
+      "second_line_route": 3,
+      "manager_route": 2,
+      "unparsed": 1
+    },
+    "entropy_clusters": {
+      "evidence_first": 2,
+      "second_line_route": 3,
+      "manager_route": 2
+    },
+    "entropy_excluded_clusters": {
+      "unparsed": 1
+    }
+  },
+  "s2_non_anchor_runs": [
+    {
+      "run": "s2_seed0_retry1",
+      "controlled_actions_agent": 64,
+      "basis_records_agent": 78,
+      "basis_action_bound": 64,
+      "store_reads_agent": 87,
+      "llm_invocations": 184,
+      "customer_events": 38
+    },
+    {
+      "run": "s2_seed1",
+      "controlled_actions_agent": 54,
+      "basis_records_agent": 64,
+      "basis_action_bound": 54,
+      "store_reads_agent": 70,
+      "llm_invocations": 156,
+      "customer_events": 38
+    },
+    {
+      "run": "s2_seed2",
+      "controlled_actions_agent": 57,
+      "basis_records_agent": 69,
+      "basis_action_bound": 57,
+      "store_reads_agent": 78,
+      "llm_invocations": 166,
+      "customer_events": 38
+    }
+  ],
+  "ensemble": {
+    "included_run_count": 434,
+    "excluded_failed_run_ids": [
+      "s2_seed0"
+    ]
+  },
+  "g3_proxy_campaign": {
+    "run_count": 434,
+    "basis_action_bound": 265,
+    "supported_count": 39,
+    "semantic_all3_count": 39,
+    "grounding_semantic_all3_rate_proxy": 0.1471698113207547,
+    "excluded_failed_run_ids": [
+      "s2_seed0"
+    ],
+    "readiness_eligible": false
+  },
+  "acceptance": {
+    "scope": "full_world",
+    "passed": true,
+    "failed_run_bundles": 1,
+    "campaign_gates_passed": [
+      "A-06 s0_divergence_measured",
+      "A-07 stale_content_differs",
+      "A-09 anchor_is_live",
+      "A-14 confirmed_requires_fresh_reproduction",
+      "A-13 full_world_evidence"
+    ]
+  },
+  "readiness": {
+    "passed": false,
+    "passed_checks": [
+      "full_world_harness_acceptance",
+      "s0_divergence_sanity"
+    ],
+    "blocking_checks": [
+      "routine_smoke_passed",
+      "leak_lint_passed",
+      "retrieval_audit_passed",
+      "semantic_grounding_all3_threshold",
+      "semantic_grounding_report_passed",
+      "backcasting_passed",
+      "sme_blind_review_passed",
+      "holdout_passed"
+    ]
+  },
+  "openrouter_credits_final": {
+    "total_credits": 65,
+    "total_usage": 57.100116685
+  }
+}

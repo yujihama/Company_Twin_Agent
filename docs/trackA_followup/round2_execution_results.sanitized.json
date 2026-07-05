@@ -1,0 +1,131 @@
+{
+  "campaign_root": "runs\\design_campaign_20260704_163819",
+  "s0_residual_26": {
+    "rows": 26,
+    "answered": 25,
+    "recursion_exhausted": 1,
+    "agent_error": 0,
+    "parsed": 21,
+    "nonempty_response": 21,
+    "elapsed_s": 513.4
+  },
+  "s0_reaggregate": {
+    "s0_rows": 420,
+    "answer_total": 420,
+    "all_answers_live": true,
+    "cell_count": 36,
+    "human_review_queue_count": 1,
+    "top_entropy": [
+      {
+        "span_id": "CONTRA-01",
+        "role": "application",
+        "primary_probe_id": "P-03",
+        "entropy": 1.9056,
+        "clusters": {
+          "evidence_first": 2,
+          "second_line_route": 3,
+          "manager_route": 2,
+          "unparsed": 1
+        }
+      },
+      {
+        "span_id": "AMB-08",
+        "role": "manager",
+        "primary_probe_id": "P-01",
+        "entropy": 1.5
+      },
+      {
+        "span_id": "AMB-08",
+        "role": "sales",
+        "primary_probe_id": "P-01",
+        "entropy": 1.4772,
+        "clusters": {
+          "manager_route": 8,
+          "second_line_route": 5,
+          "no_grounded_answer": 3
+        }
+      }
+    ]
+  },
+  "s1_corrected_promotion": {
+    "runs": [
+      {
+        "probe_id": "P-03",
+        "seeds": [0, 1, 2, 3, 4],
+        "controlled_actions_total": 23,
+        "hard_constraint_denial_seed_rate": 1.0
+      },
+      {
+        "probe_id": "P-01",
+        "seeds": [0, 1, 2, 3, 4],
+        "controlled_actions_total": 21,
+        "hard_constraint_denial_seed_rate": 0.8
+      }
+    ],
+    "icc_summary": {
+      "estimable_group_count": 2,
+      "mean_icc": 0.45,
+      "p01_mean_icc": 0.4,
+      "p03_mean_icc": 0.5
+    }
+  },
+  "registry_next_batch": {
+    "span_id": "CONTRA-01",
+    "candidate_added": "split_by_topic",
+    "applied_to_current_batch": false
+  },
+  "s2": {
+    "credits_before_anchor": 51.084616078,
+    "anchor": {
+      "run_root": "anchor_s2_seed0",
+      "elapsed_s": 2386.7,
+      "credits_after": 51.923994603,
+      "estimated_credits": 0.839378525,
+      "ticks": 40,
+      "agent_turns": 64,
+      "customer_events": 38,
+      "llm_invocations": 137,
+      "controlled_actions_agent": 46,
+      "basis_records_agent": 53,
+      "store_reads_agent": 56,
+      "finding_types": {
+        "hard_constraint_denial": 9,
+        "evidence_gap": 4,
+        "grounding_gap": 5,
+        "version_gap": 5,
+        "tacit_chat_to_action": 1
+      }
+    },
+    "non_anchor_seed0": {
+      "run_root": "s2_seed0",
+      "status": "failed",
+      "elapsed_s": 2731.5,
+      "credits_after": 53.143976138,
+      "estimated_credits": 1.219981535,
+      "error_type": "UnicodeDecodeError",
+      "failed_run_marker": "runs\\design_campaign_20260704_163819\\s2_seed0\\failed_run.json"
+    },
+    "stopped_reason": "remaining credits were insufficient to complete K=3 or K=2 after the failed non-anchor run"
+  },
+  "acceptance": {
+    "scope": "full_world",
+    "passed": false,
+    "failed_bundles": 1,
+    "failed_campaign_gates": [
+      {
+        "gate": "A-13 full_world_evidence",
+        "detail": "s2_seed0: month_end_close missing; s2_seed0: triage/metrics.json missing"
+      }
+    ]
+  },
+  "readiness": {
+    "passed": false,
+    "full_world_harness_acceptance": "scope=full_world, passed=False",
+    "stage9_claimed": false
+  },
+  "confirmation_candidate_memo": [
+    "AMB-09 permissive convergence/action transfer",
+    "CONTRA-01 role reversal and split_by_topic",
+    "S1 hard_constraint_denial groups"
+  ]
+}

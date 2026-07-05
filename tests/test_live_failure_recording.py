@@ -1,4 +1,5 @@
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -6,11 +7,14 @@ import pytest
 from langgraph.errors import GraphRecursionError
 
 from company_twin import agents
+from company_twin.acceptance import a13_full_world_evidence, check_bundle
 from company_twin.campaign import aggregate_s0_divergence
 from company_twin.corpus import Corpus
 from company_twin.design_loader import load_design
-from company_twin.harness import run_s0
+from company_twin.harness import CONTROLLED_ACTION_TOOLS, _tool_count, run_s0
+from company_twin.oracles import aggregate_ensemble_triage
 from company_twin.recorder import RunRecorder, read_jsonl
+from company_twin.semantic_grounding import evaluate_semantic_grounding_campaign
 
 
 def test_deepagentseat_records_failed_invoke(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
@@ -119,3 +123,105 @@ def test_append_jsonl_flushes_and_fsyncs(monkeypatch: pytest.MonkeyPatch, tmp_pa
 
     assert calls
     assert read_jsonl(tmp_path / "attempts.jsonl") == [{"ok": True}]
+
+
+def test_append_jsonl_serializes_concurrent_unicode_writes(tmp_path) -> None:
+    recorder = RunRecorder(tmp_path, "concurrent")
+    text = "証跡登録と文書検索の同時記録" * 200
+
+    def append_row(idx: int) -> None:
+        recorder.append_jsonl("attempts.jsonl", {"idx": idx, "text": text})
+
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        list(executor.map(append_row, range(40)))
+
+    rows = read_jsonl(tmp_path / "attempts.jsonl")
+    assert sorted(row["idx"] for row in rows) == list(range(40))
+    assert {row["text"] for row in rows} == {text}
+
+
+def test_runtime_tool_count_uses_recorder_memory_not_attempts_file(tmp_path) -> None:
+    recorder = RunRecorder(tmp_path, "memory-count")
+    with recorder.origin("agent"):
+        recorder.record_attempt(
+            seat_id="emp-A",
+            tool="record_customer_contact",
+            args={},
+            success=True,
+            result={},
+        )
+    (tmp_path / "attempts.jsonl").write_bytes(b"\xa7 not utf8\n")
+
+    assert _tool_count(recorder, "emp-A", CONTROLLED_ACTION_TOOLS) == 1
+
+
+def test_marked_failed_bundle_reports_failure_without_decoding_jsonl(tmp_path) -> None:
+    run_root = tmp_path / "s2_seed0"
+    run_root.mkdir()
+    (run_root / "meta.json").write_text('{"stage": "S2", "anchor": false}', encoding="utf-8")
+    (run_root / "attempts.jsonl").write_bytes(b"\xa7 not utf8\n")
+    (run_root / "failed_run.json").write_text('{"error_type": "UnicodeDecodeError"}', encoding="utf-8")
+
+    report = check_bundle(run_root)
+
+    assert report.passed is False
+    assert report.results[0].gate == "bundle_completed"
+    assert "UnicodeDecodeError" in report.results[0].detail
+
+
+def test_ensemble_triage_excludes_marked_failed_bundle(tmp_path) -> None:
+    run_root = tmp_path / "s2_seed0"
+    run_root.mkdir()
+    (run_root / "meta.json").write_text('{"stage": "S2", "anchor": false}', encoding="utf-8")
+    (run_root / "attempts.jsonl").write_bytes(b"\xa7 not utf8\n")
+    (run_root / "failed_run.json").write_text('{"error_type": "UnicodeDecodeError"}', encoding="utf-8")
+
+    payload = aggregate_ensemble_triage(tmp_path)
+
+    assert payload["run_filter"]["included_run_count"] == 0
+    assert payload["run_filter"]["excluded_failed_run_ids"] == ["s2_seed0"]
+
+
+def test_g3_campaign_excludes_marked_failed_bundle_without_decoding_jsonl(tmp_path) -> None:
+    failed_root = tmp_path / "s2_seed0"
+    failed_root.mkdir()
+    (failed_root / "attempts.jsonl").write_bytes(b"\xa7 not utf8\n")
+    (failed_root / "basis_records.jsonl").write_text(
+        '{"action_id": "a1", "seat_id": "emp-A"}\n',
+        encoding="utf-8",
+    )
+    (failed_root / "failed_run.json").write_text('{"error_type": "UnicodeDecodeError"}', encoding="utf-8")
+
+    payload = evaluate_semantic_grounding_campaign(tmp_path)
+
+    assert payload["run_count"] == 0
+    assert payload["basis_action_bound"] == 0
+    assert payload["excluded_failed_run_ids"] == ["s2_seed0"]
+    assert not (failed_root / "g3_semantic_grounding.json").exists()
+
+
+def test_a13_accepts_completed_s2_replacement_while_failed_bundle_remains(tmp_path) -> None:
+    def completed_s2(name: str, *, anchor: bool) -> None:
+        run_root = tmp_path / name
+        run_root.mkdir()
+        (run_root / "meta.json").write_text(f'{{"stage": "S2", "anchor": {str(anchor).lower()}}}', encoding="utf-8")
+        (run_root / "world_ledger.jsonl").write_text(
+            '{"event_type": "month_end_close"}\n{"event_type": "customer_utterance"}\n',
+            encoding="utf-8",
+        )
+        (run_root / "triage").mkdir()
+        (run_root / "triage" / "metrics.json").write_text(
+            '{"controlled_actions_agent": 1, "basis_action_bound": 1}',
+            encoding="utf-8",
+        )
+
+    completed_s2("anchor_s2_seed0", anchor=True)
+    completed_s2("s2_seed0_retry1", anchor=False)
+    failed_root = tmp_path / "s2_seed0"
+    failed_root.mkdir()
+    (failed_root / "meta.json").write_text('{"stage": "S2", "anchor": false}', encoding="utf-8")
+    (failed_root / "failed_run.json").write_text('{"error_type": "UnicodeDecodeError"}', encoding="utf-8")
+    for filename in ("ensemble_triage.json", "attribution_table.json", "min_repro_jobs.json", "finding_registry.json"):
+        (tmp_path / filename).write_text("{}", encoding="utf-8")
+
+    assert a13_full_world_evidence(tmp_path).passed

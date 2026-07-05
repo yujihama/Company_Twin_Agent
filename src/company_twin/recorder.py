@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import threading
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from contextlib import contextmanager
@@ -19,6 +20,18 @@ def utc_now() -> str:
 # intentionally NOT represented here: any attempt to record under a non-world
 # origin must fail loudly instead of polluting measurements.
 ALLOWED_ORIGINS = frozenset({"system", "agent", "customer"})
+_JSONL_LOCKS: dict[Path, threading.Lock] = {}
+_JSONL_LOCKS_GUARD = threading.Lock()
+
+
+def _jsonl_lock(path: Path) -> threading.Lock:
+    key = path.resolve()
+    with _JSONL_LOCKS_GUARD:
+        lock = _JSONL_LOCKS.get(key)
+        if lock is None:
+            lock = threading.Lock()
+            _JSONL_LOCKS[key] = lock
+        return lock
 
 
 @dataclass
@@ -72,6 +85,8 @@ class RunRecorder:
         self._tick_budgets: dict[str, int] = {}
         self._private_store: dict[str, list[dict[str, Any]]] = {}
         self._tick_usage: dict[tuple[int, str], int] = {}
+        self._successful_attempt_counts: dict[tuple[str, str, str], int] = {}
+        self._counter_lock = threading.Lock()
         run_root.mkdir(parents=True, exist_ok=True)
         self.write_json("meta.json", {"run_id": run_id, "created_at": utc_now(), **(meta or {})})
         for name in ("attempts.jsonl", "basis_records.jsonl", "chat_channel.jsonl", "world_ledger.jsonl", "store_events.jsonl"):
@@ -143,6 +158,10 @@ class RunRecorder:
             origin=self._origin,
         )
         self.append_jsonl("attempts.jsonl", asdict(record))
+        if success:
+            key = (self._origin, seat_id, tool)
+            with self._counter_lock:
+                self._successful_attempt_counts[key] = self._successful_attempt_counts.get(key, 0) + 1
         if tool == "read_document" and success:
             doc_id = str((args or {}).get("doc_id") or "")
             if doc_id:
@@ -157,6 +176,10 @@ class RunRecorder:
                     "tick": self.tick,
                 }
         return record
+
+    def successful_attempt_count(self, *, seat_id: str, tools: set[str], origin: str = "agent") -> int:
+        with self._counter_lock:
+            return sum(self._successful_attempt_counts.get((origin, seat_id, tool), 0) for tool in tools)
 
     def next_basis_id(self) -> str:
         self._basis_counter += 1
@@ -216,17 +239,22 @@ class RunRecorder:
         (self.run_root / name).write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
     def append_jsonl(self, name: str, payload: dict[str, Any]) -> None:
-        with (self.run_root / name).open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(payload, ensure_ascii=False, sort_keys=True) + "\n")
-            handle.flush()
-            os.fsync(handle.fileno())
+        path = self.run_root / name
+        line = (json.dumps(payload, ensure_ascii=False, sort_keys=True) + "\n").encode("utf-8")
+        with _jsonl_lock(path):
+            with path.open("ab") as handle:
+                handle.write(line)
+                handle.flush()
+                os.fsync(handle.fileno())
 
 
 def read_jsonl(path: Path) -> list[dict[str, Any]]:
     if not path.exists():
         return []
     rows: list[dict[str, Any]] = []
-    for line in path.read_text(encoding="utf-8").splitlines():
+    with _jsonl_lock(path):
+        text = path.read_text(encoding="utf-8")
+    for line in text.splitlines():
         if line.strip():
             rows.append(json.loads(line))
     return rows
