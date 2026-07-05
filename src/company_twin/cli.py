@@ -25,7 +25,14 @@ from .holdout import build_holdout_injection_plan, write_holdout_inputs, write_h
 from .mutations import apply_corpus_mutations, build_delta_one_pair_manifest, lint_mutation_specs, load_mutation_catalog, mutation_specs_from_values
 from .oracles import execute_fresh_min_repro_confirmation, execute_min_repro_jobs, write_triage
 from .readiness import run_readiness_gate, write_readiness_reports
-from .semantic_grounding import LocalSemanticJudge, OpenRouterSemanticJudge, evaluate_semantic_grounding_campaign, evaluate_semantic_grounding_run, export_g3_calibration_samples
+from .semantic_grounding import (
+    LocalSemanticJudge,
+    OpenRouterSemanticJudge,
+    evaluate_semantic_grounding_campaign,
+    evaluate_semantic_grounding_run,
+    export_g3_calibration_samples,
+    score_g3_calibration_file,
+)
 from .sme_blind_review import build_blind_review_packet, write_sme_blind_review_inputs, write_sme_blind_review_report
 
 app = typer.Typer(no_args_is_help=True)
@@ -376,6 +383,23 @@ def g3_export_calibration(
     """Export action-bound basis samples for human g3 calibration labels."""
     _root()
     payload = export_g3_calibration_samples(source_root.resolve(), output.resolve(), limit=limit)
+    _echo_json(payload)
+
+
+@app.command("g3-score-calibration")
+def g3_score_calibration(
+    calibration_file: Annotated[Path, typer.Option("--calibration-file", help="Labeled calibration JSONL fixture (positive or negative)")],
+    output: Annotated[Path, typer.Option("--output", help="Path to write the machine-readable specificity/agreement summary")],
+    judge_model: Annotated[str | None, typer.Option("--judge-model", help="OpenRouter model for live semantic judge; omitted uses local deterministic proxy")] = None,
+) -> None:
+    """Score a labeled g3 calibration fixture with any judge and write a summary artifact.
+
+    Use this for both the positive fixture (agreement rate) and the negative
+    fixture docs/g3_negative_calibration_samples.jsonl (specificity rate).
+    """
+    _root()
+    judge = OpenRouterSemanticJudge(judge_model) if judge_model else LocalSemanticJudge()
+    payload = score_g3_calibration_file(calibration_file.resolve(), judge=judge, output_path=output.resolve())
     _echo_json(payload)
 
 
