@@ -28,6 +28,8 @@ L2 解釈（新規バケット代表例のみ・LLM）
 ```
 L2の入力は常に「バケット代表1–3ラン＋該当span＋basisレコード」であり、生ログ全文ではない。
 
+**2026-07-06追記（実装との整合、設計は不変）**: 検知漏れは実装上、ルール群を`population: "truth"`（発見すべき事実）と`population: "monitoring"`（既存モニタリングルール）の2集団に分けたうえで、truthのfinding_typeごとにmonitoringが沈黙した割合として`detection_miss_rate`を出す（`oracles.py`の`rule_hit_rates`/`detection_miss_rates`、`MASTER_DESIGN.md`§10.3の「truth rulesとmonitoring mimic rulesは別populationとして保持」と同じ規律）。上のL1記述「recorder事実−(L0∪既存ルール)検出」は結論としては同じだが、2 population構成である点は本書には未反映だった。また、semantic groundingのG3判定は`grounding_semantic_all3_rate`（live judge）と`grounding_semantic_all3_rate_proxy`（judge未確定時のproxy）を分けて出力する（`semantic_grounding.py`、`MASTER_DESIGN.md`§10.3/§12）。本書執筆時点（WP-02以前）はG3のproxy/live二分をまだ持たず、L0/L2の記述はこの区別に触れていない。トリアージのバケット化・min-repro・統計規律（Wilson/ICC）自体への影響はない。
+
 ## 3. 逸脱シグネチャとバケット化（クラッシュ三重化の移植）
 
 ```
