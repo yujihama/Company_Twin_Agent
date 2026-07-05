@@ -14,9 +14,11 @@ from .customer_agent import CustomerActor, emit_customer_reply, emit_customer_tu
 from .deck import CustomerEvent, build_customer_deck, event_for_probe
 from .design_loader import DesignInputs
 from .env import normalize_openrouter_model
+from .identity import display_name_for_seat
 from .kernel import KernelProfile, WorldKernel
 from .recorder import RunRecorder
 from .tools import build_role_tools
+from .world_calendar import render_tick_as_date
 from .world_config import build_world_config
 
 CONTROLLED_ACTION_TOOLS = {
@@ -427,9 +429,10 @@ def _run_world(
 
 
 def _turn_prompt(*, tick: int, ticks: int, budget_left: int, messages: list[dict[str, Any]], mode: TurnPromptMode = "scaffold") -> str:
-    rendered = "\n".join(f"- {json.dumps(message, ensure_ascii=False)}" for message in messages)
+    rendered = "\n".join(f"- {_render_inbox_message(message)}" for message in messages)
     mode_guidance = _turn_mode_guidance(mode)
-    return f"""現在は第{tick}ティック（半日単位、全{ticks}ティック中）です。この半日で使えるツール呼び出し残数はおよそ {budget_left} 回です。
+    today = render_tick_as_date(tick)
+    return f"""本日は{today}です。この半日で使えるツール呼び出し残数はおよそ {budget_left} 回です。
 
 あなたの受信箱:
 {rendered}
@@ -437,17 +440,53 @@ def _turn_prompt(*, tick: int, ticks: int, budget_left: int, messages: list[dict
 これらをあなたの役割として処理してください。このturnでは、受信箱の先頭案件または同一申込IDの関連メッセージだけを処理し、ツール呼び出しは原則5回以内に収めてください。
 
 ツール選択の注意:
-- 顧客ID（CUS-...）には send_chat しない。顧客への説明・確認・折返しは record_customer_contact を使う。
-- 社内の座席（emp-...）への相談、承認依頼の補足、申込担当への引継ぎだけ send_chat を使う。
-- 統制に関わる行為（顧客接触、承認依頼、承認、差戻し、申込受付、本人確認、審査連携、契約、書面交付）の前には search_corpus と read_document を行い、実際に読んだ doc_id/version/citation_handle を basis_json に含める。
-- basis_json の最小形は {{"retrieved":[{{"doc_id":"実際に読んだdoc_id","version":"実際に読んだversion","citation_handle":"read_documentが返したhandle"}}],"construal":"読んだ文書からの解釈","decision":"選んだ行為","evidence_plan":"残す証跡","confidence":0.6}} です。値は実際に読んだ文書とhandleに合わせて変える。
-- customer_utterance を受けた販売担当は、読んだ文書に基づき record_customer_contact を残し、必要なら request_approval または emp-M/emp-C への send_chat を選ぶ。
-- chat を受けた管理者・第二線は、読んだ文書に基づき approve_application または return_application を選ぶ。
-- chat を受けた申込担当は、証跡が足りる場合だけ submit_application 以降の自分の役割の手続を進め、不足する場合は return_application または照会を選ぶ。
+- 顧客本人にはsend_chatを使わない。顧客への説明・確認・折返しはrecord_customer_contactを使う。
+- 社内の同僚への相談、承認依頼の補足、申込担当への引継ぎだけsend_chatを使う。
+- 統制に関わる行為（顧客接触、承認依頼、承認、差戻し、申込受付、本人確認、審査連携、契約、書面交付）の前にはsearch_corpusとread_documentを行い、実際に読んだdoc_id/version/citation_handleをbasis_jsonに含める。
+- basis_jsonの最小形は {{"retrieved":[{{"doc_id":"実際に読んだdoc_id","version":"実際に読んだversion","citation_handle":"read_documentが返したhandle"}}],"construal":"読んだ文書からの解釈","decision":"選んだ行為","evidence_plan":"残す証跡","confidence":0.6}} です。値は実際に読んだ文書とhandleに合わせて変える。
+- 顧客からの連絡を受けた販売担当は、読んだ文書に基づきrecord_customer_contactを残し、必要なら申込担当または営業管理者への確認をsend_chatで行う。
+- 同僚からの連絡を受けた管理者・第二線は、読んだ文書に基づきapprove_applicationまたはreturn_applicationを選ぶ。
+- 同僚からの連絡を受けた申込担当は、証跡が足りる場合だけsubmit_application以降の自分の役割の手続を進め、不足する場合はreturn_applicationまたは照会を選ぶ。
 
 {mode_guidance}
 
-過去ティックで自分用メモを書いた可能性がある場合は、統制に関わる行為の前に recall_notes で確認してください。この半日で完了できない事項は、保留の判断と相手への連絡を自分で選んでください。"""
+過去に自分用メモを書いた可能性がある場合は、統制に関わる行為の前にrecall_notesで確認してください。この半日で完了できない事項は、保留の判断と相手への連絡を自分で選んでください。
+
+業務記録の書き方は「事務連絡: 業務記録の作成要領」に従い、社内の記録・連絡は通常の業務用語で書いてください。"""
+
+
+def _render_inbox_message(message: dict[str, Any]) -> str:
+    """Render one inbox message as a natural business-record line for the
+    seat prompt, instead of dumping raw JSON (kind/tick/from as literal
+    keys, seat_id values like "emp-B"). A blind SME review flagged raw
+    tool/JSON vocabulary and symbolic seat ids surfacing in generated
+    records; since the seat LLM tends to echo the phrasing it is shown, this
+    rendering is the first place that phrasing is set."""
+    kind = str(message.get("kind") or "")
+    tick = message.get("tick")
+    when = render_tick_as_date(int(tick)) if isinstance(tick, int) else ""
+    if kind == "customer_utterance":
+        product = message.get("product") or ""
+        application_id = message.get("application_id") or ""
+        deadline = message.get("deadline_display") or ""
+        utterance = message.get("utterance") or ""
+        parts = [f"[{when}] 顧客連絡（案件{application_id}・{product}）"]
+        if deadline:
+            parts.append(f"希望期限: {deadline}")
+        parts.append(f"内容: {utterance}")
+        return " / ".join(parts)
+    if kind == "chat":
+        sender = display_name_for_seat(str(message.get("from") or ""))
+        channel = message.get("channel") or ""
+        body = message.get("body") or ""
+        return f"[{when}] {sender}からの連絡（{channel}）: {body}"
+    if kind == "timed_notice":
+        notice = message.get("notice") or ""
+        detail = message.get("detail") or ""
+        return f"[{when}] 社内通知（{notice}）: {detail}"
+    # Defensive fallback for any future inbox kind: still natural-language,
+    # never a raw key/value dump.
+    return f"[{when}] 連絡事項: {message.get('detail') or message.get('body') or message.get('utterance') or ''}".strip()
 
 
 def _turn_mode_guidance(mode: TurnPromptMode) -> str:

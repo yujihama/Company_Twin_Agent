@@ -513,3 +513,57 @@ CLI: `backcasting-run --campaign-root ... --seat-model ... --judge-model ...
   with `llm_invoke`/`llm_response` attempts recorded for the seat call
   (mirroring `DeepAgentSeat.turn` in `agents.py`) and a `backcasting_case.json`
   carrying the full situation/prompt/raw response/judge verdict for audit.
+
+### 17.2 Diegetic record-quality fix after blind SME review (2026-07-05 follow-up)
+
+The first live blind SME review under §17's machinery came back honest and
+low: 11/39 passed, 25/39 were flagged for "artificial markers" -- raw
+tool/JSON vocabulary in rendered records (`record_customer_contact`,
+`evidence_json`, `search_corpus`), the simulation clock ("tick"/"ティック")
+leaking into world-visible text, symbolic seat ids in prose ("emp-B",
+"emp-M様", even a broken concatenation "emp-Wemp-H"), language mixing, empty
+formulaic entries ("連絡事項の共有" repeated with no content), and
+template-parameter phrasing in customer utterances ("約2営業日以内"). Per P2/P3
+(§3) this is fixed by changing the WORLD, not by masking or rewriting at
+review-packet time and not by weakening the SME gate itself.
+
+Structural renderers (no prompt-only fix, so they hold regardless of model
+behavior): `company_twin.world_calendar` maps tick -> a diegetic business
+calendar date/half-day (tick 1 = 2026-04-01 AM; weekends skipped), replacing
+"第Nティック" in `harness._turn_prompt` and the "約N営業日以内" template phrase
+in `customer_agent.deadline_display`. `company_twin.identity` maps each
+seat_id to a deterministic world-natural display name (department + Japanese
+surname, e.g. emp-A -> "営業部 佐藤"); `harness._turn_prompt`'s inbox rendering
+and `agents.role_system_prompt` use it instead of the raw seat_id. Only
+RENDERING changed -- `recorder.record_chat`/`record_inbox`/`append_ledger`
+still store the raw seat_id, so L0/L1 oracles and bucket signatures are
+unaffected. `sme_blind_review.sample_run_bundle_excerpts` now drops an
+`inbox_delivered` excerpt when its message has no distinguishing content
+instead of emitting repeated bare boilerplate, and
+`strip_experimenter_vocabulary` gained detection patterns for "tick"/"ティック"
+and symbolic "emp-" ids as a defense-in-depth safety net (flagging/dropping,
+never silently rewriting in place).
+
+Diegetic standard document (nudges what a structural renderer cannot fully
+fix -- language mixing and free-text phrasing are model properties):
+`company_twin.corpus.RECORD_STANDARD_DOC_ID` (`DFH-SAL-950`) injects an
+ordinary internal memo, "事務連絡: 業務記録の作成要領", into every world at the
+Corpus layer (the same layer that already synthesizes the
+`DFH-SAL-021@v1.0`/`045@v1.0` stale mirrors), visible to all roles. It tells
+staff to write records in plain Japanese business terms, not system command
+names or raw ids, and passes the existing world-surface leak lint
+(`campaign.static_world_surface_lint`) like any other world document.
+
+Method-freeze note: these are world-version changes -- calendar rendering,
+the display-name registry, and the new baseline corpus document all change
+what a seat/customer actually reads. `world_config._raw_corpus_hash` folds in
+the record-writing-standard document's content hash alongside the
+manifest-tracked 50 docs (without changing `design.documents`'s count, which
+still asserts 50), so `raw_corpus_hash`/`effective_corpus_hash` in
+`world_config.json` shift naturally for any run compiled after this change --
+anyone diffing world versions can use that hash directly. Prior S1/S2
+campaign data recorded under the pre-fix world stays valid for its own era
+(nothing about oracle/kernel/recorder semantics changed), but a fresh live S2
+run is required before re-submitting to SME blind review -- the 11/39 pass
+rate belongs to the old world version and cannot be blended with post-fix
+results.
