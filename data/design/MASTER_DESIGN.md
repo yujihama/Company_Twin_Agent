@@ -410,3 +410,55 @@ G3 readiness境界: `docs/g3_calibration.md`は20-case local calibration fixture
 ## 16. 変更履歴（統合済み）
 
 2026-07-04のWP-01/WP-02/WP-04b/WP-05/WP-06追記は本文に統合済み。設計上の参照先は、harness acceptanceとreadiness境界が§12、G3 semantic groundingとL1 findingsが§10.2〜§10.3、prompt-mode method freezeが§7.3・§11.3・§11.4・§15、runtime mutation operatorsとcontrol-pair manifest境界が§8.2・§8.4。
+
+---
+
+## 17. WP-14 offline calibration machinery: backcasting, holdout, SME blind review (2026-07-05)
+
+This adds the offline harness for the three §12 gates that were previously
+blocked purely on missing input-evidence files. No LLM/API call is made
+anywhere in this machinery; the human/live steps (SME review, future
+re-simulation, live holdout runs) remain separate follow-on work.
+
+- `company_twin.backcasting`: `extract_backcasting_cases()` walks the
+  compiled corpus for the literal `現場判断事例` / `補足?. 現場判断メモ` /
+  `現場FAQ` sections already present in the 37 source manuals and pairs up
+  each situation/response (or Q&A) row, recording full provenance and
+  de-duplicating identical text across near-identical manuals.
+  `score_backcasting_reproduction()`/`write_backcasting_report()` score a
+  future re-simulation result set against those cases; zero results is an
+  honest "not yet measured" block, not a pass. CLI:
+  `backcasting-extract`, `backcasting-report`.
+- `company_twin.holdout`: `build_holdout_injection_plan()` reuses the
+  existing WP-06 mutation-operator catalog as the known-answer injection set,
+  stamping each planned injection with a spec hash.
+  `compute_holdout_detection_rate()`/`write_holdout_report()` score existing
+  run bundles' L0 triage findings and L1 monitoring-rule hits (L0∪L1) per
+  injected mutation; the acceptance target is detection_rate >= 0.80,
+  justified by previously measured miss_rate=1.0 monitoring blind spots. CLI:
+  `holdout-plan`, `holdout-score`.
+- `company_twin.sme_blind_review`: `sample_run_bundle_excerpts()` pulls short
+  business-artifact-shaped excerpts from a run bundle;
+  `strip_experimenter_vocabulary()` reuses the existing leak-lint
+  definitions (`campaign.WORLD_PROMPT_BANNED_TERMS/PATTERNS`,
+  `mutations.LEAK_PATTERNS`) plus supplementary katakana terms, and drops any
+  excerpt that needed even one redaction rather than ship a
+  placeholder-marked fragment. `build_blind_review_packet()` produces the
+  reviewer packet with plausibility questions and null responses;
+  `score_sme_blind_review()`/`write_sme_blind_review_report()` score
+  filled-in responses -- an unfilled packet always fails honestly. CLI:
+  `sme-pack`, `sme-score`.
+- Ungameability: `readiness._structural_evidence_check()` hardens all three
+  `run_readiness_gate` checks so a report is only accepted when it carries a
+  non-empty per-item evidence breakdown (per-injection detection rows,
+  per-case reproduction rows, per-item reviewer rows) -- a hand-edited report
+  claiming `"passed": true` without those rows is rejected.
+- Real-corpus verification (read-only, offline): running
+  `extract_backcasting_cases()` against the full 50-document corpus found 45
+  documents containing exemplar-case sections, 553 raw occurrences, and 324
+  distinct (de-duplicated) cases.
+
+Scope boundary: this is machinery only. It does not claim backcasting/
+holdout/SME-blind-review Stage 9 evidence by itself -- that still requires a
+live re-simulation pass, a live holdout campaign, and a completed human SME
+review filled into the packets this module produces.

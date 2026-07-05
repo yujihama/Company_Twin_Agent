@@ -24,9 +24,9 @@ def run_readiness_gate(campaign_root: Path, *, semantic_threshold: float = 0.8) 
         _passed_report_check(campaign_root, "retrieval_audit.json", "retrieval_audit_passed"),
         _semantic_grounding_check(campaign_root, semantic_threshold=semantic_threshold),
         _passed_report_check(campaign_root, "semantic_grounding_report.json", "semantic_grounding_report_passed"),
-        _passed_report_check(campaign_root, "backcasting_report.json", "backcasting_passed"),
-        _passed_report_check(campaign_root, "sme_blind_review.json", "sme_blind_review_passed"),
-        _passed_report_check(campaign_root, "holdout_report.json", "holdout_passed"),
+        _backcasting_check(campaign_root),
+        _sme_blind_review_check(campaign_root),
+        _holdout_check(campaign_root),
     ]
     payload = {
         "campaign_root": str(campaign_root),
@@ -59,9 +59,9 @@ def write_readiness_reports(
         "retrieval_audit.json": _retrieval_audit_report(corpus),
         "leak_lint_report.json": _leak_lint_report(lint_payload),
         "semantic_grounding_report.json": _semantic_grounding_report(campaign_root, semantic_threshold=semantic_threshold),
-        "backcasting_report.json": _manual_evidence_report("backcasting", "backcasting_inputs.json"),
-        "sme_blind_review.json": _manual_evidence_report("sme_blind_review", "sme_blind_review_inputs.json"),
-        "holdout_report.json": _manual_evidence_report("holdout", "holdout_inputs.json"),
+        "backcasting_report.json": _backcasting_report_payload(campaign_root),
+        "sme_blind_review.json": _sme_blind_review_report_payload(campaign_root),
+        "holdout_report.json": _holdout_report_payload(campaign_root),
     }
     written: dict[str, Any] = {}
     for filename, payload in report_payloads.items():
@@ -315,6 +315,109 @@ def _manual_evidence_report(report_type: str, input_filename: str) -> dict[str, 
         }
     ]
     return _report(report_type, checks)
+
+
+def _backcasting_report_payload(campaign_root: Path) -> dict[str, Any]:
+    from .backcasting import write_backcasting_report
+
+    return write_backcasting_report(campaign_root)
+
+
+def _sme_blind_review_report_payload(campaign_root: Path) -> dict[str, Any]:
+    from .sme_blind_review import write_sme_blind_review_report
+
+    return write_sme_blind_review_report(campaign_root)
+
+
+def _holdout_report_payload(campaign_root: Path) -> dict[str, Any]:
+    from .holdout import write_holdout_report
+
+    return write_holdout_report(campaign_root)
+
+
+SME_BLIND_REVIEW_MIN_REVIEWED_ROWS = 1
+
+
+def _backcasting_check(campaign_root: Path) -> dict[str, Any]:
+    return _structural_evidence_check(
+        campaign_root,
+        filename="backcasting_report.json",
+        check_name="backcasting_passed",
+        row_path=("checks", 0, "rows"),
+        min_rows=1,
+    )
+
+
+def _sme_blind_review_check(campaign_root: Path) -> dict[str, Any]:
+    return _structural_evidence_check(
+        campaign_root,
+        filename="sme_blind_review.json",
+        check_name="sme_blind_review_passed",
+        row_path=("checks", 0, "rows"),
+        min_rows=SME_BLIND_REVIEW_MIN_REVIEWED_ROWS,
+    )
+
+
+def _holdout_check(campaign_root: Path) -> dict[str, Any]:
+    return _structural_evidence_check(
+        campaign_root,
+        filename="holdout_report.json",
+        check_name="holdout_passed",
+        row_path=("checks", 0, "per_injection"),
+        min_rows=1,
+    )
+
+
+def _structural_evidence_check(
+    campaign_root: Path,
+    *,
+    filename: str,
+    check_name: str,
+    row_path: tuple[Any, ...],
+    min_rows: int,
+) -> dict[str, Any]:
+    """A stricter variant of _passed_report_check for the WP-14 manual-evidence
+    gates (backcasting/SME blind review/holdout).
+
+    Ungameability: it is not enough for the report file to say
+    ``"passed": true`` with the right schema_version -- the report must also
+    carry a non-empty per-item evidence breakdown (per-injection detection
+    rows for holdout, per-case reproduction rows for backcasting, per-item
+    reviewer rows for SME blind review) with at least `min_rows` entries.
+    A hand-edited report claiming pass without that evidence is rejected here,
+    the same way routine_smoke rejects corrupted-but-unsurfaced evidence.
+    """
+    base = _passed_report_check(campaign_root, filename, check_name)
+    if not base["passed"]:
+        return base
+    path = campaign_root / filename
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return {"check": check_name, "passed": False, "detail": f"{filename} invalid json"}
+    rows = _dig(payload, row_path)
+    ok = isinstance(rows, list) and len(rows) >= min_rows
+    if ok:
+        return base
+    return {
+        "check": check_name,
+        "passed": False,
+        "detail": f"{filename}: passed=true but missing structural evidence rows at {'.'.join(str(p) for p in row_path)} (found {rows!r})",
+    }
+
+
+def _dig(payload: Any, path: tuple[Any, ...]) -> Any:
+    current = payload
+    for key in path:
+        if isinstance(key, int):
+            if not isinstance(current, list) or key >= len(current):
+                return None
+            current = current[key]
+        else:
+            if not isinstance(current, dict):
+                return None
+            current = current.get(key)
+    return current
 
 
 def _s2_roots(campaign_root: Path) -> list[Path]:
