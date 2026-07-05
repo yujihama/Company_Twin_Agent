@@ -87,6 +87,7 @@ python -m company_twin.cli g3 --campaign-root runs\design_campaign_YYYYMMDD_HHMM
 python -m company_twin.cli min-repro --campaign-root runs\design_campaign_YYYYMMDD_HHMMSS
 python -m company_twin.cli acceptance --campaign-root runs\design_campaign_YYYYMMDD_HHMMSS --scope full_world
 python -m company_twin.cli readiness-reports --campaign-root runs\design_campaign_YYYYMMDD_HHMMSS --overwrite
+python -m company_twin.cli stage9-evidence-manifest --campaign-root runs\design_campaign_YYYYMMDD_HHMMSS
 python -m company_twin.cli readiness --campaign-root runs\design_campaign_YYYYMMDD_HHMMSS
 ```
 
@@ -98,3 +99,33 @@ links to `coverage_map.json`, and run metrics include `rule_hit_rate` plus
 `data/compiled_data/detection_rules_v2.json`. `readiness` is stricter and
 requires routine smoke, retrieval audit, leak lint, semantic grounding,
 backcasting, SME blind review, and holdout evidence.
+
+### Two-level readiness (2026-07-05)
+
+`readiness` reports two levels, both written into `readiness_report.json`:
+
+- `internal_readiness`: the pre-existing 10-item gate plus
+  `stage9_evidence_manifest_consistent` (requires `stage9-evidence-manifest`
+  to have been run and to match the current report files). This accepts
+  `ai_proxy` SME review and single-seed holdout evidence -- it certifies
+  internally self-consistent evidence, not an external human-reviewed claim.
+  `readiness`'s exit code and top-level `passed` field track this level.
+- `external_claim_readiness`: a stricter, informational-but-honest summary
+  requiring human_sme review (not ai_proxy), a machine-checkable
+  `g3_negative_calibration.json` (specificity on known-clean cases), holdout
+  evidence with both positive and negative (no-mutation) controls, and all
+  evidence from a single post-fix world version (no `effective_corpus_hash`
+  heterogeneity in the evidence manifest). This block is expected mostly
+  `false` today and never gates `internal_readiness` or the CLI exit code.
+
+Run `stage9-evidence-manifest` after generating the individual evidence
+reports and before `readiness`, so the manifest reflects the report files the
+gate is about to check:
+
+```powershell
+python -m company_twin.cli backcasting-report --campaign-root runs\design_campaign_YYYYMMDD_HHMMSS
+python -m company_twin.cli holdout-score --campaign-root runs\design_campaign_YYYYMMDD_HHMMSS
+python -m company_twin.cli sme-score --campaign-root runs\design_campaign_YYYYMMDD_HHMMSS
+python -m company_twin.cli stage9-evidence-manifest --campaign-root runs\design_campaign_YYYYMMDD_HHMMSS
+python -m company_twin.cli readiness --campaign-root runs\design_campaign_YYYYMMDD_HHMMSS
+```

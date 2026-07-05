@@ -26,9 +26,12 @@ from company_twin.holdout import (
     HOLDOUT_DETECTION_TARGET,
     build_holdout_injection_plan,
     compute_holdout_detection_rate,
+    score_holdout_controls,
+    verify_holdout_bundles,
     write_holdout_inputs,
     write_holdout_report,
 )
+from company_twin.mutations import load_mutation_catalog
 from company_twin.readiness import REPORT_SCHEMA_VERSION, run_readiness_gate, write_readiness_reports
 from company_twin.sme_blind_review import (
     REVIEW_QUESTIONS,
@@ -204,6 +207,31 @@ def _run_bundle_with_findings(root: Path, *, finding_types: dict[str, int], rule
     (root / "meta.json").write_text(json.dumps({"stage": "S1", "mutation_ids": ["clarify_elderly_understanding_all"]}), encoding="utf-8")
 
 
+def _verified_s2_bundle(root: Path, *, injection: dict[str, Any], finding_types: dict[str, int], planned_ticks: int = 4) -> None:
+    """Build a run bundle that passes holdout bundle-attribution verification
+    (verify_holdout_bundles): stage S2, config.json mutation entries matching
+    the injection's spec_hash/mutation_id, and world_ledger tick coverage."""
+    from company_twin.world_config import _json_hash as world_json_hash
+
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "triage").mkdir(exist_ok=True)
+    (root / "triage" / "metrics.json").write_text(
+        json.dumps({"stage": "S2", "finding_types": finding_types, "rule_hit_rate": {}, "detection_miss_rate": {}}),
+        encoding="utf-8",
+    )
+    mutation_id = injection["mutation_id"]
+    spec = load_mutation_catalog(Path.cwd())[mutation_id]
+    assert world_json_hash(spec) == injection["spec_hash"]
+    mutation_entry = dict(spec)
+    (root / "config.json").write_text(
+        json.dumps({"world": {"corpus": {"mutations": [mutation_entry], "mutation_hash": world_json_hash([mutation_entry]), "effective_corpus_hash": "test-hash"}}}),
+        encoding="utf-8",
+    )
+    (root / "meta.json").write_text(json.dumps({"stage": "S2", "mutation_ids": [mutation_id]}), encoding="utf-8")
+    ledger_rows = [{"tick": tick, "event_type": "tick_committed"} for tick in range(1, planned_ticks + 1)]
+    (root / "world_ledger.jsonl").write_text("".join(json.dumps(row) + "\n" for row in ledger_rows), encoding="utf-8")
+
+
 def test_compute_holdout_detection_rate_counts_l0_and_l1_evidence(tmp_path: Path) -> None:
     plan = build_holdout_injection_plan(Path.cwd(), mutation_ids=["clarify_elderly_understanding_all", "dangling_fill_search_key_stub"])
     # grounding_gap is in the pre-registered expected_finding_types for both
@@ -305,12 +333,14 @@ def test_holdout_report_fails_honestly_below_target_and_passes_above(tmp_path: P
 
     # Now supply matching run bundles for all five mutations, each producing a
     # finding_type that is actually in that mutation's own pre-registered
-    # expected_finding_types (not a blanket grounding_gap) -> strict rate 1.0.
+    # expected_finding_types (not a blanket grounding_gap) -> strict rate 1.0,
+    # AND each bundle is verified (stage S2, config.json mutation entry
+    # matching spec_hash, adequate tick coverage, no failure marker).
     run_lookup = {}
     for idx, injection in enumerate(plan["injections"]):
-        run_root = tmp_path / f"s1_holdout_{idx}"
+        run_root = tmp_path / f"s2_holdout_{idx}"
         finding_type = injection["expected_finding_types"][0]
-        _run_bundle_with_findings(run_root, finding_types={finding_type: 1})
+        _verified_s2_bundle(run_root, injection=injection, finding_types={finding_type: 1})
         run_lookup[injection["injection_id"]] = run_root
 
     passing = write_holdout_report(tmp_path, run_lookup=run_lookup)
@@ -319,6 +349,115 @@ def test_holdout_report_fails_honestly_below_target_and_passes_above(tmp_path: P
     assert passing["measurement"]["strict_detection_rate"] == 1.0
     assert passing["measurement"]["lenient_detection_rate"] == 1.0
     assert len(passing["checks"][0]["per_injection"]) == 5
+    assert passing["bundle_verification"]["all_verified"] is True
+    assert passing["plan_hash"] == plan["plan_hash"]
+
+
+# ---------------------------------------------------------------------------
+# Expert-review hardening: bundle-attribution verification + controls
+# ---------------------------------------------------------------------------
+
+
+def test_verify_holdout_bundles_fails_on_spec_hash_mismatch(tmp_path: Path) -> None:
+    """Ungameability: a run bundle whose config.json mutation entries do not
+    actually match the injection's spec_hash/mutation_id must not verify,
+    even if L0/L1 findings happen to line up (e.g. a stale bundle re-used
+    across mutation revisions)."""
+    plan = build_holdout_injection_plan(Path.cwd(), mutation_ids=["clarify_elderly_understanding_all"], run_roots=["s2_bad"])
+    write_holdout_inputs(tmp_path, plan)
+    injection = plan["injections"][0]
+    root = tmp_path / "s2_bad"
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "triage").mkdir(exist_ok=True)
+    (root / "triage" / "metrics.json").write_text(
+        json.dumps({"stage": "S2", "finding_types": {injection["expected_finding_types"][0]: 1}, "rule_hit_rate": {}, "detection_miss_rate": {}}),
+        encoding="utf-8",
+    )
+    # config.json declares an unrelated mutation entry, not this injection's spec.
+    (root / "config.json").write_text(
+        json.dumps({"world": {"corpus": {"mutations": [{"mutation_id": "some_other_mutation", "operator": "clarify"}]}}}),
+        encoding="utf-8",
+    )
+    (root / "meta.json").write_text(json.dumps({"stage": "S2", "mutation_ids": [injection["mutation_id"]]}), encoding="utf-8")
+    (root / "world_ledger.jsonl").write_text("".join(json.dumps({"tick": t, "event_type": "tick_committed"}) + "\n" for t in range(1, 5)), encoding="utf-8")
+
+    verification = verify_holdout_bundles(tmp_path, plan, run_lookup={injection["injection_id"]: root})
+
+    assert verification["all_verified"] is False
+    assert verification["per_injection"][0]["runs"][0]["spec_hash_consistent"] is False
+
+    report = write_holdout_report(tmp_path, run_lookup={injection["injection_id"]: root})
+    assert report["passed"] is False
+    assert report["bundle_verification"]["all_verified"] is False
+
+
+def test_verify_holdout_bundles_records_exploration_mode_and_cannot_pass(tmp_path: Path) -> None:
+    """Implicit run-root scanning (no planned_run_roots, no explicit
+    run_lookup entry) must be recorded as exploration-mode and cannot pass
+    the readiness check, even when the scanned bundle happens to look
+    correct."""
+    plan = build_holdout_injection_plan(Path.cwd(), mutation_ids=["clarify_elderly_understanding_all"])  # no run_roots -> exploration
+    write_holdout_inputs(tmp_path, plan)
+    injection = plan["injections"][0]
+    _verified_s2_bundle(tmp_path / "s1_run0", injection=injection, finding_types={injection["expected_finding_types"][0]: 1})
+    # _matching_mutation_run_roots scans meta.json mutation_ids, so this bundle IS discoverable by scanning.
+
+    verification = verify_holdout_bundles(tmp_path, plan, run_lookup=None)
+
+    assert verification["any_exploration_mode"] is True
+    assert verification["all_verified"] is False
+    assert verification["per_injection"][0]["resolution_mode"] == "exploration"
+    assert "exploration-mode" in verification["per_injection"][0]["detail"]
+
+    report = write_holdout_report(tmp_path)
+    assert report["passed"] is False
+    assert report["checks"][0]["any_exploration_mode"] is True
+
+
+def test_holdout_report_missing_controls_is_a_warning_not_a_failure(tmp_path: Path) -> None:
+    plan = build_holdout_injection_plan(Path.cwd(), mutation_ids=["clarify_elderly_understanding_all"], run_roots=["s2_holdout_0"])
+    write_holdout_inputs(tmp_path, plan)
+    injection = plan["injections"][0]
+    _verified_s2_bundle(tmp_path / "s2_holdout_0", injection=injection, finding_types={injection["expected_finding_types"][0]: 1})
+
+    report = write_holdout_report(tmp_path, run_lookup={injection["injection_id"]: tmp_path / "s2_holdout_0"})
+
+    assert report["passed"] is True  # missing controls never auto-fails
+    assert report["controls"] is None
+    assert any("no controls section" in note.lower() for note in report["notes"])
+
+
+def test_holdout_report_controls_records_anomalous_hits_without_failing(tmp_path: Path) -> None:
+    plan = build_holdout_injection_plan(Path.cwd(), mutation_ids=["clarify_elderly_understanding_all"], run_roots=["s2_holdout_0"])
+    write_holdout_inputs(tmp_path, plan)
+    injection = plan["injections"][0]
+    _verified_s2_bundle(tmp_path / "s2_holdout_0", injection=injection, finding_types={injection["expected_finding_types"][0]: 1})
+    # Control run: no mutation applied, but its triage metrics show the same
+    # expected_finding_type firing anyway -- a false alarm on an unmutated run.
+    control_root = tmp_path / "s2_control_anchor"
+    control_root.mkdir(parents=True, exist_ok=True)
+    (control_root / "triage").mkdir(exist_ok=True)
+    (control_root / "triage" / "metrics.json").write_text(
+        json.dumps({"stage": "S2", "finding_types": {injection["expected_finding_types"][0]: 1}, "rule_hit_rate": {}, "detection_miss_rate": {}}),
+        encoding="utf-8",
+    )
+
+    report = write_holdout_report(
+        tmp_path,
+        run_lookup={injection["injection_id"]: tmp_path / "s2_holdout_0"},
+        control_run_roots=["s2_control_anchor"],
+    )
+
+    assert report["passed"] is True  # anomalous control hits are recorded, not auto-fail
+    assert report["controls"] is not None
+    assert report["controls"]["anomalous_hit_count"] == 1
+    assert report["controls"]["per_control"][0]["has_anomalous_hit"] is True
+
+
+def test_score_holdout_controls_returns_none_when_no_control_roots_given() -> None:
+    plan = build_holdout_injection_plan(Path.cwd(), mutation_ids=["clarify_elderly_understanding_all"])
+    assert score_holdout_controls(Path.cwd(), plan, control_run_roots=None) is None
+    assert score_holdout_controls(Path.cwd(), plan, control_run_roots=[]) is None
 
 
 def test_holdout_report_gate_fails_on_strict_even_when_lenient_passes(tmp_path: Path) -> None:
@@ -582,6 +721,95 @@ def test_sme_blind_review_report_fails_on_artificial_marker_flag(tmp_path: Path)
     assert "artificial_marker_flag_count" in payload["checks"][0]["detail"]
 
 
+def test_sme_blind_review_report_blocked_when_id_map_missing(tmp_path: Path) -> None:
+    """Expert-review hardening: sme_blind_review_id_map.json is required
+    alongside the packet -- dropped_count can only be read from it."""
+    run_root = _fixture_run_bundle(tmp_path / "run1")
+    packet, _id_map = build_blind_review_packet([run_root], samples_per_run=10)
+    for item in packet["items"]:
+        item["response"] = {"plausible_workplace_scene": 5, "internally_consistent": 5, "no_artificial_markers": "no"}
+    write_sme_blind_review_inputs(tmp_path, packet, id_map=None)  # id map deliberately omitted
+
+    payload = write_sme_blind_review_report(tmp_path)
+
+    assert payload["passed"] is False
+    assert payload["status"] == "blocked"
+    assert "sme_blind_review_id_map_supplied" in {check["name"] for check in payload["checks"]}
+
+
+def test_sme_blind_review_report_fails_when_dropped_count_positive(tmp_path: Path) -> None:
+    """Ungameability: a leaked_vocabulary_redacted drop is an artifact
+    detection (the world leaked experimenter vocabulary), not exclusion
+    bookkeeping. dropped_count > 0 must fail the report even when every
+    remaining (clean) item scores perfectly."""
+    run_root = tmp_path / "run_leaky"
+    run_root.mkdir(parents=True, exist_ok=True)
+    _write_jsonl(
+        run_root / "chat_channel.jsonl",
+        [
+            {"body": "本日の申込、意向把握のメモが未記入なので確認してもらえますか。"},
+            {"body": "承知しました、確認して午後に折り返します。"},
+            {"body": "顧客への再説明は完了しました、記録も残しています。"},
+            {"body": "解約希望のお客様には手続き案内を送付済みです。"},
+            {"body": "月次の締め処理は問題なく完了しました。"},
+            {"body": "本日のprobe対応は完了しました。"},  # this one leaks and gets dropped
+        ],
+    )
+    (run_root / "world_ledger.jsonl").write_text("", encoding="utf-8")
+    (run_root / "attempts.jsonl").write_text("", encoding="utf-8")
+
+    packet, id_map = build_blind_review_packet([run_root], samples_per_run=10)
+    assert id_map["dropped_count"] == 1
+    for item in packet["items"]:
+        item["response"] = {"plausible_workplace_scene": 5, "internally_consistent": 5, "no_artificial_markers": "no"}
+    write_sme_blind_review_inputs(tmp_path, packet, id_map)
+
+    payload = write_sme_blind_review_report(tmp_path)
+
+    assert payload["passed"] is False
+    assert payload["status"] == "blocked"
+    assert "dropped_count=1" in payload["checks"][0]["detail"]
+    assert "artifact detection" in payload["checks"][0]["detail"]
+    assert payload["checks"][0]["dropped_count"] == 1
+
+
+def test_sme_blind_review_report_labels_ai_proxy_as_internal_calibration(tmp_path: Path) -> None:
+    run_root = _fixture_run_bundle(tmp_path / "run1")
+    packet, id_map = build_blind_review_packet([run_root], samples_per_run=10, reviewer_type="ai_proxy")
+    for item in packet["items"]:
+        item["response"] = {"plausible_workplace_scene": 5, "internally_consistent": 5, "no_artificial_markers": "no"}
+    write_sme_blind_review_inputs(tmp_path, packet, id_map)
+
+    payload = write_sme_blind_review_report(tmp_path)
+
+    assert payload["passed"] is True
+    assert payload["reviewer_type"] == "ai_proxy"
+    assert payload["claim_level"] == "internal_calibration"
+
+
+def test_sme_blind_review_report_labels_human_sme_as_human_sme(tmp_path: Path) -> None:
+    run_root = _fixture_run_bundle(tmp_path / "run1")
+    packet, id_map = build_blind_review_packet(
+        [run_root], samples_per_run=10, reviewer_type="human_sme", reviewer={"note": "blind reviewer, no prior context"}
+    )
+    for item in packet["items"]:
+        item["response"] = {"plausible_workplace_scene": 5, "internally_consistent": 5, "no_artificial_markers": "no"}
+    write_sme_blind_review_inputs(tmp_path, packet, id_map)
+
+    payload = write_sme_blind_review_report(tmp_path)
+
+    assert payload["passed"] is True
+    assert payload["reviewer_type"] == "human_sme"
+    assert payload["claim_level"] == "human_sme"
+    assert payload["reviewer"] == {"note": "blind reviewer, no prior context"}
+
+
+def test_build_blind_review_packet_rejects_unknown_reviewer_type(tmp_path: Path) -> None:
+    run_root = _fixture_run_bundle(tmp_path / "run1")
+    with pytest.raises(ValueError, match="reviewer_type"):
+        build_blind_review_packet([run_root], reviewer_type="not_a_real_type")
+
+
 def test_score_sme_blind_review_treats_null_response_as_unreviewed_not_passing() -> None:
     packet = {"items": [{"item_id": "a", "response": None}, {"item_id": "b", "response": {"plausible_workplace_scene": 5, "internally_consistent": 5, "no_artificial_markers": "no"}}]}
 
@@ -613,17 +841,28 @@ def test_sme_pack_and_score_cli(tmp_path: Path) -> None:
 
 
 def test_readiness_reports_wires_wp14_writers_end_to_end(tmp_path: Path) -> None:
+    from company_twin.backcasting_run import BACKCASTING_RESULTS_SCHEMA_VERSION, JUDGE_PROMPT_VERSION, select_backcasting_sample
+
     design = _design()
     extraction = extract_backcasting_cases(design)
     write_backcasting_inputs(tmp_path, extraction)
-    case_ids = [case["case_id"] for case in extraction["cases"][:5]]
+    sample = select_backcasting_sample(extraction["cases"], sample_size=5, sample_seed=0)
+    case_ids = sample["selected_case_ids"]
     (tmp_path / "backcasting_resimulation_results.json").write_text(
-        json.dumps({"results": [{"case_id": cid, "reproduced": True} for cid in case_ids]}), encoding="utf-8"
+        json.dumps(
+            {
+                "schema_version": BACKCASTING_RESULTS_SCHEMA_VERSION,
+                "sample": sample,
+                "judge": {"backend": "openrouter", "model": "fake-openrouter-model", "prompt_version": JUDGE_PROMPT_VERSION, "readiness_eligible": True},
+                "results": [{"case_id": cid, "reproduced": True, "viewed_doc_ids": ["DFH-SAL-021"]} for cid in case_ids],
+            }
+        ),
+        encoding="utf-8",
     )
 
-    plan = build_holdout_injection_plan(Path.cwd(), mutation_ids=["clarify_elderly_understanding_all"])
+    plan = build_holdout_injection_plan(Path.cwd(), mutation_ids=["clarify_elderly_understanding_all"], run_roots=["s2_holdout_0"])
     write_holdout_inputs(tmp_path, plan)
-    _run_bundle_with_findings(tmp_path / "s1_run0", finding_types={"grounding_gap": 1})
+    _verified_s2_bundle(tmp_path / "s2_holdout_0", injection=plan["injections"][0], finding_types={plan["injections"][0]["expected_finding_types"][0]: 1})
 
     run_root = _fixture_run_bundle(tmp_path / "sme_run")
     packet, id_map = build_blind_review_packet([run_root])

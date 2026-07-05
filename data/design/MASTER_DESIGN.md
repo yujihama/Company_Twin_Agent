@@ -372,6 +372,8 @@ G3 readiness境界: `docs/g3_calibration.md`は20-case local calibration fixture
 
 最大の失敗モードは**解釈収斂**（全エージェントが同じ慎重な読みをする）。対処は情報環境非対称・モデル異種混成・tick予算の3点であり、分岐sanityゲートをGo/No-Goに据える。
 
+**二段readiness（2026-07-05、外部レビュー対応で追記）**: readinessは以下の二層で報告する。(1) **internal observation readiness** — 既存の10項目ゲート＋`stage9_evidence_manifest_consistent`（§17.4）。ai_proxy SME・単一seed holdoutを受理するが、証跡マニフェストの整合が無ければ10/10に到達しない。(2) **external claim readiness** — human_sme査読、G3 negative calibration（既知陰性ケースでのspecificity）記録、positive+negative controlを伴うholdout、単一post-fix world versionからの全証跡、の4項目。今のところほぼfalseで構わない、正直な現状表示であり、(1)のpassをゲートしない。`readiness_report.json`は`internal_readiness`と`external_claim_readiness`の両方を持つ。
+
 ---
 
 ## 13. リスクと対処
@@ -621,3 +623,79 @@ fields (product, deadlines, latent_truth/elderly/complication flags, event
 timing) are untouched by this change -- only the surface phrasing fed to the
 customer LLM is diversified, verified by asserting the full 38-event deck's
 `to_dict()` output is unchanged before/after phrasing is rendered.
+
+### 17.4 Stage 9 gate hardening after expert review (2026-07-05)
+
+An external expert review of the WP-14 offline calibration machinery (§17,
+17.1, 17.2) found concrete false-green holes that a well-formed-looking
+report could still hide. This closes them without touching the sampler in
+`sme_blind_review.py` or `customer_agent.py`:
+
+- **Evidence manifest** (`company_twin.evidence_manifest`):
+  `stage9_evidence_manifest.json` binds every readiness evidence artifact to
+  its provenance in the campaign root -- git commit (of the code generating
+  the manifest), command line, and per-evidence-class entries (run roots +
+  meta.json timing, raw/effective corpus hash, mutation hash, prompt_mode,
+  seat model bindings, judge backend/model/prompt_version, backcasting
+  sample_seed + sha256 of selected_case_ids, SME packet_hash + reviewer_type,
+  holdout plan_hash + injection spec_hashes). CLI: `stage9-evidence-manifest`.
+  `readiness._stage9_evidence_manifest_check` requires the manifest to exist
+  AND match the *current* report files (packet_hash vs SME inputs, plan_hash
+  vs holdout_inputs, sample seed/hash vs backcasting results, judge fields vs
+  g3 files); absence or drift blocks this check regardless of how the other
+  ten score. World-version heterogeneity (different `effective_corpus_hash`
+  values across evidence classes) is recorded loudly in a `world_versions`
+  section, never hidden.
+- **Backcasting readiness hardening** (report/readiness path, not the
+  runner): `write_backcasting_report` now also verifies, when reading live
+  results from `backcasting_resimulation_results.json`, that
+  `schema_version` matches, `judge.readiness_eligible` is true AND
+  `judge.backend == "openrouter"` AND `judge.prompt_version` matches the
+  expected constant, and that the recorded `sample_size`/`sample_seed`
+  reproduce the exact `selected_case_ids` (sha256-consistent) a fresh
+  `select_backcasting_sample()` call would compute, with every selected
+  case_id present exactly once. A proxy/local judge, a stale schema, a
+  drifted sample, or a dropped/duplicated case now blocks the report even at
+  reproduction_rate = 1.0. The report also surfaces `zero_viewed_docs_count`,
+  `cited_but_not_viewed_count`/rate, and `grounded_reproduction_rate`
+  (reproduced AND `len(viewed_doc_ids) > 0`) alongside the official
+  `reproduction_rate` (still the >= 0.80 pass gate) -- grounded_reproduction_rate
+  is what actually answers "can seats reconstruct documented judgments FROM
+  THE DOCUMENTS".
+- **SME gate honesty**: `sme_blind_review_id_map.json` is now REQUIRED
+  alongside the packet; `write_sme_blind_review_report` reads `dropped_count`
+  from it, and any `leaked_vocabulary_redacted` drop (`dropped_count > 0`)
+  fails the report as an ARTIFACT DETECTION -- the world leaked experimenter
+  vocabulary, so the fix belongs in the world (§17.2), not in silently
+  dropping the tainted excerpt from the packet. `build_blind_review_packet`
+  gained `reviewer_type` ("human_sme" default | "ai_proxy") and an optional
+  free-form `reviewer` note; the report carries both plus a derived
+  `claim_level` ("human_sme" vs "internal_calibration" for ai_proxy).
+- **Holdout verification**: `write_holdout_report` now references `plan_hash`
+  and runs `verify_holdout_bundles()` per injection -- `config.json`'s
+  mutation entries/`mutation_hash` must be consistent with the injection's
+  `spec_hash`/`mutation_id`, the attributed run must be stage S2 with
+  `world_ledger` tick coverage >= the plan's `planned_ticks` and no failure
+  marker, and a bundle resolved purely by implicit run-root scanning (no
+  `planned_run_roots`, no explicit `run_lookup` entry) is recorded as
+  exploration-mode and cannot pass. A `controls` section
+  (`score_holdout_controls`) scores designated no-mutation control runs
+  (e.g. anchor/plain S2 bundles) with the same detectors, reporting a
+  false-alarm profile; a missing controls section is a surfaced warning, not
+  an auto-fail, and anomalous control hits are recorded (visible), not
+  hidden.
+- **Two-stage readiness**: `run_readiness_gate` is now explicitly **internal
+  observation readiness** (the pre-existing 10-item gate plus
+  `stage9_evidence_manifest_consistent`); it still accepts ai_proxy SME and
+  single-seed holdout. `readiness_report.json` additionally carries
+  `external_claim_readiness` -- a separate, stricter, informational-but-honest
+  summary requiring human_sme review, a machine-checkable
+  `g3_negative_calibration.json` (specificity on known-clean cases), holdout
+  with both positive and negative controls, and a single post-fix world
+  version. It is expected mostly false for now and never gates
+  `internal_readiness`/the top-level `passed` field.
+
+Scope boundary: this is again machinery + report-side hardening only. It does
+not itself run a live re-simulation, a live holdout campaign, or a human SME
+review; it makes each existing gate refuse to be gamed by a well-formed
+report with the wrong evidence quality behind it.
