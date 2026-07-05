@@ -14,8 +14,23 @@ Two-plane separation (MASTER_DESIGN.md §12/§17, §14 "してはいけないこ
   the situation text reframed as an ordinary business question. No case_id,
   no documented_response, no words like "backcasting", "probe", "case",
   "reproduction", "experiment" ever reach the seat.
+- The seat's tools expose only the world corpus (`build_role_tools` over the
+  same compiled corpus real seats use); the tool layer receives no case data.
 - The judge is experimenter-plane: it MAY see the documented response, because
   its job is precisely to compare the seat's live answer against it.
+
+Corpus access + trace-derived provenance (2026-07-05 live-pass fix): the
+first live pass exposed an instrument defect -- the original seat was a bare
+chat invocation with no tools while its prompt instructed it to search and
+read internal documents, and 61/100 cases fabricated plausible-looking
+cited_doc_ids. The seat is now a real tool-using seat (default_seat_factory /
+DeepAgentSeat with search_corpus + read_document, mirroring run_s0 in
+harness.py), every tool call is recorded into the per-case attempts.jsonl,
+and the "documents actually viewed" list (`viewed_doc_ids`) is derived
+experimenter-side from the recorded read_document trace. The model's own
+claim is kept separately as `self_reported_doc_ids` and is never treated as
+grounding evidence; `cited_but_not_viewed_doc_ids` makes any residual
+fabrication visible per case.
 
 Judge boundary (mirrors company_twin.semantic_grounding):
 - `ReproductionJudge` protocol with an explicit `backend`/`model`.
@@ -46,8 +61,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
 
+from .agents import SeatFactory, default_seat_factory, recursion_for_budget
+from .corpus import Corpus
+from .design_loader import DesignInputs
 from .env import normalize_openrouter_model, openrouter_slug
-from .recorder import RunRecorder
+from .kernel import WorldKernel
+from .recorder import RunRecorder, read_jsonl
+from .tools import build_role_tools
 
 BACKCASTING_RESULTS_SCHEMA_VERSION = "company_twin.backcasting_resimulation_results.v1"
 JUDGE_PROMPT_VERSION = "backcasting-reproduction-judge-v1"
@@ -158,49 +178,38 @@ def _parse_seat_response(response: str) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
-# Live seat invocation (single-shot, S0-style; llm_invoke evidence recorded)
+# Live seat invocation (tool-using, S0-style; llm_invoke + tool evidence
+# recorded per case)
 # ---------------------------------------------------------------------------
+#
+# The seat is NOT a bare chat call: it is created through the same
+# SeatFactory machinery as real world seats (default_seat_factory /
+# DeepAgentSeat), with search_corpus + read_document tools over the compiled
+# corpus (build_role_tools, include_workflow=False -- reading tools only,
+# mirroring run_s0 in harness.py). The first live pass proved that a
+# tool-less seat fabricates citations: the prompt asks for documents
+# "actually viewed", so the seat must actually be able to view documents,
+# and the viewed list must come from the recorded trace, not the model.
+
+BACKCASTING_SEAT_TICK_BUDGET = 14  # same reading budget as an S0 row
 
 
-class BackcastingSeat(Protocol):
-    backend: str
-    model: str
+def _viewed_doc_ids_from_trace(run_root: Path, seat_id: str) -> list[str]:
+    """Derive the 'documents actually viewed' list from the recorded
+    read_document attempts in this case's attempts.jsonl.
 
-    def answer(self, prompt: str) -> str: ...
-
-
-class OpenRouterBackcastingSeat:
-    """Live single-shot seat used for the real re-simulation pass.
-
-    Mirrors DeepAgentCustomer/OpenRouterSemanticJudge: a plain chat
-    invocation (no world tools) is sufficient because the case situation is
-    a self-contained business scenario extracted verbatim from the corpus,
-    not a probe/span reference that needs live document search.
-    """
-
-    backend = "openrouter"
-
-    def __init__(self, model: str | None = None):
-        self.model = normalize_openrouter_model(model)
-
-    def answer(self, prompt: str) -> str:
-        from langchain_openai import ChatOpenAI
-
-        llm = ChatOpenAI(
-            api_key=os.environ["OPENROUTER_API_KEY"],
-            model=openrouter_slug(self.model),
-            base_url="https://openrouter.ai/api/v1",
-            timeout=int(os.getenv("OPENROUTER_TIMEOUT_SECONDS", "45")),
-            max_retries=0,
-            max_completion_tokens=int(os.getenv("COMPANY_TWIN_BACKCASTING_MAX_TOKENS", "800")),
-        )
-        response = llm.invoke([{"role": "user", "content": prompt}])
-        content = getattr(response, "content", response)
-        return str(content)
-
-
-def default_backcasting_seat_factory(model: str | None) -> "BackcastingSeat":
-    return OpenRouterBackcastingSeat(model)
+    Experimenter-side provenance: this never trusts the model's self-report.
+    Only successful read_document calls by the backcasting seat count."""
+    doc_ids: set[str] = set()
+    for row in read_jsonl(run_root / "attempts.jsonl"):
+        if row.get("tool") != "read_document" or not row.get("success"):
+            continue
+        if str(row.get("seat_id") or "") != seat_id:
+            continue
+        doc_id = str((row.get("args") or {}).get("doc_id") or "")
+        if doc_id:
+            doc_ids.add(doc_id)
+    return sorted(doc_ids)
 
 
 # ---------------------------------------------------------------------------
@@ -373,22 +382,44 @@ def _read_json(path: Path) -> dict[str, Any]:
     return payload if isinstance(payload, dict) else {}
 
 
+def _failed_row(case_id: str, run_root: Path, detail: str) -> dict[str, Any]:
+    return {
+        "case_id": case_id,
+        "reproduced": False,
+        "probe_id": "backcasting_resimulation",
+        "run_root": str(run_root),
+        "detail": detail,
+        "seat_answer": "",
+        "judge_label": NOT_EVALUATED,
+        "viewed_doc_ids": [],
+        "self_reported_doc_ids": [],
+        "cited_but_not_viewed_doc_ids": [],
+    }
+
+
 def _run_one_case(
     case: dict[str, Any],
     *,
     campaign_root: Path,
-    seat: BackcastingSeat,
+    design: DesignInputs,
+    corpus: Corpus,
+    seat_id: str,
+    seat_model: str,
+    seat_factory: SeatFactory,
     judge: ReproductionJudge,
     judge_cache: dict[str, Any],
 ) -> dict[str, Any]:
+    from .harness import kernel_profile  # local import: harness pulls langgraph
+
     case_id = str(case["case_id"])
     situation = str(case.get("situation") or "")
     documented_response = str(case.get("documented_response") or "")
     run_root = campaign_root / "backcasting_runs" / case_id
+    seat_role = design.seats[seat_id].role
     recorder = RunRecorder(
         run_root,
         run_id=f"backcasting_{case_id}",
-        meta={"stage": "backcasting_resimulation", "case_id": case_id, "seat_backend": seat.backend, "seat_model": seat.model},
+        meta={"stage": "backcasting_resimulation", "case_id": case_id, "seat_id": seat_id, "seat_role": seat_role, "seat_model": seat_model},
     )
     prompt = backcasting_seat_prompt(situation)
     try:
@@ -398,53 +429,57 @@ def _run_one_case(
         # touches documented_response/case_id), but fail the case honestly
         # rather than silently sending a leaked prompt if it ever happens.
         recorder.append_ledger("two_plane_violation", {"case_id": case_id, "error": str(exc)})
-        return {
-            "case_id": case_id,
-            "reproduced": False,
-            "probe_id": "backcasting_resimulation",
-            "run_root": str(run_root),
-            "detail": f"two_plane_violation: {exc}",
-            "seat_answer": "",
-            "judge_label": NOT_EVALUATED,
-        }
+        return _failed_row(case_id, run_root, f"two_plane_violation: {exc}")
 
-    recorder.record_attempt(
-        seat_id="backcasting_seat",
-        tool="llm_invoke",
-        args={"backend": seat.backend, "model": seat.model, "prompt_chars": len(prompt), "phase": "start"},
-        success=True,
-        result={"phase": "start"},
-    )
+    # Real corpus access, mirroring run_s0: the seat gets the same
+    # search_corpus/read_document tools real world seats use, over the same
+    # compiled corpus, with every call recorded into this case's
+    # attempts.jsonl. The tool layer receives no case data (two-plane).
+    recorder.set_tick(1)
     try:
+        kernel = WorldKernel(recorder, kernel_profile(design, valid_doc_ids=set(corpus.documents)))
+        tools = build_role_tools(corpus=corpus, kernel=kernel, recorder=recorder, seat_id=seat_id, seat_role=seat_role, include_workflow=False)
+        agent = seat_factory(seat_id=seat_id, role=seat_role, tools=tools, recorder=recorder, recursion_limit=recursion_for_budget(BACKCASTING_SEAT_TICK_BUDGET))
+        recorder.write_json(
+            "meta.json",
+            {
+                "run_id": recorder.run_id,
+                "stage": "backcasting_resimulation",
+                "case_id": case_id,
+                "seat_id": seat_id,
+                "seat_role": seat_role,
+                "seat_model": seat_model,
+                "backend": getattr(agent, "backend", "unknown"),
+                "live": getattr(agent, "backend", "") == "deepagents",
+            },
+        )
         with recorder.origin("agent"):
-            response = seat.answer(prompt)
+            response = agent.turn(prompt)
     except Exception as exc:  # noqa: BLE001 - recorded as an honest failed row, never dropped
+        recorder.append_ledger("agent_error", {"seat_id": seat_id, "error_type": type(exc).__name__, "message": str(exc)[:500]})
         recorder.record_attempt(
-            seat_id="backcasting_seat",
+            seat_id=seat_id,
             tool="llm_invoke",
-            args={"backend": seat.backend, "model": seat.model, "prompt_chars": len(prompt), "phase": "error", "error_type": type(exc).__name__},
+            args={"backend": "unavailable", "model": seat_model, "prompt_chars": len(prompt), "phase": "error", "error_type": type(exc).__name__},
             success=False,
             result={"error_type": type(exc).__name__, "message": str(exc)[:500]},
         )
         recorder.write_json("backcasting_case.json", {"case_id": case_id, "situation": situation, "outcome": "seat_call_failed"})
-        return {
-            "case_id": case_id,
-            "reproduced": False,
-            "probe_id": "backcasting_resimulation",
-            "run_root": str(run_root),
-            "detail": f"seat call failed: {type(exc).__name__}: {str(exc)[:300]}",
-            "seat_answer": "",
-            "judge_label": NOT_EVALUATED,
-        }
+        return _failed_row(case_id, run_root, f"seat call failed: {type(exc).__name__}: {str(exc)[:300]}")
 
-    recorder.record_attempt(
-        seat_id="backcasting_seat",
-        tool="llm_response",
-        args={"backend": seat.backend, "model": seat.model, "prompt_chars": len(prompt)},
-        success=True,
-        result={"response_chars": len(response)},
-    )
+    viewed_doc_ids = _viewed_doc_ids_from_trace(run_root, seat_id)
+    if not response.strip():
+        recorder.write_json(
+            "backcasting_case.json",
+            {"case_id": case_id, "situation": situation, "outcome": "empty_response", "viewed_doc_ids": viewed_doc_ids},
+        )
+        row = _failed_row(case_id, run_root, "seat returned an empty response")
+        row["viewed_doc_ids"] = viewed_doc_ids
+        return row
+
     parsed = _parse_seat_response(response)
+    self_reported_doc_ids = sorted({str(doc_id) for doc_id in (parsed.get("cited_doc_ids") or []) if str(doc_id)}) if isinstance(parsed.get("cited_doc_ids"), list) else []
+    cited_but_not_viewed = sorted(set(self_reported_doc_ids) - set(viewed_doc_ids))
     seat_answer_text = "\n".join(
         str(parsed.get(key) or "") for key in ("likely_reading", "response", "required_approver_or_evidence") if parsed.get(key)
     ).strip() or response.strip()
@@ -466,6 +501,10 @@ def _run_one_case(
             "seat_response_raw": response,
             "seat_answer_parsed": parsed,
             "outcome": "answered",
+            "viewed_doc_ids": viewed_doc_ids,
+            "self_reported_doc_ids": self_reported_doc_ids,
+            "cited_but_not_viewed_doc_ids": cited_but_not_viewed,
+            "provenance_note": "viewed_doc_ids is derived from recorded read_document attempts in attempts.jsonl; self_reported_doc_ids is the model's unverified claim and is never used as grounding evidence.",
             "judge": {"backend": judge.backend, "model": judge.model, "prompt_version": JUDGE_PROMPT_VERSION, **judgment},
         },
     )
@@ -478,6 +517,10 @@ def _run_one_case(
         "run_root": str(run_root),
         "detail": detail,
         "seat_answer": seat_answer_text,
+        "seat_backend": getattr(agent, "backend", "unknown"),
+        "viewed_doc_ids": viewed_doc_ids,
+        "self_reported_doc_ids": self_reported_doc_ids,
+        "cited_but_not_viewed_doc_ids": cited_but_not_viewed,
         "judge_label": judgment.get("label"),
         "judge_confidence": judgment.get("confidence"),
         "judge_rationale": judgment.get("rationale"),
@@ -487,14 +530,25 @@ def _run_one_case(
 def run_backcasting_resimulation(
     campaign_root: Path,
     *,
-    seat: BackcastingSeat,
+    design: DesignInputs,
+    corpus: Corpus,
     judge: ReproductionJudge,
     sample_size: int | None,
     sample_seed: int = 0,
+    seat_id: str = "emp-A",
+    seat_model: str | None = None,
+    seat_factory: SeatFactory | None = None,
     write: bool = True,
 ) -> dict[str, Any]:
     """Execute the live re-simulation pass and write
     backcasting_resimulation_results.json.
+
+    The seat is a real tool-using seat (default_seat_factory unless a test
+    injects `seat_factory`) with search_corpus/read_document access to
+    `corpus`, mirroring run_s0; per-case tool calls and llm_invoke evidence
+    land in backcasting_runs/<case_id>/attempts.jsonl, and each result row
+    carries trace-derived `viewed_doc_ids` alongside the model's unverified
+    `self_reported_doc_ids`.
 
     Every case_id selected by select_backcasting_sample() appears exactly
     once in `results`, whether the seat call succeeded or failed -- honest
@@ -509,6 +563,10 @@ def run_backcasting_resimulation(
     backcasting_inputs.json is missing, unreadable, or has zero cases.
     """
     campaign_root = campaign_root.resolve()
+    if seat_id not in design.seats:
+        raise ValueError(f"unknown seat_id for backcasting re-simulation: {seat_id!r}")
+    model_name = normalize_openrouter_model(seat_model)
+    factory = seat_factory or default_seat_factory(root=design.root, model=model_name)
     inputs_path = campaign_root / "backcasting_inputs.json"
     extraction = _read_json(inputs_path)
     cases = extraction.get("cases") or []
@@ -540,14 +598,33 @@ def run_backcasting_resimulation(
             # itself), but record honestly rather than silently skip.
             results.append({"case_id": case_id, "reproduced": False, "probe_id": "backcasting_resimulation", "run_root": "", "detail": "case_id missing from backcasting_inputs.json at run time"})
             continue
-        results.append(_run_one_case(case, campaign_root=campaign_root, seat=seat, judge=judge, judge_cache=judge_cache))
+        results.append(
+            _run_one_case(
+                case,
+                campaign_root=campaign_root,
+                design=design,
+                corpus=corpus,
+                seat_id=seat_id,
+                seat_model=model_name,
+                seat_factory=factory,
+                judge=judge,
+                judge_cache=judge_cache,
+            )
+        )
 
     readiness_eligible = judge.backend in READINESS_ALLOWED_JUDGE_BACKENDS
+    seat_backends = sorted({str(row.get("seat_backend") or "") for row in results if row.get("seat_backend")})
     payload = {
         "schema_version": BACKCASTING_RESULTS_SCHEMA_VERSION,
         "campaign_root": str(campaign_root),
         "sample": sample,
-        "seat": {"backend": seat.backend, "model": seat.model},
+        "seat": {
+            "seat_id": seat_id,
+            "model": model_name,
+            "backends_observed": seat_backends,
+            "tools": ["search_corpus", "read_document"],
+            "provenance_note": "viewed_doc_ids per result row is derived from recorded read_document attempts, never from the model's self-report.",
+        },
         "judge": {"backend": judge.backend, "model": judge.model, "prompt_version": JUDGE_PROMPT_VERSION, "readiness_eligible": readiness_eligible},
         "results": results,
     }

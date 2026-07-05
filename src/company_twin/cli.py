@@ -14,7 +14,6 @@ from .backcasting_run import (
     BackcastingInputsError,
     LocalReproductionJudge,
     OpenRouterReproductionJudge,
-    default_backcasting_seat_factory,
     run_backcasting_resimulation,
 )
 from .campaign import run_control_pair_campaign, run_design_campaign, static_world_surface_lint
@@ -466,30 +465,40 @@ def backcasting_run(
     judge_model: Annotated[str | None, typer.Option("--judge-model", help="OpenRouter model for the live reproduction judge; omitted uses local deterministic proxy (never readiness-eligible)")] = None,
     sample: Annotated[int | None, typer.Option("--sample", help="Number of cases to sample from backcasting_inputs.json; omitted runs the full population")] = None,
     sample_seed: Annotated[int, typer.Option("--sample-seed", help="Pre-registered seed for deterministic sampling")] = 0,
+    seat: Annotated[str, typer.Option("--seat", help="Seat id whose role card and reading tools the re-simulation seat uses")] = "emp-A",
     root: Annotated[Path | None, typer.Option("--root")] = None,
     require_live_seat: Annotated[bool, typer.Option("--require-live-seat/--allow-proxy-seat", help="Require --seat-model and a working OPENROUTER_API_KEY; disable only for offline/local testing")] = True,
 ) -> None:
     """WP-14 follow-up: run the live re-simulation pass over backcasting_inputs.json and write backcasting_resimulation_results.json.
 
-    The seat receives ONLY the situation (S0-style natural business question);
-    the documented response and case_id never reach it. The judge is
-    experimenter-plane and may see the documented response. Run
-    `backcasting-report` afterwards to score the written results file.
+    The seat receives ONLY the situation (S0-style natural business question)
+    plus real search_corpus/read_document tools over the world corpus; the
+    documented response and case_id never reach it. Per-row viewed_doc_ids is
+    derived from the recorded read_document trace, never from the model's
+    self-report. The judge is experimenter-plane and may see the documented
+    response. Run `backcasting-report` afterwards to score the written
+    results file.
     """
     base = _root(root)
     if require_live_seat:
         _require_live(base)
         if not seat_model:
             raise typer.BadParameter("--seat-model is required for a live run (pass --allow-proxy-seat for offline testing only)")
-    seat = default_backcasting_seat_factory(seat_model)
+    design = load_design(base)
+    if seat not in design.seats:
+        raise typer.BadParameter(f"unknown seat: {seat}")
+    corpus = Corpus.from_design(design)
     judge = OpenRouterReproductionJudge(judge_model) if judge_model else LocalReproductionJudge()
     try:
         payload = run_backcasting_resimulation(
             campaign_root.resolve(),
-            seat=seat,
+            design=design,
+            corpus=corpus,
             judge=judge,
             sample_size=sample,
             sample_seed=sample_seed,
+            seat_id=seat,
+            seat_model=seat_model,
         )
     except BackcastingInputsError as exc:
         typer.echo(f"error: {exc}", err=True)

@@ -497,7 +497,9 @@ CLI: `backcasting-run --campaign-root ... --seat-model ... --judge-model ...
   `reproduced: false` with a `detail` string, never silently omitted.
 - **Two-plane separation.** The live seat receives only
   `backcasting_seat_prompt(situation)` -- the documented situation reframed
-  as an ordinary S0-style business question. It never sees the documented
+  as an ordinary S0-style business question -- plus world-corpus reading
+  tools (`search_corpus`/`read_document`; the tool layer carries no case
+  data). It never sees the documented
   response, the case_id, or experimenter vocabulary
   (backcasting/reproduction/probe/span/oracle/experiment/mutation);
   `assert_two_plane_clean()` is a defense-in-depth check run against the
@@ -518,6 +520,22 @@ CLI: `backcasting-run --campaign-root ... --seat-model ... --judge-model ...
   with `llm_invoke`/`llm_response` attempts recorded for the seat call
   (mirroring `DeepAgentSeat.turn` in `agents.py`) and a `backcasting_case.json`
   carrying the full situation/prompt/raw response/judge verdict for audit.
+
+Live-pass calibration note (2026-07-05, first pass N=100 seed 20260705,
+50/100): failure-mode analysis found an instrument defect, not only a seat
+capability gap -- the original runner's seat was a bare chat invocation with
+no corpus tools, while its prompt instructed it to search and read internal
+documents, and 61/100 cases fabricated plausible-looking `cited_doc_ids`
+that were never read (failures clustered exactly where documented policy is
+counter-intuitive versus generic best practice -- the signature of a
+document-blind model guessing). Fixed by giving the seat real
+`search_corpus`/`read_document` world tools through the same
+`default_seat_factory`/`build_role_tools` path as real seats (every tool call
+recorded in the per-case `attempts.jsonl`), and by deriving `viewed_doc_ids`
+experimenter-side from the recorded `read_document` trace; the model's own
+claim is kept separately as `self_reported_doc_ids` (with
+`cited_but_not_viewed_doc_ids` exposing any residual fabrication) and is
+never treated as grounding evidence.
 
 ### 17.2 Diegetic record-quality fix after blind SME review (2026-07-05 follow-up)
 
