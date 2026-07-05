@@ -454,7 +454,12 @@ re-simulation, live holdout runs) remain separate follow-on work.
   `mutations.LEAK_PATTERNS`) plus supplementary katakana terms, and drops any
   excerpt that needed even one redaction rather than ship a
   placeholder-marked fragment. `build_blind_review_packet()` produces the
-  reviewer packet with plausibility questions and null responses;
+  reviewer packet with plausibility questions and null responses, plus an
+  experimenter-side id map (`sme_blind_review_id_map.json`): reviewer-facing
+  item ids are neutral sequential labels ("R-001", ...) because a
+  run-root-derived id (e.g. "anchor_s2_seed0:chat_0") is itself an artificial
+  marker; the run_root/excerpt mapping and drop/redaction bookkeeping live
+  only in the id map, never in the reviewer packet.
   `score_sme_blind_review()`/`write_sme_blind_review_report()` score
   filled-in responses -- an unfilled packet always fails honestly. CLI:
   `sme-pack`, `sme-score`.
