@@ -358,17 +358,26 @@ def summarize_g3_calibration_scores(rows: list[dict[str, Any]], *, judge: Semant
     by_category: dict[str, dict[str, int]] = {}
     for row in rows:
         category = str(row.get("category") or "uncategorized")
-        bucket = by_category.setdefault(category, {"total": 0, "correct": 0, "incorrect": 0})
+        bucket = by_category.setdefault(category, {"total": 0, "correct": 0, "incorrect": 0, "rejected": 0})
         bucket["total"] += 1
         if row.get("correct"):
             bucket["correct"] += 1
         else:
             bucket["incorrect"] += 1
+        # A known-bad case counts as "rejected" whenever the judge did not
+        # accept it as supported, even when its rejection label differs from
+        # the fixture's expected label (e.g. weak_support expected
+        # "unsupported" but judged "contradicted"). Exact-label agreement and
+        # rejection are reported side by side; neither replaces the other.
+        if str(row.get("judge_label") or "") != SUPPORTED:
+            bucket["rejected"] += 1
     for bucket in by_category.values():
         bucket["specificity_rate"] = (bucket["correct"] / bucket["total"]) if bucket["total"] else None
+        bucket["rejection_rate"] = (bucket["rejected"] / bucket["total"]) if bucket["total"] else None
 
     total = len(rows)
     correct_total = sum(1 for row in rows if row.get("correct"))
+    rejected_total = sum(1 for row in rows if str(row.get("judge_label") or "") != SUPPORTED)
     readiness_eligible = judge.backend in READINESS_ALLOWED_JUDGE_BACKENDS
     return {
         "schema_version": G3_NEGATIVE_CALIBRATION_SCHEMA_VERSION,
@@ -383,6 +392,8 @@ def summarize_g3_calibration_scores(rows: list[dict[str, Any]], *, judge: Semant
         "correct_count": correct_total,
         "incorrect_count": total - correct_total,
         "overall_specificity_rate": (correct_total / total) if total else None,
+        "rejected_count": rejected_total,
+        "overall_rejection_rate": (rejected_total / total) if total else None,
         "by_category": by_category,
         "rows": rows,
     }

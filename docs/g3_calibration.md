@@ -201,3 +201,28 @@ the judge model/prompt version in this document once the live pass is run.
 The WP-02 semantic-judge DoD is not fully satisfied until both the positive
 agreement rate (above) and this negative specificity rate are recorded from a
 live, allowlisted judge backend.
+
+### Live Specificity Result (2026-07-05)
+
+Judge: `openrouter:qwen/qwen3.6-plus`, prompt `operational-support-v2`,
+`readiness_eligible=true`. Result artifact: `docs/g3_negative_calibration_result.json`.
+
+| Category | Exact-label agreement | Rejection (any non-supported verdict) |
+|---|---:|---:|
+| fabricated_basis | 5/5 | 5/5 |
+| version_mismatch | 4/4 | 4/4 |
+| weak_support | 0/4 | 4/4 (all judged `contradicted` instead of expected `unsupported`) |
+| contradicted | 3/4 | 3/4 |
+| missing_handle | 3/3 | 3/3 |
+| **Overall** | **15/20 = 0.75** | **19/20 = 0.95** |
+
+Reading: the judge never accepted a fabricated, stale-version, or
+missing-handle basis. The weak_support misses are label-taxonomy strictness
+(it rejects them with the harsher `contradicted` label), not acceptances, so
+`overall_rejection_rate` (0.95) is the safety-relevant figure while
+`overall_specificity_rate` (0.75) reports exact-label agreement. The single
+true failure is one `contradicted` case judged `supported`. Combined with the
+positive calibration above (19/20 = 95% agreement on human-labeled supported
+cases), the live judge is now calibrated in both directions. The summary
+artifact reports both metrics side by side (`overall_specificity_rate`,
+`overall_rejection_rate`); neither replaces the other.
