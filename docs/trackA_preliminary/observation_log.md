@@ -105,6 +105,29 @@ Not produced due to the stop condition:
 - S2 anchor bundle
 - `readiness_report.json`
 
+## Min-repro Confirmation Preregistration
+
+Registered before fresh confirmation execution on 2026-07-05, after Track A full-world acceptance passed in follow-up runs.
+
+Confirmation plan:
+
+- Campaign root: `runs\design_campaign_20260704_163819`
+- Source population: S1/P-03 jobs with 5/5 exploratory reproduction
+- Confirmation seeds: `5`
+- Fresh seed start: `100`
+- Pre-registered `min_rate`: `0.6`
+- Model: `openrouter:qwen/qwen3.6-flash`
+- Ticks: `6`
+- Prompt mode: `measurement`
+
+| Finding type | Job id | S1 source | Exploratory rate | Pre-registered min_rate | Confirmation seeds |
+| --- | --- | --- | ---: | ---: | ---: |
+| `version_gap` | `d7397b5f60e8086c` | `P-03` | 5/5 | 0.6 | 5 |
+| `grounding_gap` | `8a60821bbf9ce1a9` | `P-03` | 5/5 | 0.6 | 5 |
+| `hard_constraint_denial` | `7a432e778f36e726` | `P-03` | 5/5 | 0.6 | 5 |
+
+Rationale: the S1 exploration rate was 5/5 for these three bundles, so a high-rate phenomenon should use a stricter confirmation threshold. `tacit_chat_to_action` is deferred because its source evidence is S2-derived and heavier to shrink.
+
 ## Boundary
 
 本書の全観察は実験解禁（Stage 9 readiness）前の探索的予備観察であり、confirmed所見・効果量の主張を含まない。

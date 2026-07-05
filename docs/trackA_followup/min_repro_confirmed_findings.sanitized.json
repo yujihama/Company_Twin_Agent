@@ -1,0 +1,186 @@
+{
+  "schema_version": "company_twin.trackA_followup.min_repro_confirmed_findings.v1",
+  "campaign_root": "runs\\design_campaign_20260704_163819",
+  "branch": "codex/tracka-confirmed-findings",
+  "scope": "full_world",
+  "stage9_readiness_claimed": false,
+  "preregistration": {
+    "document": "docs\\trackA_preliminary\\observation_log.md",
+    "source_population": "S1/P-03 jobs with 5/5 exploratory reproduction",
+    "confirmation_seeds": 5,
+    "seed_start": 100,
+    "min_rate": 0.6,
+    "model": "openrouter:qwen/qwen3.6-flash",
+    "ticks": 6,
+    "prompt_mode": "measurement",
+    "tacit_chat_to_action_deferred": true
+  },
+  "commands": [
+    "python -m company_twin.cli min-repro-confirm --campaign-root runs\\design_campaign_20260704_163819 --job-id d7397b5f60e8086c --confirmation-seeds 5 --seed-start 100 --min-rate 0.6 --ticks 6 --model openrouter:qwen/qwen3.6-flash --prompt-mode measurement",
+    "python -m company_twin.cli min-repro-confirm --campaign-root runs\\design_campaign_20260704_163819 --job-id 8a60821bbf9ce1a9 --confirmation-seeds 5 --seed-start 100 --min-rate 0.6 --ticks 6 --model openrouter:qwen/qwen3.6-flash --prompt-mode measurement",
+    "python -m company_twin.cli min-repro-confirm --campaign-root runs\\design_campaign_20260704_163819 --job-id 7a432e778f36e726 --confirmation-seeds 5 --seed-start 100 --min-rate 0.6 --ticks 6 --model openrouter:qwen/qwen3.6-flash --prompt-mode measurement"
+  ],
+  "results": [
+    {
+      "finding_type": "version_gap",
+      "job_id": "d7397b5f60e8086c",
+      "manifest_path": "min_repro/d7397b5f60e8086c/manifest.json",
+      "status": "reproduced",
+      "confirmation_successes": 4,
+      "confirmation_seeds": 5,
+      "reproduction_rate": 0.8,
+      "reproduction_rate_wilson_95": [
+        0.3755,
+        0.9638
+      ],
+      "threshold_override_enabled": false,
+      "confirmed": true,
+      "seed_results": [
+        {
+          "seed": 100,
+          "matched_signature_finding_count": 0,
+          "finding_count": 0
+        },
+        {
+          "seed": 101,
+          "matched_signature_finding_count": 2,
+          "finding_count": 2
+        },
+        {
+          "seed": 102,
+          "matched_signature_finding_count": 1,
+          "finding_count": 1
+        },
+        {
+          "seed": 103,
+          "matched_signature_finding_count": 1,
+          "finding_count": 1
+        },
+        {
+          "seed": 104,
+          "matched_signature_finding_count": 1,
+          "finding_count": 1
+        }
+      ]
+    },
+    {
+      "finding_type": "grounding_gap",
+      "job_id": "8a60821bbf9ce1a9",
+      "manifest_path": "min_repro/8a60821bbf9ce1a9/manifest.json",
+      "status": "reproduced",
+      "confirmation_successes": 3,
+      "confirmation_seeds": 5,
+      "reproduction_rate": 0.6,
+      "reproduction_rate_wilson_95": [
+        0.2307,
+        0.8824
+      ],
+      "threshold_override_enabled": false,
+      "confirmed": true,
+      "seed_results": [
+        {
+          "seed": 100,
+          "matched_signature_finding_count": 0,
+          "finding_count": 0
+        },
+        {
+          "seed": 101,
+          "matched_signature_finding_count": 0,
+          "finding_count": 0
+        },
+        {
+          "seed": 102,
+          "matched_signature_finding_count": 1,
+          "finding_count": 1
+        },
+        {
+          "seed": 103,
+          "matched_signature_finding_count": 1,
+          "finding_count": 1
+        },
+        {
+          "seed": 104,
+          "matched_signature_finding_count": 1,
+          "finding_count": 1
+        }
+      ]
+    },
+    {
+      "finding_type": "hard_constraint_denial",
+      "job_id": "7a432e778f36e726",
+      "manifest_path": "min_repro/7a432e778f36e726/manifest.json",
+      "status": "not_reproduced",
+      "confirmation_successes": 2,
+      "confirmation_seeds": 5,
+      "reproduction_rate": 0.4,
+      "reproduction_rate_wilson_95": [
+        0.1176,
+        0.7693
+      ],
+      "threshold_override_enabled": false,
+      "confirmed": false,
+      "seed_results": [
+        {
+          "seed": 100,
+          "matched_signature_finding_count": 0,
+          "finding_count": 0
+        },
+        {
+          "seed": 101,
+          "matched_signature_finding_count": 0,
+          "finding_count": 0
+        },
+        {
+          "seed": 102,
+          "matched_signature_finding_count": 0,
+          "finding_count": 0
+        },
+        {
+          "seed": 103,
+          "matched_signature_finding_count": 2,
+          "finding_count": 2
+        },
+        {
+          "seed": 104,
+          "matched_signature_finding_count": 5,
+          "finding_count": 8
+        }
+      ]
+    }
+  ],
+  "finding_registry": {
+    "confirmed_findings": [
+      {
+        "finding_type": "grounding_gap",
+        "job_id": "8a60821bbf9ce1a9",
+        "status": "reproduced",
+        "reproduction_rate": 0.6,
+        "confirmation_successes": 3
+      },
+      {
+        "finding_type": "version_gap",
+        "job_id": "d7397b5f60e8086c",
+        "status": "reproduced",
+        "reproduction_rate": 0.8,
+        "confirmation_successes": 4
+      }
+    ],
+    "audit_hypothesis_card_count": 2
+  },
+  "acceptance": {
+    "scope": "full_world",
+    "passed": true,
+    "failed_run_bundles": 1,
+    "campaign_gates_passed": [
+      "A-06 s0_divergence_measured",
+      "A-07 stale_content_differs",
+      "A-09 anchor_is_live",
+      "A-14 confirmed_requires_fresh_reproduction",
+      "A-13 full_world_evidence"
+    ]
+  },
+  "openrouter_credits_final": {
+    "total_credits": 65,
+    "total_usage": 59.449105024
+  }
+}
