@@ -373,7 +373,11 @@ def test_external_claim_readiness_g3_negative_calibration_real_artifact_passes_w
 
 
 def test_external_claim_readiness_holdout_requires_controls_section(tmp_path: Path) -> None:
-    plan = build_holdout_injection_plan(Path.cwd(), mutation_ids=["clarify_elderly_understanding_all"], run_roots=["s2_holdout_0"])
+    # clarify_elderly_understanding_sales_only (not _all -- reclassified
+    # benign_control per MASTER_DESIGN.md section 17.11) is used here as the
+    # positive_control example so the holdout report's positive-control gate
+    # is actually exercised.
+    plan = build_holdout_injection_plan(Path.cwd(), mutation_ids=["clarify_elderly_understanding_sales_only"], run_roots=["s2_holdout_0"])
     write_holdout_inputs(tmp_path, plan)
     injection = plan["injections"][0]
     root = tmp_path / "s2_holdout_0"

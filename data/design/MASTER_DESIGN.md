@@ -1099,6 +1099,116 @@ a *designed* false-claim condition is itself the manipulation under test.
 The project owner has approved it as a future experiment candidate; it is
 not built as part of this fix.
 
+### 17.11 Approved holdout arm re-classification (2026-07-06)
+
+**Approved by the project owner, 2026-07-06 (second arm decision).** Era-3
+live holdout results exposed a second structural gap in the arm-assignment
+scheme, on top of §17.6's original per-operator split: `clarify`'s two
+catalogued variants (`clarify_elderly_understanding_all` and
+`..._sales_only`) were both defaulting to `positive_control` via the
+operator-level `_ARM_BY_OPERATOR` mapping, but they behave differently in
+practice. Era-3 evidence: `clarify_elderly_understanding_all` scored
+`baseline_confounded` -- its expected finding types
+(`grounding_gap`/`version_gap`) fire endemically on no-mutation control runs
+too, at K=1, so presence on the mutated run never cleanly exceeded baseline.
+`clarify_elderly_understanding_sales_only`, by contrast, WAS detected above
+baseline. `role_table_fix_quality_owner` (already `benign_control` since
+§17.6) continued to pass cleanly across two eras running.
+
+**Rationale.** Design docs frame `clarify` as a reverse-direction/corrective
+operator ("明確化は分岐を減らすか" -- does clarification REDUCE branching/
+ambiguity), the same framing already used to justify `role_table_fix`'s
+benign classification in §17.6. Empirically, this framing holds for the
+all-roles variant: its expected finding types are baseline-confounded at
+K=1, i.e. indistinguishable from ordinary unmutated-run noise, which is
+consistent with "this mutation didn't introduce a new anomaly" rather than
+"the detector missed a real one". The sales-only variant is different in
+kind, not just in outcome: it creates a genuine ASYMMETRIC-VISIBILITY anomaly
+condition -- sales alone receive the clarifying notice while every other
+role (manager, application, second_line, audit) keeps the prior, unqualified
+picture -- which is a real anomaly-shaped condition (a role/version-
+inconsistent picture of which policy text applies), not a corrective one.
+It was also empirically DETECTED above baseline. Reclassifying only the
+all-roles variant, while keeping the sales-only variant `positive_control`,
+tracks this distinction exactly.
+
+**Redefinition 1: arm assignment becomes per-mutation_id
+(`holdout.py`).** `_default_arm_for_operator(operator)` (§17.6, keyed only by
+operator family) is no longer sufficient on its own -- it cannot express two
+different arms for mutations sharing an operator. `holdout.py` gains
+`_ARM_BY_MUTATION_ID` (a `{mutation_id: arm}` override table) and
+`_resolve_arm(mutation_id, operator)`, which checks the override table first
+and falls back to `_default_arm_for_operator(operator)` for any mutation_id
+not explicitly listed. The resulting mapping:
+
+- `positive_control` = `{contradict_chat_approval_recorded,
+  dangling_fill_search_key_stub, clarify_elderly_understanding_sales_only}`
+  (**positive denominator = 3**, down from 4 in §17.6's per-operator scheme).
+- `benign_control` = `{clarify_elderly_understanding_all,
+  role_table_fix_quality_owner}`.
+
+This is sealed into `plan_hash` exactly as arm always has been (§17.6) --
+`build_holdout_injection_plan` calls `_resolve_arm` once per injection at
+plan-build time, and the resulting `arm` field is part of what
+`_json_hash({"injections": ..., "control_run_roots": ...})` seals. A plan
+built before the `arm` field existed at all still defaults every injection
+to `positive_control` unchanged (`_injection_arm`'s backward-compat path,
+§17.6, untouched by this change).
+
+**Redefinition 2: benign_control pass criterion adjusted
+(`score_benign_controls`).** The ORIGINAL §17.6 criterion required, among
+other things, that NONE of a benign_control injection's previously-expected
+anomaly types fire on its run AT ALL (a bare presence check). That was the
+right bar for `role_table_fix` (whose expected types fire zero on every
+observed run) but is the WRONG bar for `clarify_elderly_understanding_all`:
+its expected types are ENDEMIC on no-mutation controls too, so "fires at
+all" would fail it even when it is no worse than an unmutated run -- exactly
+the same baseline-confounding problem §17.6 already solved for
+positive_control detection, now recurring on the benign side. The adjusted
+criterion drops the bare presence clause and keeps only the baseline
+comparison:
+
+> pass = bundle verification OK AND no ABOVE-baseline firing of the
+> operator's previously-expected anomaly types (rate <= control baseline per
+> type; zero-firing trivially satisfies this whenever the baseline itself is
+> zero).
+
+`role_table_fix_quality_owner` keeps passing under the new criterion
+unchanged (its expected types fire zero, hence trivially at-or-below any
+baseline). A benign_control run whose expected type fires but stays at or
+below the sealed no-mutation control baseline now reports a non-blocking
+`visibility_note` (and the type still appears in `false_alarm_finding_types`
+for visibility) but no longer fails `passed` on its own; only
+`above_baseline_finding_types` gates `passed`.
+
+**Per-injection seeds (`build_holdout_injection_plan`).** The final campaign
+plan needs different seed counts per mutation -- `contradict_chat_approval_recorded`
+at K=5 (its SoD-bypass signal benefits from more trials), everything else at
+K=1. `seeds_per_injection` now accepts either a single global int (unchanged
+shape) or a `{mutation_id: K}` dict, with an optional `"_default"` key for
+mutations not explicitly listed (falling back to 1 if `"_default"` is also
+absent). The resolved per-injection K is sealed into `plan_hash` exactly as
+the global-int form already was (§17.9) -- a plan built with a different
+per-mutation K for the same mutation set hashes differently. CLI:
+`holdout-plan` gains repeatable `--injection-seeds mutation_id=K`, which
+builds this dict (seeded with `--seeds-per-injection` as its `_default`);
+omitting `--injection-seeds` entirely preserves the pre-existing uniform-int
+behavior unchanged.
+
+**Tests (`tests/test_wp14_calibration.py`).** Per-mutation arm overrides and
+their precedence over the operator-level default; `clarify_all` scored
+benign passes when its types fire at/below baseline and fails when above;
+`role_table_fix` still passes under the adjusted criterion; per-mutation K
+(both the plan-build dict form and the CLI's repeatable option) produces the
+correct root sets and is plan_hash-sensitive; positive denominator = 3 under
+the new mapping; backward compatibility (a plan built without `arm` fields
+still defaults every injection to `positive_control`, unchanged from §17.6).
+Every pre-existing test that used `clarify_elderly_understanding_all` as a
+generic positive_control example was re-pointed at
+`clarify_elderly_understanding_sales_only` (the mutation that is actually
+still positive_control under the new mapping) where the test's intent
+required a positive-control fixture.
+
 ## 18. WP-12 parallel world-run executor (並列実行、2026-07-05)
 
 Phase-3 experiments run batches of independent S0/S1/S2/control-pair worlds
