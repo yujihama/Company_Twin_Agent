@@ -719,8 +719,12 @@ def test_holdout_plan_arm_is_sealed_in_plan_hash() -> None:
     # the arm field (it is part of what plan_hash seals).
     from company_twin.world_config import _json_hash as world_json_hash
 
-    original_hash = world_json_hash({"injections": plan_a["injections"], "control_run_roots": plan_a["control_run_roots"]})
-    tampered_hash = world_json_hash({"injections": plan_b["injections"], "control_run_roots": plan_b["control_run_roots"]})
+    original_hash = world_json_hash(
+        {"injections": plan_a["injections"], "control_run_roots": plan_a["control_run_roots"], "circulation_required": plan_a["circulation_required"]}
+    )
+    tampered_hash = world_json_hash(
+        {"injections": plan_b["injections"], "control_run_roots": plan_b["control_run_roots"], "circulation_required": plan_b["circulation_required"]}
+    )
     assert original_hash == plan_a["plan_hash"]
     assert tampered_hash != plan_a["plan_hash"]
 

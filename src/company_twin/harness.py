@@ -58,17 +58,20 @@ def run_s0(
     mutations: list[dict[str, Any]] | None = None,
     seat_factory: SeatFactory | None = None,
     customer_model: str | None = None,
+    circulate_notices: bool = False,
 ) -> dict[str, Any]:
     # S0 is a static one-seat interpretation battery: no customer LLM is ever
-    # invoked here. customer_model is accepted (and recorded into
-    # config.json's model.customer) purely so the CLI's --customer-model
-    # knob is uniform across s0/s1/s2/campaign, per
-    # data/design/MASTER_DESIGN.md §17.11; it has no other effect on S0.
+    # invoked here, and there is no tick loop to deliver a tick-1 circulation
+    # announcement into. circulate_notices is accepted (and recorded into
+    # config.json's world.corpus.circulation) purely so the CLI's
+    # --circulate-notices knob is uniform across s0/s1/s2/campaign, exactly
+    # like --customer-model above (data/design/MASTER_DESIGN.md §17.11); it
+    # has no other effect on S0.
     seat = design.seats[seat_id]
     model_name = normalize_openrouter_model(model)
     factory = seat_factory or default_seat_factory(root=design.root, model=model_name)
     recorder = RunRecorder(run_root, run_id=run_root.name, meta={"stage": "S0", "probe": probe_id, "span": span_id, "seat": seat_id, "model": model_name, "variant": variant})
-    write_config_snapshot(run_root, build_world_config(design, stage="S0", model=model_name, seed=variant, ticks=1, probe_id=probe_id, seat_id=seat_id, mutations=mutations, executed_s0_rows=1, customer_model=customer_model))
+    write_config_snapshot(run_root, build_world_config(design, stage="S0", model=model_name, seed=variant, ticks=1, probe_id=probe_id, seat_id=seat_id, mutations=mutations, executed_s0_rows=1, customer_model=customer_model, circulate_notices=circulate_notices))
     recorder.set_tick(1)
     kernel = WorldKernel(recorder, kernel_profile(design, valid_doc_ids=set(corpus.documents)))
     tools = build_role_tools(corpus=corpus, kernel=kernel, recorder=recorder, seat_id=seat_id, seat_role=seat.role, include_workflow=False)
@@ -197,6 +200,7 @@ def run_s1_episode(
     mutations: list[dict[str, Any]] | None = None,
     timed_notice_recipients: list[str] | None = None,
     seats_subset: list[str] | None = None,
+    circulate_notices: bool = False,
 ) -> dict[str, Any]:
     event = _retime_event(event_for_probe(design, probe_id), trigger_tick=1, deadline_tick=ticks)
     return _run_world(
@@ -221,6 +225,7 @@ def run_s1_episode(
         mutations=mutations,
         timed_notice_recipients=timed_notice_recipients,
         seats_subset=seats_subset,
+        circulate_notices=circulate_notices,
     )
 
 
@@ -245,6 +250,7 @@ def run_s2_world(
     mutations: list[dict[str, Any]] | None = None,
     timed_notice_recipients: list[str] | None = None,
     seats_subset: list[str] | None = None,
+    circulate_notices: bool = False,
 ) -> dict[str, Any]:
     events = deck if deck is not None else build_customer_deck(design, include_routine=True)
     return _run_world(
@@ -269,6 +275,7 @@ def run_s2_world(
         mutations=mutations,
         timed_notice_recipients=timed_notice_recipients,
         seats_subset=seats_subset,
+        circulate_notices=circulate_notices,
     )
 
 
@@ -295,6 +302,7 @@ def _run_world(
     mutations: list[dict[str, Any]] | None = None,
     timed_notice_recipients: list[str] | None = None,
     seats_subset: list[str] | None = None,
+    circulate_notices: bool = False,
 ) -> dict[str, Any]:
     model_name = normalize_openrouter_model(model)
     if prompt_mode not in {"scaffold", "measurement"}:
@@ -316,6 +324,7 @@ def _run_world(
         timed_notice_recipients=timed_notice_recipients,
         seats_subset=seats_subset,
         customer_model=customer_model,
+        circulate_notices=circulate_notices,
     )
     write_config_snapshot(run_root, config)
     budgets = config["world"]["population"]["tick_budget"]
@@ -326,6 +335,7 @@ def _run_world(
     kernel = WorldKernel(recorder, kernel_profile(design, knobs=knobs, schedule=schedule, scc_switch_enabled=not anchor, valid_doc_ids=set(corpus.documents)))
     customer = customer_llm or default_customer_llm(model=config["model"]["customer"], recorder=recorder)
     absence: dict[str, list[int]] = config["world"]["population"].get("absence", {})
+    circulation_announcements = config["world"]["corpus"].get("circulation", {}).get("announcements") or []
 
     seats_cache: dict[str, Any] = {}
 
@@ -362,6 +372,13 @@ def _run_world(
     agent_turns = 0
     for tick in range(1, ticks + 1):
         kernel.fire_timed_events(tick)
+        _deliver_circulation_announcements(
+            kernel=kernel,
+            announcements=circulation_announcements,
+            tick=tick,
+            seat_roles=kernel.profile.seat_roles,
+            active_seats=active_seats,
+        )
         replies, pending_replies = pending_replies, []
         pending_reply_keys.clear()
         for contact in replies:
@@ -510,6 +527,38 @@ def _turn_mode_guidance(mode: TurnPromptMode) -> str:
 
 def _messages_require_world_action(messages: list[dict[str, Any]]) -> bool:
     return any(str(message.get("kind") or "") in {"customer_utterance", "chat"} for message in messages)
+
+
+def _deliver_circulation_announcements(
+    *,
+    kernel: WorldKernel,
+    announcements: list[dict[str, Any]],
+    tick: int,
+    seat_roles: dict[str, str],
+    active_seats: set[str],
+) -> None:
+    """Diegetic notice circulation (default-off; MASTER_DESIGN.md section
+    8.2/17.x): deliver each sealed announcement (world_config._circulation_announcements)
+    whose tick matches the current tick, to every seat in this run whose role
+    is in the announcement's visible_roles. Delivered as an ordinary
+    `timed_notice` inbox message (kernel.enqueue_inbox validates it against
+    the existing two-plane whitelist -- see kernel.INBOX_ALLOWED_KEYS -- so
+    this mechanism cannot smuggle any experimenter-plane field into the
+    world). The announcement text (announcement["digest"]) only says a notice
+    exists; it never repeats the notice's substantive content, so a seat
+    still has to search/read the actual document to be exposed to it."""
+    for announcement in announcements:
+        if int(announcement.get("tick") or 0) != tick:
+            continue
+        digest = str(announcement.get("digest") or "")
+        if not digest:
+            continue
+        visible_roles = set(str(role) for role in (announcement.get("visible_roles") or []))
+        recipients = sorted(
+            seat_id for seat_id in active_seats if seat_id in seat_roles and seat_roles[seat_id] in visible_roles
+        )
+        for seat_id in recipients:
+            kernel.enqueue_inbox(seat_id, {"kind": "timed_notice", "tick": tick, "notice": "document_circulation", "detail": digest})
 
 
 def _tool_count(recorder: RunRecorder, seat_id: str, tools: set[str]) -> int:

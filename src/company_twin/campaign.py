@@ -132,6 +132,7 @@ def run_design_campaign(
     model_bindings: dict[str, str] | None = None,
     scc_switch_tick: int | None = None,
     mutations: list[dict[str, Any]] | None = None,
+    circulate_notices: bool = False,
 ) -> dict[str, Any]:
     """Live-only campaign: S0 battery -> divergence aggregation -> S1 ensemble -> (optional) S2 + anchor.
 
@@ -190,6 +191,7 @@ def run_design_campaign(
             model_bindings=model_bindings,
             scc_switch_tick=scc_switch_tick,
             mutations=mutations,
+            circulate_notices=circulate_notices,
         )
         write_triage(s1_root)
         s1_roots.append(str(s1_root))
@@ -214,6 +216,7 @@ def run_design_campaign(
             model_bindings=model_bindings,
             scc_switch_tick=scc_switch_tick,
             mutations=mutations,
+            circulate_notices=circulate_notices,
         )
         write_triage(anchor_path)
         anchor_root = str(anchor_path)
@@ -235,6 +238,7 @@ def run_design_campaign(
                 model_bindings=model_bindings,
                 scc_switch_tick=scc_switch_tick,
                 mutations=mutations,
+                circulate_notices=circulate_notices,
             )
             write_triage(s2_root)
             s2_roots.append(str(s2_root))
@@ -258,6 +262,7 @@ def run_design_campaign(
         "anchor_run": anchor_root,
         "prompt_mode": prompt_mode,
         "mutations": mutations or [],
+        "circulate_notices": circulate_notices,
     }
     aggregate_ensemble_triage(campaign_root)
     acceptance = run_acceptance(campaign_root=campaign_root, design=design, corpus=corpus, scope="full_world" if with_s2 else "s0_s1")
