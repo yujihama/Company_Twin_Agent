@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from .recorder import BasisRecord, RunRecorder, utc_now
+from .world_calendar import render_tick_as_date
 
 
 CONTROLLED_TOOLS = {
@@ -137,7 +138,7 @@ class WorldKernel:
             self._deliver_timed_notice(
                 tick,
                 notice="campaign_deadline",
-                detail="Campaign deadline reached; confirm evidence, pending approvals, and held items before continuing.",
+                detail="本日はキャンペーンの締切日です。処理中の案件について、証跡の確認、未了の承認、保留中の案件の状況をご確認のうえ対応を進めてください。",
             )
         if tick in set(self.profile.manager_absence_ticks):
             self.recorder.append_ledger("seat_absence", {"tick": tick, "seat_id": "emp-M", "reason": "manager absence"})
@@ -188,7 +189,7 @@ class WorldKernel:
                 self.recorder.append_ledger("approval_deadline_overrun", payload)
                 recipients = {str(approval.get("requested_by") or ""), *self.profile.approval_notice_recipients}
                 recipients.update(seat_id for seat_id, role in self.profile.seat_roles.items() if role == approval.get("approver_role"))
-                detail = f"Approval {approval.get('approval_id')} for {approval.get('application_id')} is overdue since tick {due_tick}."
+                detail = f"承認依頼 {approval.get('approval_id')}(案件 {approval.get('application_id')})が期限({render_tick_as_date(due_tick)})を超過しています。至急ご対応ください。"
                 self._deliver_timed_notice_to(tick, recipients, notice="approval_deadline_overrun", detail=detail)
 
     def enqueue_inbox(self, seat_id: str, message: dict[str, Any]) -> None:

@@ -294,3 +294,31 @@ def test_sample_run_bundle_excerpts_keeps_inbox_delivered_when_message_has_real_
 
     assert len(excerpts) == 1
     assert "承認期限を超過しています" in excerpts[0]["text"]
+
+
+def test_kernel_timed_notice_details_are_diegetic_japanese() -> None:
+    # Round-6 blind review leak: kernel-authored world-visible notice details
+    # were hardcoded English with experimenter vocabulary ("Campaign deadline
+    # reached...", "... overdue since tick N"). World-visible notice text must
+    # pass the same leak discipline as any other world surface: Japanese
+    # business phrasing, no "tick", and clean under the reviewer-facing strip.
+    import inspect
+
+    from company_twin import kernel as kernel_module
+    from company_twin.sme_blind_review import strip_experimenter_vocabulary
+
+    src = inspect.getsource(kernel_module)
+    assert "Campaign deadline reached" not in src
+    assert "overdue since tick" not in src
+
+    campaign_notice = "本日はキャンペーンの締切日です。処理中の案件について、証跡の確認、未了の承認、保留中の案件の状況をご確認のうえ対応を進めてください。"
+    assert campaign_notice in src
+    stripped = strip_experimenter_vocabulary(campaign_notice)
+    assert stripped["was_clean"], stripped["redactions"]
+
+    from company_twin.world_calendar import render_tick_as_date
+
+    overdue_notice = f"承認依頼 APR-0001(案件 APP-R03)が期限({render_tick_as_date(6)})を超過しています。至急ご対応ください。"
+    stripped2 = strip_experimenter_vocabulary(overdue_notice)
+    assert stripped2["was_clean"], stripped2["redactions"]
+    assert "tick" not in overdue_notice
