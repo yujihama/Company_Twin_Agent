@@ -24,11 +24,15 @@ from company_twin.cli import app
 from company_twin.design_loader import load_design
 from company_twin.holdout import (
     ARM_BENIGN_CONTROL,
+    ARM_DEFERRED_PRESSURE_DEPENDENT,
     ARM_POSITIVE_CONTROL,
     HOLDOUT_DETECTION_TARGET,
+    DEFERRED_FINDING_TEXT,
+    DEFERRED_PRE_REGISTRATION_REFERENCE,
     build_holdout_injection_plan,
     compute_holdout_detection_rate,
     score_benign_controls,
+    score_deferred_injections,
     score_holdout_controls,
     verify_holdout_bundles,
     write_holdout_inputs,
@@ -356,6 +360,15 @@ def test_compute_holdout_detection_rate_counts_l0_and_l1_evidence(tmp_path: Path
 
 
 def test_compute_holdout_detection_rate_counts_l1_only_evidence(tmp_path: Path) -> None:
+    """contradict_chat_approval_recorded is deferred_pressure_dependent as of
+    MASTER_DESIGN.md section 17.16 (approval #7, pre-registered before
+    era-6), so it is excluded from the positive-control strict denominator --
+    detected_count/strict_detected_count/lenient_detected_count (all
+    positive-control-only fields) are 0 here even though the raw evidence
+    would have been a strict hit. The raw per-injection evidence itself
+    (l1_monitoring_rules/l1_finding_types/strict_detected) is unaffected by
+    arm -- _score_injection scores every injection's evidence the same way
+    regardless of arm; only the denominator/official counts change."""
     plan = build_holdout_injection_plan(Path.cwd(), mutation_ids=["contradict_chat_approval_recorded"])
     _run_bundle_with_findings(
         tmp_path / "s1_run0",
@@ -369,11 +382,17 @@ def test_compute_holdout_detection_rate_counts_l1_only_evidence(tmp_path: Path) 
 
     measurement = compute_holdout_detection_rate(tmp_path, plan)
 
+    # Excluded from the positive-control denominator -> official counts are 0.
+    assert measurement["injection_count"] == 0
+    assert measurement["detected_count"] == 0
+    assert measurement["strict_detected_count"] == 0
+    assert measurement["lenient_detected_count"] == 0
+    assert measurement["deferred_count"] == 1
     # sod_pattern is in contradict's pre-registered expected_finding_types, so
-    # the L1-only hit counts under strict too.
-    assert measurement["detected_count"] == 1
-    assert measurement["strict_detected_count"] == 1
-    assert measurement["lenient_detected_count"] == 1
+    # the L1-only hit is STILL a strict hit in the raw itemized evidence --
+    # deferral doesn't hide or alter the evidence, it just doesn't count it.
+    assert measurement["per_injection"][0]["arm"] == "deferred_pressure_dependent"
+    assert measurement["per_injection"][0]["strict_detected"] is True
     assert measurement["per_injection"][0]["l1_monitoring_rules"] == ["MON-SAME-SUBMITTER-APPROVER"]
     assert measurement["per_injection"][0]["l1_finding_types"] == ["sod_pattern"]
 
@@ -432,33 +451,44 @@ def test_holdout_report_fails_honestly_below_target_and_passes_above(tmp_path: P
         ],
     )
     write_holdout_inputs(tmp_path, plan)
-    # 2026-07-06 approved holdout arm re-classification (MASTER_DESIGN.md
-    # section 17.11): only THREE of these five mutations are positive_control
-    # now (clarify_elderly_understanding_sales_only, contradict, dangling_fill)
-    # -- clarify_elderly_understanding_all and role_table_fix_quality_owner
-    # are both benign_control. Zero of the three positive-control mutations
+    # 2026-07-06 approved holdout pressure-dependent deferral (MASTER_DESIGN.md
+    # section 17.16, approval #7, pre-registered before era-6): only TWO of
+    # these five mutations are positive_control now (
+    # clarify_elderly_understanding_sales_only, dangling_fill) --
+    # clarify_elderly_understanding_all and role_table_fix_quality_owner are
+    # both benign_control, and contradict_chat_approval_recorded is now
+    # deferred_pressure_dependent. Zero of the two positive-control mutations
     # produce a matching run bundle with findings here -> 0.0 < 0.80 target.
     failing = write_holdout_report(tmp_path)
     assert failing["passed"] is False
-    assert failing["measurement"]["injection_count"] == 3  # positive_control only
+    assert failing["measurement"]["injection_count"] == 2  # positive_control only
+    assert failing["measurement"]["deferred_count"] == 1
     assert failing["measurement"]["detection_rate"] < HOLDOUT_DETECTION_TARGET
     assert failing["measurement"]["strict_detection_rate"] < HOLDOUT_DETECTION_TARGET
     assert failing["detection_rate_basis"] == "strict"
+    assert failing["deferred_injections"] is not None
+    assert failing["deferred_injections"]["injection_count"] == 1
 
-    # Now supply matching run bundles for all five mutations. The three
+    # Now supply matching run bundles for all five mutations. The two
     # positive_control mutations each produce a finding_type that is actually
     # in that mutation's own pre-registered expected_finding_types (not a
     # blanket grounding_gap) -> strict rate 1.0. Both benign_control
     # mutations get a CLEAN bundle (no findings at all) -- a benign_control
     # injection is expected to produce nothing new, so a clean bundle is what
-    # "passing" looks like for it, not an injected finding. Every bundle is
-    # verified (stage S2, config.json mutation entry matching spec_hash,
-    # adequate tick coverage, no failure marker).
+    # "passing" looks like for it, not an injected finding. The
+    # deferred_pressure_dependent mutation gets an UNACTIVATED bundle (no
+    # opportunity) -- exactly era-6's confirmed finding for
+    # contradict_chat_approval_recorded (exposure without opportunity) -- and
+    # this must not block the report, since it is excluded from the gate.
+    # Every bundle is verified (stage S2, config.json mutation entry matching
+    # spec_hash, adequate tick coverage, no failure marker).
     run_lookup = {}
     for idx, injection in enumerate(plan["injections"]):
         run_root = tmp_path / f"s2_holdout_{idx}"
         if injection["arm"] == "benign_control":
             _verified_s2_bundle(run_root, injection=injection, finding_types={})
+        elif injection["arm"] == "deferred_pressure_dependent":
+            _verified_s2_bundle(run_root, injection=injection, finding_types={}, activated=False)
         else:
             finding_type = injection["expected_finding_types"][0]
             _verified_s2_bundle(run_root, injection=injection, finding_types={finding_type: 1})
@@ -469,11 +499,15 @@ def test_holdout_report_fails_honestly_below_target_and_passes_above(tmp_path: P
     assert passing["measurement"]["detection_rate"] == 1.0
     assert passing["measurement"]["strict_detection_rate"] == 1.0
     assert passing["measurement"]["lenient_detection_rate"] == 1.0
-    assert passing["measurement"]["injection_count"] == 3  # positive_control only
+    assert passing["measurement"]["injection_count"] == 2  # positive_control only
     assert len(passing["checks"][0]["per_injection"]) == 5  # all arms still itemized
     assert passing["bundle_verification"]["all_verified"] is True
     assert passing["benign_controls"]["all_passed"] is True
     assert passing["benign_controls"]["injection_count"] == 2
+    assert passing["deferred_injections"]["injection_count"] == 1
+    assert passing["deferred_injections"]["per_injection"][0]["detected"] is False
+    assert passing["deferred_injections"]["per_injection"][0]["confirmed_finding"]
+    assert passing["deferred_injections"]["per_injection"][0]["pre_registration_reference"]
     assert passing["plan_hash"] == plan["plan_hash"]
 
 
@@ -656,13 +690,12 @@ def test_holdout_plan_and_score_cli(tmp_path: Path) -> None:
 
 
 def test_build_holdout_injection_plan_assigns_default_arms() -> None:
-    """2026-07-06 approved holdout arm re-classification (MASTER_DESIGN.md
-    section 17.11): arm assignment is now per-mutation_id, not just
-    per-operator -- the two `clarify` variants get DIFFERENT arms.
-    positive_control = {contradict_chat_approval_recorded,
-    dangling_fill_search_key_stub, clarify_elderly_understanding_sales_only};
-    benign_control = {clarify_elderly_understanding_all,
-    role_table_fix_quality_owner}."""
+    """2026-07-06 approved holdout pressure-dependent deferral (MASTER_DESIGN.md
+    section 17.16, approval #7, pre-registered before era-6): arm assignment
+    is per-mutation_id. positive_control = {dangling_fill_search_key_stub,
+    clarify_elderly_understanding_sales_only}; benign_control =
+    {clarify_elderly_understanding_all, role_table_fix_quality_owner};
+    deferred_pressure_dependent = {contradict_chat_approval_recorded}."""
     plan = build_holdout_injection_plan(
         Path.cwd(),
         mutation_ids=[
@@ -675,14 +708,16 @@ def test_build_holdout_injection_plan_assigns_default_arms() -> None:
     )
 
     arms_by_mutation = {injection["mutation_id"]: injection["arm"] for injection in plan["injections"]}
-    assert arms_by_mutation["contradict_chat_approval_recorded"] == ARM_POSITIVE_CONTROL
+    assert arms_by_mutation["contradict_chat_approval_recorded"] == ARM_DEFERRED_PRESSURE_DEPENDENT
     assert arms_by_mutation["dangling_fill_search_key_stub"] == ARM_POSITIVE_CONTROL
     assert arms_by_mutation["clarify_elderly_understanding_sales_only"] == ARM_POSITIVE_CONTROL
     assert arms_by_mutation["clarify_elderly_understanding_all"] == ARM_BENIGN_CONTROL
     assert arms_by_mutation["role_table_fix_quality_owner"] == ARM_BENIGN_CONTROL
 
     positive_count = sum(1 for arm in arms_by_mutation.values() if arm == ARM_POSITIVE_CONTROL)
-    assert positive_count == 3  # positive denominator = 3 under the new mapping
+    assert positive_count == 2  # positive denominator = 2 under the deferred mapping
+    deferred_count = sum(1 for arm in arms_by_mutation.values() if arm == ARM_DEFERRED_PRESSURE_DEPENDENT)
+    assert deferred_count == 1
 
 
 def test_arm_by_mutation_id_override_takes_precedence_over_operator_default() -> None:
@@ -1003,10 +1038,12 @@ def test_benign_control_fires_but_stays_at_baseline_passes(tmp_path: Path) -> No
 
 
 def test_positive_control_denominator_excludes_benign_arm_end_to_end(tmp_path: Path) -> None:
-    """2026-07-06 approved holdout arm re-classification (MASTER_DESIGN.md
-    section 17.11): positive denominator = 3 under the new mapping
-    (clarify_elderly_understanding_sales_only, contradict, dangling_fill);
-    benign = 2 (clarify_elderly_understanding_all, role_table_fix)."""
+    """2026-07-06 approved holdout pressure-dependent deferral (MASTER_DESIGN.md
+    section 17.16, approval #7, pre-registered before era-6): positive
+    denominator = 2 under the deferred mapping
+    (clarify_elderly_understanding_sales_only, dangling_fill); benign = 2
+    (clarify_elderly_understanding_all, role_table_fix); deferred = 1
+    (contradict)."""
     plan = build_holdout_injection_plan(
         Path.cwd(),
         mutation_ids=[
@@ -1018,13 +1055,318 @@ def test_positive_control_denominator_excludes_benign_arm_end_to_end(tmp_path: P
         ],
     )
     positive_injections = [i for i in plan["injections"] if i["arm"] == ARM_POSITIVE_CONTROL]
-    assert len(positive_injections) == 3
+    assert len(positive_injections) == 2
     benign_injections = [i for i in plan["injections"] if i["arm"] == ARM_BENIGN_CONTROL]
     assert len(benign_injections) == 2
+    deferred_injections = [i for i in plan["injections"] if i["arm"] == ARM_DEFERRED_PRESSURE_DEPENDENT]
+    assert len(deferred_injections) == 1
 
     measurement = compute_holdout_detection_rate(tmp_path, plan)
-    assert measurement["injection_count"] == 3
+    assert measurement["injection_count"] == 2
     assert measurement["total_injection_count"] == 5
+    assert measurement["benign_control_count"] == 2
+    assert measurement["deferred_count"] == 1
+
+
+# ---------------------------------------------------------------------------
+# 2026-07-06 approved holdout pressure-dependent deferral (MASTER_DESIGN.md
+# section 17.16, approval #7 -- PRE-REGISTERED before era-6 was launched)
+# ---------------------------------------------------------------------------
+#
+# Pre-registration context: the project owner approved (2026-07-06, approval
+# #7) the conditional rule BEFORE era-6 ran: "if seat behavior remains
+# unchanged even with full-text delivery of the enabling notice, the finding
+# 'notices alone do not change behavior without pressure' stands, and the
+# contradict class defers to phase-3 D1 (time-pressure) validation." Era-6
+# then confirmed the condition: contradict_chat_approval_recorded had
+# exposure (full-text circular delivered) in all 5 seeds but ZERO
+# opportunity (activation 0/5), while clarify_elderly_understanding_sales_only
+# and dangling_fill_search_key_stub both activated and were strictly
+# detected (1/1 each), and both benign controls passed.
+
+
+def test_deferred_arm_is_sealed_in_plan_hash() -> None:
+    """contradict_chat_approval_recorded's arm (deferred_pressure_dependent)
+    must be sealed into plan_hash exactly like positive_control/
+    benign_control -- tampering it after the fact must change the hash."""
+    plan_a = build_holdout_injection_plan(Path.cwd(), mutation_ids=["contradict_chat_approval_recorded"])
+    assert plan_a["injections"][0]["arm"] == ARM_DEFERRED_PRESSURE_DEPENDENT
+
+    plan_b = json.loads(json.dumps(plan_a))
+    plan_b["injections"][0]["arm"] = ARM_POSITIVE_CONTROL
+
+    from company_twin.world_config import _json_hash as world_json_hash
+
+    original_hash = world_json_hash(
+        {"injections": plan_a["injections"], "control_run_roots": plan_a["control_run_roots"], "circulation_required": plan_a["circulation_required"]}
+    )
+    tampered_hash = world_json_hash(
+        {"injections": plan_b["injections"], "control_run_roots": plan_b["control_run_roots"], "circulation_required": plan_b["circulation_required"]}
+    )
+    assert original_hash == plan_a["plan_hash"]
+    assert tampered_hash != plan_a["plan_hash"]
+
+
+def _verified_s2_bundle_exposed_via_circulation_zero_opportunity(root: Path, *, injection: dict[str, Any], planned_ticks: int = 4) -> None:
+    """Build a run bundle matching era-6's confirmed contradict result:
+    EXPOSED (full-text circulation delivered this injection's circular to a
+    seat) but ZERO OPPORTUNITY (no chat-approval behavior, no approval
+    requests -- opportunity_count=0 for every expected finding type). This is
+    exposure-without-opportunity, i.e. NOT activated, but for a different
+    reason than a plain "nothing happened at all" unactivated bundle: the
+    stimulus genuinely reached the world (delivery recorded), there was just
+    nothing for a detector to fire on."""
+    from company_twin.world_config import _json_hash as world_json_hash
+
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "triage").mkdir(exist_ok=True)
+    (root / "triage" / "metrics.json").write_text(
+        json.dumps({"stage": "S2", "finding_types": {}, "rule_hit_rate": {}, "detection_miss_rate": {}}),
+        encoding="utf-8",
+    )
+    mutation_id = injection["mutation_id"]
+    target_doc_id = str(injection.get("target_doc_id") or "")
+    spec = load_mutation_catalog(Path.cwd())[mutation_id]
+    assert world_json_hash(spec) == injection["spec_hash"]
+    mutation_entry = dict(spec)
+    message = f"本日付の事務連絡を回覧します: 「{mutation_id}のテスト通知」\n本文のテキストです。"
+    (root / "config.json").write_text(
+        json.dumps(
+            {
+                "world": {
+                    "corpus": {
+                        "mutations": [mutation_entry],
+                        "mutation_hash": world_json_hash([mutation_entry]),
+                        "effective_corpus_hash": "test-hash",
+                        "circulation": {
+                            "enabled": True,
+                            "mode": "full_text",
+                            "announcements": [
+                                {
+                                    "mutation_id": mutation_id,
+                                    "doc_id": target_doc_id,
+                                    "tick": 1,
+                                    "visible_roles": ["sales"],
+                                    "message": message,
+                                    "digest": message,
+                                }
+                            ],
+                        },
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    (root / "meta.json").write_text(json.dumps({"stage": "S2", "mutation_ids": [mutation_id]}), encoding="utf-8")
+    ledger_rows = [{"tick": tick, "event_type": "tick_committed"} for tick in range(1, planned_ticks + 1)]
+    ledger_rows.append(
+        {
+            "tick": 1,
+            "event_type": "inbox_delivered",
+            "payload": {"to_seat": "seat_sales_1", "message": {"kind": "timed_notice", "tick": 1, "notice": "document_circulation", "detail": message}},
+        }
+    )
+    (root / "world_ledger.jsonl").write_text("".join(json.dumps(row) + "\n" for row in ledger_rows), encoding="utf-8")
+    # No approval-adjacent behavior at all: no read_document attempts, no
+    # chat-approval activity -- this is the "no opportunity" half of era-6's
+    # finding.
+    (root / "attempts.jsonl").write_text("", encoding="utf-8")
+
+
+def _era6_style_plan_and_bundles(tmp_path: Path) -> tuple[dict[str, Any], dict[str, Path]]:
+    """Build a plan + run bundles reproducing era-6's confirmed result:
+    contradict_chat_approval_recorded exposed but with zero opportunity in
+    all 5 seeds (0/5 activation); clarify_elderly_understanding_sales_only and
+    dangling_fill_search_key_stub both activated and strictly detected (1/1
+    each); both benign controls pass."""
+    plan = build_holdout_injection_plan(
+        Path.cwd(),
+        mutation_ids=[
+            "clarify_elderly_understanding_all",
+            "clarify_elderly_understanding_sales_only",
+            "contradict_chat_approval_recorded",
+            "dangling_fill_search_key_stub",
+            "role_table_fix_quality_owner",
+        ],
+        auto_run_roots=True,
+        seeds_per_injection={"contradict_chat_approval_recorded": 5, "_default": 1},
+    )
+    write_holdout_inputs(tmp_path, plan)
+    by_mutation = {injection["mutation_id"]: injection for injection in plan["injections"]}
+    run_lookup: dict[str, Path] = {}
+
+    contradict = by_mutation["contradict_chat_approval_recorded"]
+    assert contradict["arm"] == ARM_DEFERRED_PRESSURE_DEPENDENT
+    assert len(contradict["planned_run_roots"]) == 5
+    for seed, root_name in enumerate(contradict["planned_run_roots"], start=1):
+        run_root = tmp_path / root_name
+        # Exposed (full-text circular delivered) but zero opportunity: era-6's
+        # confirmed exposure-without-opportunity result, reproduced across all
+        # 5 seeds.
+        _verified_s2_bundle_exposed_via_circulation_zero_opportunity(run_root, injection=contradict)
+        run_lookup[f"holdout_contradict_chat_approval_recorded_seed{seed}"] = run_root
+
+    clarify_sales = by_mutation["clarify_elderly_understanding_sales_only"]
+    clarify_root = tmp_path / "s2_clarify_sales"
+    _verified_s2_bundle(clarify_root, injection=clarify_sales, finding_types={clarify_sales["expected_finding_types"][0]: 1})
+    run_lookup[clarify_sales["injection_id"]] = clarify_root
+
+    dangling = by_mutation["dangling_fill_search_key_stub"]
+    dangling_root = tmp_path / "s2_dangling"
+    _verified_s2_bundle(dangling_root, injection=dangling, finding_types={dangling["expected_finding_types"][0]: 1})
+    run_lookup[dangling["injection_id"]] = dangling_root
+
+    clarify_all = by_mutation["clarify_elderly_understanding_all"]
+    clarify_all_root = tmp_path / "s2_clarify_all"
+    _verified_s2_bundle(clarify_all_root, injection=clarify_all, finding_types={})
+    run_lookup[clarify_all["injection_id"]] = clarify_all_root
+
+    role_table = by_mutation["role_table_fix_quality_owner"]
+    role_table_root = tmp_path / "s2_role_table"
+    _verified_s2_bundle(role_table_root, injection=role_table, finding_types={})
+    run_lookup[role_table["injection_id"]] = role_table_root
+
+    return plan, run_lookup
+
+
+def test_deferred_injection_excluded_from_denominator_two_of_two_passes(tmp_path: Path) -> None:
+    """Reproduces era-6: with contradict deferred, the positive-control
+    denominator is 2 (clarify_sales_only, dangling_fill), both strictly
+    detected -> 2/2 = 1.0, clearing the 0.80 target, even though
+    contradict's 5 seeds all show zero activation."""
+    plan, run_lookup = _era6_style_plan_and_bundles(tmp_path)
+
+    measurement = compute_holdout_detection_rate(tmp_path, plan, run_lookup=run_lookup)
+
+    assert measurement["injection_count"] == 2
+    assert measurement["detected_count"] == 2
+    assert measurement["detection_rate"] == 1.0
+    assert measurement["strict_detection_rate"] == 1.0
+    assert measurement["passed"] is True
+    assert measurement["deferred_count"] == 1
+    assert measurement["benign_control_count"] == 2
+    # contradict never counts as a positive-control unactivated failure --
+    # it isn't in the positive-control denominator at all.
+    assert measurement["unactivated_positive_control_count"] == 0
+
+    contradict_rows = [row for row in measurement["per_injection"] if row["mutation_id"] == "contradict_chat_approval_recorded"]
+    assert len(contradict_rows) == 1
+    assert contradict_rows[0]["arm"] == ARM_DEFERRED_PRESSURE_DEPENDENT
+    assert contradict_rows[0]["activation_summary"]["activated_trials"] == 0
+    assert contradict_rows[0]["activation_summary"]["total_trials"] == 5
+
+
+def test_deferred_injections_section_carries_activation_evidence_and_pre_registration(tmp_path: Path) -> None:
+    """The deferred_injections report section must carry: activation evidence
+    across all trials, the confirmed finding text, and the pre-registration
+    reference -- and must NEVER mark the injection as detected."""
+    plan, run_lookup = _era6_style_plan_and_bundles(tmp_path)
+
+    deferred = score_deferred_injections(tmp_path, plan, run_lookup=run_lookup)
+
+    assert deferred is not None
+    assert deferred["injection_count"] == 1
+    assert deferred["confirmed_finding"] == DEFERRED_FINDING_TEXT
+    assert deferred["pre_registration_reference"] == DEFERRED_PRE_REGISTRATION_REFERENCE
+    row = deferred["per_injection"][0]
+    assert row["mutation_id"] == "contradict_chat_approval_recorded"
+    assert row["arm"] == ARM_DEFERRED_PRESSURE_DEPENDENT
+    assert row["deferred"] is True
+    assert row["detected"] is False  # deferral NEVER counts as detected
+    assert row["confirmed_finding"] == DEFERRED_FINDING_TEXT
+    assert row["pre_registration_reference"] == DEFERRED_PRE_REGISTRATION_REFERENCE
+    # activation evidence across all 5 trials is present and visible, not hidden.
+    assert row["activation_summary"]["total_trials"] == 5
+    assert row["activation_summary"]["activated_trials"] == 0
+    assert row["activation_summary"]["any_activated"] is False
+    assert len(row["evidence"]["activation"]["per_run"]) == 5
+    for trial in row["evidence"]["activation"]["per_run"]:
+        assert trial["activated"] is False
+        assert trial["exposure"]["exposed"] is True  # exposed...
+        assert trial["opportunity"]["has_opportunity"] is False  # ...but zero opportunity
+
+    # End-to-end via write_holdout_report: the section is present, visible,
+    # and the report still passes (deferred injections don't block the gate).
+    report = write_holdout_report(tmp_path, run_lookup=run_lookup)
+    assert report["passed"] is True
+    assert report["deferred_injections"] is not None
+    assert report["deferred_injections"]["injection_count"] == 1
+    assert any("deferred" in note.lower() for note in report["notes"])
+    assert report["scoring_note"]  # re-sealed-plan scoring note is populated
+    assert "RE-SEALED" in report["scoring_note"]
+
+
+def test_deferred_injection_zero_activation_does_not_trigger_activation_warning(tmp_path: Path) -> None:
+    """A deferred_pressure_dependent injection's zero activation is the
+    EXPECTED/confirmed finding, not a surprise -- it must not appear in the
+    activation section's unactivated_injection_ids (that list is reserved for
+    positive_control injections, whose zero activation is a genuine gap)."""
+    plan, run_lookup = _era6_style_plan_and_bundles(tmp_path)
+
+    report = write_holdout_report(tmp_path, run_lookup=run_lookup)
+
+    assert "holdout_contradict_chat_approval_recorded" not in report["activation"]["unactivated_injection_ids"]
+    assert report["activation"]["unactivated_injection_ids"] == []
+
+
+def test_old_sealed_plan_positive_control_arm_unchanged_for_contradict(tmp_path: Path) -> None:
+    """Backward compatibility (MASTER_DESIGN.md section 17.16): an EXISTING
+    sealed plan that already lists contradict_chat_approval_recorded as
+    positive_control (simulating a plan sealed BEFORE this change) continues
+    to score under that ORIGINAL sealed arm -- old plans are not
+    retroactively reinterpreted. Only a plan built AFTER this change (a
+    fresh build_holdout_injection_plan call) gets the new deferred default."""
+    plan = build_holdout_injection_plan(Path.cwd(), mutation_ids=["contradict_chat_approval_recorded"])
+    # Simulate an old plan sealed before this change: force the arm back to
+    # positive_control and recompute plan_hash the way the old code would have.
+    from company_twin.world_config import _json_hash as world_json_hash
+
+    old_plan = json.loads(json.dumps(plan))
+    old_plan["injections"][0]["arm"] = ARM_POSITIVE_CONTROL
+    old_plan["plan_hash"] = world_json_hash(
+        {"injections": old_plan["injections"], "control_run_roots": old_plan["control_run_roots"], "circulation_required": old_plan["circulation_required"]}
+    )
+    write_holdout_inputs(tmp_path, old_plan)
+    injection = old_plan["injections"][0]
+    run_root = tmp_path / "s2_contradict_old"
+    finding_type = injection["expected_finding_types"][0]
+    _verified_s2_bundle(run_root, injection=injection, finding_types={finding_type: 1})
+
+    measurement = compute_holdout_detection_rate(tmp_path, old_plan, run_lookup={injection["injection_id"]: run_root})
+
+    # Old plan's sealed arm (positive_control) is honored -- it counts toward
+    # the positive-control denominator, unlike a freshly-built plan.
+    assert measurement["injection_count"] == 1
+    assert measurement["deferred_count"] == 0
+    assert measurement["per_injection"][0]["arm"] == ARM_POSITIVE_CONTROL
+    assert measurement["detected_count"] == 1
+    assert measurement["passed"] is True
+
+    report = write_holdout_report(tmp_path, run_lookup={injection["injection_id"]: run_root})
+    assert report["deferred_injections"] is None  # nothing deferred in this old plan
+    # scoring_note explains this plan predates the deferred-arm rule.
+    assert report["scoring_note"]
+    assert "SEALED BEFORE" in report["scoring_note"]
+
+
+def test_external_claim_readiness_deferred_item_false_when_deferred_class_present(tmp_path: Path) -> None:
+    """external_claim_readiness's holdout_deferred_classes_validated item must
+    be False whenever the holdout report records a deferred class (era-6's
+    contradict_chat_approval_recorded is, by construction, an unresolved
+    external claim pending phase-3 D1 validation)."""
+    plan, run_lookup = _era6_style_plan_and_bundles(tmp_path)
+    write_holdout_report(tmp_path, run_lookup=run_lookup, control_run_roots=[])
+
+    from company_twin.readiness import build_external_claim_readiness_summary
+
+    summary = build_external_claim_readiness_summary(tmp_path)
+
+    item = next(item for item in summary["items"] if item["item"] == "holdout_deferred_classes_validated")
+    assert item["passed"] is False
+    assert "contradict_chat_approval_recorded" in item["detail"]
+    assert item["deferred_class_count"] == 1
+    assert summary["passed"] is False
 
 
 def test_holdout_plan_cli_records_control_run_roots(tmp_path: Path) -> None:
