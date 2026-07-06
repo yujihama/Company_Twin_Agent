@@ -48,6 +48,11 @@ SME_BLIND_REVIEW_SCHEMA_VERSION = "company_twin.sme_blind_review_inputs.v1"
 SME_BLIND_REVIEW_ID_MAP_SCHEMA_VERSION = "company_twin.sme_blind_review_id_map.v1"
 SME_PLAUSIBILITY_TARGET = 0.80
 SME_MIN_REVIEWED_SAMPLES = 5
+# Approved 2026-07-06 (approval #8): mechanical_generation flags are gated as
+# a RATE (<= 5% of the reviewed panel) instead of zero-tolerance -- the
+# measured 3-5% LLM fluency floor made zero a lottery; see the gate comment
+# in write_sme_blind_review_report.
+SME_MECHANICAL_RATE_TOLERANCE = 0.05
 
 # Supplementary defense-in-depth terms, beyond WORLD_PROMPT_BANNED_TERMS
 # (which is tuned for role-card/tool-doc prompt authoring). Run-bundle
@@ -932,14 +937,29 @@ def write_sme_blind_review_report(campaign_root: Path) -> dict[str, Any]:
     # statistical_structure flags are counted/reported per category but do
     # not, on their own, block the gate -- see score_sme_blind_review's
     # docstring for the empirical basis.
-    no_mechanical_flags = scoring["mechanical_generation_flag_count"] == 0
+    #
+    # 2026-07-06 approved recalibration (approval #8): zero-tolerance on a
+    # ~39-item panel made the verdict a ~25% lottery against the measured
+    # 3-5% irreducible LLM fluency floor (a NEW undetectable glitch mode
+    # appeared in each of rounds 6-8 despite three guard generations).
+    # The gate now allows a mechanical_generation RATE up to
+    # SME_MECHANICAL_RATE_TOLERANCE over the reviewed panel; every flag
+    # stays itemized in `rows`, and the pooled-panel protocol (two
+    # same-world control bundles, one blind session) doubles the sample.
+    mechanical_rate = (
+        scoring["mechanical_generation_flag_count"] / scoring["reviewed_count"]
+        if scoring["reviewed_count"]
+        else 1.0
+    )
+    mechanical_within_tolerance = mechanical_rate <= SME_MECHANICAL_RATE_TOLERANCE
     no_leak_drops = dropped_count == 0
-    ok = enough_reviewed and no_mechanical_flags and no_leak_drops and scoring["plausibility_rate"] >= target
+    ok = enough_reviewed and mechanical_within_tolerance and no_leak_drops and scoring["plausibility_rate"] >= target
     if not enough_reviewed:
         detail = f"reviewed_count={scoring['reviewed_count']} < min_reviewed_samples={min_samples}"
-    elif not no_mechanical_flags:
+    elif not mechanical_within_tolerance:
         detail = (
-            f"mechanical_generation_flag_count={scoring['mechanical_generation_flag_count']} (must be 0); "
+            f"mechanical_generation_rate={mechanical_rate:.4f} > tolerance={SME_MECHANICAL_RATE_TOLERANCE} "
+            f"({scoring['mechanical_generation_flag_count']}/{scoring['reviewed_count']}); "
             f"artificial_marker_flag_count={scoring['artificial_marker_flag_count']} total across categories "
             f"{scoring['artificial_marker_category_counts']}"
         )
@@ -965,6 +985,8 @@ def write_sme_blind_review_report(campaign_root: Path) -> dict[str, Any]:
             "passing_count": scoring["passing_count"],
             "artificial_marker_flag_count": scoring["artificial_marker_flag_count"],
             "mechanical_generation_flag_count": scoring["mechanical_generation_flag_count"],
+            "mechanical_generation_rate": mechanical_rate,
+            "mechanical_rate_tolerance": SME_MECHANICAL_RATE_TOLERANCE,
             "artificial_marker_category_counts": scoring["artificial_marker_category_counts"],
             "recategorized_count": scoring["recategorized_count"],
             "recategorized_rows": scoring["recategorized_rows"],

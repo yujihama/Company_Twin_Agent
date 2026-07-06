@@ -1721,6 +1721,10 @@ conditions become explicit experimental variables. This section formalizes
 that deferral as a holdout arm so it is machine-checkable and visible in
 every subsequent holdout report, rather than only a prose forward note.
 
+### 17.17 SME盲検: 機械的生成痕の率許容とプール判定 (2026-07-06, プロジェクトオーナー承認 #8)
+
+ラウンド6〜8の実測で、機械的生成痕(mechanical_generation)は3世代のガード追加後も毎回異なる新種が1〜3件/39件出現し(ラテン文字混入→断片重複→尻切れ→漢数字年表記→意味重複)、真の不良率は約3〜5%が現行顧客モデル階級の言語品質の床と判明した。39件パネルでのゼロ許容は合格確率約25%の抽選となり、「合格が出るまで再試行する」シード漁りの誘因になるため、承認の上で次に改定した: (1) 判定パネルを同一世界版の対照2本からのプール78件に倍増、(2) mechanical_generation はゼロ要求から率許容 `SME_MECHANICAL_RATE_TOLERANCE = 0.05` に変更(全指摘の個票記録は不変)、(3) あり得る度しきい値 0.80・語彙漏洩ゼロ要求・human_sme/ai_proxy の claim_level 区分は不変。残存する不良率と束レベルの統計的規則性(凍結デッキ由来)は既知の限界として対外主張時に明記する。
+
 ## 18. WP-12 parallel world-run executor (並列実行、2026-07-05)
 
 Phase-3 experiments run batches of independent S0/S1/S2/control-pair worlds

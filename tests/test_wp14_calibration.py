@@ -2176,7 +2176,60 @@ def test_sme_blind_review_report_fails_on_mechanical_generation_category(tmp_pat
     payload = write_sme_blind_review_report(tmp_path)
 
     assert payload["passed"] is False
-    assert "mechanical_generation_flag_count=1" in payload["checks"][0]["detail"]
+    # Approval #8: the gate is now a rate tolerance; one flag on this small
+    # fixture panel is far above 5% and must still fail, with the rate shown.
+    assert "mechanical_generation_rate=" in payload["checks"][0]["detail"]
+    assert "(1/" in payload["checks"][0]["detail"]
+
+
+def _synthetic_reviewed_packet(item_count: int, mechanical_flags: int) -> dict:
+    items = []
+    for i in range(item_count):
+        response = {"plausible_workplace_scene": 5, "internally_consistent": 5, "no_artificial_markers": "no"}
+        if i < mechanical_flags:
+            response = {
+                "plausible_workplace_scene": 5,
+                "internally_consistent": 5,
+                "no_artificial_markers": "yes",
+                "artificial_marker_category": "mechanical_generation",
+            }
+        items.append({"item_id": f"R-{i + 1:03d}", "kind": "business_event", "text": f"記録{i}", "questions": [], "response": response})
+    return {
+        "schema_version": "company_twin.sme_blind_review_inputs.v1",
+        "kind": "blind_review_packet",
+        "plausibility_target": 0.8,
+        "min_reviewed_samples": 5,
+        "item_count": item_count,
+        "items": items,
+        "packet_hash": "synthetic",
+        "reviewer_type": "ai_proxy",
+    }
+
+
+def test_sme_mechanical_rate_tolerance_passes_at_or_below_five_percent(tmp_path: Path) -> None:
+    # Approval #8 (2026-07-06): 2 flags on an 80-item pooled panel (2.5%) is
+    # within the 5% tolerance and must pass; 5 flags (6.25%) must fail.
+    import json as _json
+
+    from company_twin.sme_blind_review import write_sme_blind_review_report
+
+    (tmp_path / "sme_blind_review_id_map.json").write_text(
+        _json.dumps({"schema_version": "company_twin.sme_blind_review_id_map.v1", "dropped_count": 0, "dropped_items": [], "entries": []}),
+        encoding="utf-8",
+    )
+    (tmp_path / "sme_blind_review_inputs.json").write_text(
+        _json.dumps(_synthetic_reviewed_packet(80, 2), ensure_ascii=False), encoding="utf-8"
+    )
+    payload = write_sme_blind_review_report(tmp_path)
+    assert payload["passed"] is True
+    assert payload["checks"][0]["mechanical_generation_rate"] == 2 / 80
+
+    (tmp_path / "sme_blind_review_inputs.json").write_text(
+        _json.dumps(_synthetic_reviewed_packet(80, 5), ensure_ascii=False), encoding="utf-8"
+    )
+    payload = write_sme_blind_review_report(tmp_path)
+    assert payload["passed"] is False
+    assert "mechanical_generation_rate=" in payload["checks"][0]["detail"]
 
 
 def test_sme_blind_review_report_fails_on_uncategorized_yes_old_format_packet(tmp_path: Path) -> None:
