@@ -415,6 +415,35 @@ _WHITESPACE_RE = re.compile(r"\s+")
 _LABEL_PREFIX_RE = re.compile(r"^[^:：]{1,20}[:：]\s*")
 
 
+# Minimum verbatim overlap (in normalized chars) that marks two packet items
+# as a near-duplicate pair. Deterministic world components (situational cues,
+# fixed notices) are sentence-length, so 25 normalized chars of contiguous
+# identical text across two items reliably indicates a shared scripted
+# component rather than coincidental phrasing.
+NEAR_DUP_MIN_COMMON_RUN = 25
+
+
+def _near_duplicate_of(normalized: str, kept: list[tuple[str, str]]) -> str | None:
+    """Return the item_id of an already-kept item sharing a long verbatim run.
+
+    O(n * m) over kept items with a rolling window; panels are <=100 items of
+    a few hundred chars, so this stays trivially fast.
+    """
+    if len(normalized) < NEAR_DUP_MIN_COMMON_RUN:
+        return None
+    windows = {
+        normalized[i : i + NEAR_DUP_MIN_COMMON_RUN]
+        for i in range(0, len(normalized) - NEAR_DUP_MIN_COMMON_RUN + 1)
+    }
+    for item_id, kept_norm in kept:
+        if len(kept_norm) < NEAR_DUP_MIN_COMMON_RUN:
+            continue
+        for j in range(0, len(kept_norm) - NEAR_DUP_MIN_COMMON_RUN + 1):
+            if kept_norm[j : j + NEAR_DUP_MIN_COMMON_RUN] in windows:
+                return item_id
+    return None
+
+
 def _normalize_excerpt_content(text: str) -> str:
     """Normalize excerpt text for duplicate detection: strip a leading
     "label: " prefix (e.g. "顧客とのやり取り: ", "連絡事項の共有: ") and collapse
@@ -558,6 +587,7 @@ def build_blind_review_packet(
     entries: list[dict[str, Any]] = []
     dropped: list[dict[str, Any]] = []
     seen_normalized_cross_run: dict[str, str] = {}  # normalized content -> item_id that kept it
+    kept_normalized_texts: list[tuple[str, str]] = []  # (item_id, normalized) for near-dup pairs
     for run_root in run_roots:
         excerpts = sample_run_bundle_excerpts(run_root, limit=samples_per_run)
         for excerpt in excerpts:
@@ -573,6 +603,25 @@ def build_blind_review_packet(
                     }
                 )
                 continue
+            # Near-duplicate pairs: pooling two runs of the SAME frozen deck
+            # means deterministic text components (situational cues, fixed
+            # notices) recur verbatim across the runs' paired records. Round
+            # 10 showed a reviewer reads such a pair as a copy-paste artifact
+            # (mechanical_generation) even though neither record is defective
+            # on its own. Exact-match dedup (above) misses these because the
+            # LLM-authored remainder differs; suppress the second member of
+            # any pair sharing a long verbatim run instead.
+            near_dup_of = _near_duplicate_of(normalized, kept_normalized_texts) if normalized else None
+            if near_dup_of is not None:
+                dropped.append(
+                    {
+                        "run_root": run_root.name,
+                        "excerpt_id": excerpt["excerpt_id"],
+                        "reason": "deduped_cross_run_near",
+                        "duplicate_of_item_id": near_dup_of,
+                    }
+                )
+                continue
             stripped = strip_experimenter_vocabulary(excerpt["text"])
             if stripped["redactions"]:
                 dropped.append(
@@ -585,6 +634,7 @@ def build_blind_review_packet(
                 )
                 continue
             item_id = f"R-{len(items) + 1:03d}"
+            kept_normalized_texts.append((item_id, normalized))
             items.append(
                 {
                     "item_id": item_id,
@@ -975,7 +1025,7 @@ def write_sme_blind_review_report(campaign_root: Path) -> dict[str, Any]:
     id_map = json.loads(id_map_path.read_text(encoding="utf-8"))
     dropped_items = id_map.get("dropped_items") or []
     leak_dropped_count = sum(1 for item in dropped_items if item.get("reason") == "leaked_vocabulary_redacted")
-    deduped_cross_run_count = sum(1 for item in dropped_items if item.get("reason") == "deduped_cross_run")
+    deduped_cross_run_count = sum(1 for item in dropped_items if item.get("reason") in ("deduped_cross_run", "deduped_cross_run_near"))
     # Backward compatibility: an id map written before per-reason breakdown
     # existed (or by any other caller) may only carry the aggregate
     # dropped_count with no dropped_items reasons. Treat that legacy shape as
