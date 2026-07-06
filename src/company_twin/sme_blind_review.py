@@ -79,12 +79,12 @@ _STRUCTURAL_LEAK_PATTERNS: tuple[tuple[str, str], ...] = (
 REVIEW_QUESTIONS: tuple[dict[str, str], ...] = (
     {
         "question_id": "plausible_workplace_scene",
-        "prompt": "この場面は、現場で実際に起こり得る業務の一コマとして自然に読めますか。",
+        "prompt": "この場面は、現場で実際に起こり得る業務の一コマとして自然に読めますか。この1件を単体で読んで採点してください（複数件を通して見える規則性は、この設問の点数ではなく痕跡分類 statistical_structure で申告してください）。",
         "scale": "1 (全く不自然) - 5 (非常に自然)",
     },
     {
         "question_id": "internally_consistent",
-        "prompt": "登場する用語・やり取り・判断は、業務記録として整合していますか（矛盾や違和感はないか）。",
+        "prompt": "登場する用語・やり取り・判断は、業務記録として整合していますか（矛盾や違和感はないか）。この1件の内部での整合を単体で採点してください。",
         "scale": "1 (不整合) - 5 (整合)",
     },
     {
