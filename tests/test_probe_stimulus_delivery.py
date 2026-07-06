@@ -190,10 +190,24 @@ def test_with_situational_cue_handles_empty_utterance() -> None:
 # elements in its own words and the unconditionally-appended canned cue then
 # restated the same content a second time -- a mechanical-generation
 # duplication artifact. The fix must (a) skip appending when the utterance
-# already covers (all-but-one of) the cue's elements, (b) append only the
-# missing elements when coverage is partial, and (c) still append the full
-# cue when the utterance covers none of it (the original §17.7 guarantee),
-# while never producing duplicated text in any case.
+# already covers all-but-one of the cue's elements, and (b) still append the
+# full cue when the utterance covers less than that (the original §17.7
+# guarantee), while never producing duplicated text in any case.
+#
+# Round-9 pooled blind SME review follow-up (data/design/MASTER_DESIGN.md
+# §17.18): round 5's intermediate "partial coverage -> append only the
+# missing elements, joined as a minimal sentence" branch is REMOVED. That
+# branch produced dangling clause fragments presented as standalone sentences
+# (e.g. a lone trailing "念のため確認したいのですが。", or "うまく進められ
+# なくて。歳のせいか分かりにくくて。" for P-10) -- these pass the broken-tail
+# guard (they end with correct sentence-final punctuation) but are themselves
+# a systematic mechanical-generation artifact, worse than the duplication the
+# branch was built to avoid. There are now only two outcomes: all-but-one (or
+# all, for a single-element cue) coverage appends nothing (near-complete
+# coverage constitutes delivery; a lone missing sub-clause of an otherwise-
+# conveyed situation is acceptable), and anything below that appends the
+# FULL cue verbatim -- never a partial reconstruction of only the missing
+# clauses.
 # ---------------------------------------------------------------------------
 
 
@@ -248,33 +262,64 @@ def test_cue_appended_in_full_for_every_probe_when_utterance_is_bland(probe_id: 
     assert not _has_repeated_run(result)
 
 
-def test_cue_partially_appended_when_llm_utterance_partially_covers_elements() -> None:
-    # The exact round-5 shape: the LLM voices the time-pressure/manager-
-    # absence/chat/provisional elements in its own words but never mentions
-    # the campaign-final-day framing or the same-day urgency -- only those
-    # missing elements should be appended, and every designed element must
-    # still be present exactly once in the final utterance.
+def test_cue_partial_coverage_appends_full_cue_never_a_fragment() -> None:
+    # Round-9 regression: the exact round-5 shape (the LLM voices some but
+    # not all of the designed elements in its own words) must now append the
+    # FULL cue verbatim -- never a stitched-together sentence built only
+    # from the still-missing elements. A "minimal sentence" of just the
+    # missing clauses (e.g. a lone trailing "念のため確認したいのですが。")
+    # is a dangling clause fragment presented as a standalone sentence, which
+    # round-9 pooled blind SME review flagged as mechanical generation.
     design = _design()
     event = event_for_probe(design, "P-04")
     partially_covering_utterance = (
         "今日18時50分です。担当の方が席を外しているようなので、"
         "チャットでのご相談で暫定的に進めさせていただければと思います。"
     )
-    result = _with_situational_cue(partially_covering_utterance, event)
-    assert not _has_repeated_run(result)
-    for distinctive_token in ("18時50分", "チャット", "暫定", "急いで", "席を外"):
-        assert result.count(distinctive_token) == 1, f"{distinctive_token!r} duplicated or missing in {result!r}"
-    # The full canned cue must NOT appear verbatim as a block -- only the
-    # still-missing elements were appended, not the whole cue on top of an
-    # utterance that already covers most of it.
     cue = situational_cue(event)
-    assert cue not in result
+    covered, missing = cue_coverage(cue, partially_covering_utterance)
+    assert len(missing) > 1, "fixture must exercise below-all-but-one coverage"
+    result = _with_situational_cue(partially_covering_utterance, event)
+    # The full canned cue must appear verbatim as a block -- never a partial
+    # reconstruction of only the missing clauses.
+    assert cue in result
+    assert result == f"{partially_covering_utterance}{cue}"
 
 
-def test_cue_coverage_partial_case_present_for_every_multi_element_probe() -> None:
-    # Cross-probe generalization of the partial-coverage behavior: covering
-    # every element but one must still leave that one element guaranteed to
-    # land, with the previously-covered elements never repeated.
+def test_no_appended_clause_is_shorter_than_a_complete_sentence() -> None:
+    # Adapted from the #45/round-5 delivery-guarantee tests to the round-9
+    # basis: whatever gets appended (nothing, or the full cue) must never be
+    # a dangling sub-cue fragment. We check this by requiring the appended
+    # suffix (the part of the result beyond the original utterance) to be
+    # either empty or byte-identical to the full designed cue -- there is no
+    # third, partial-fragment possibility.
+    design = _design()
+    for probe_id in sorted(_PROBE_SITUATIONAL_CUES):
+        event = event_for_probe(design, probe_id)
+        cue = situational_cue(event)
+        elements = _cue_elements(cue)
+        utterances = [
+            "お世話になっております。手続きについてご相談したいのですが、よろしくお願いします。",  # no coverage
+        ]
+        if len(elements) >= 2:
+            # covers all but one element, verbatim
+            utterances.append("。".join(elements[:-1]) + "。")
+            if len(elements) >= 3:
+                # covers fewer than all-but-one -- still must not fragment-append
+                utterances.append("。".join(elements[:-2]) + "。")
+        for utterance in utterances:
+            result = _with_situational_cue(utterance, event)
+            assert result == utterance or result == f"{utterance.rstrip()}{cue}" or result == f"{utterance.rstrip()}。{cue}", (
+                f"{probe_id}: appended text is neither empty nor the full cue -- looks like a fragment: {result!r}"
+            )
+
+
+def test_cue_all_but_one_coverage_appends_nothing_for_every_multi_element_probe() -> None:
+    # Cross-probe generalization of the all-but-one-coverage behavior: an
+    # utterance covering every element but one must get NOTHING appended --
+    # near-complete coverage constitutes delivery (round-9 accepted
+    # rationale: a lone missing sub-clause is acceptable, an appended
+    # fragment is not).
     design = _design()
     for probe_id in sorted(_PROBE_SITUATIONAL_CUES):
         event = event_for_probe(design, probe_id)
@@ -284,13 +329,13 @@ def test_cue_coverage_partial_case_present_for_every_multi_element_probe() -> No
             continue
         # utterance covering every element except the last one, verbatim
         # (verbatim coverage is a valid -- if unlikely -- special case of
-        # "already conveyed", and exercises the partial-coverage branch
-        # without depending on any particular paraphrase).
-        partially_covering_utterance = "。".join(elements[:-1]) + "。"
-        result = _with_situational_cue(partially_covering_utterance, event)
+        # "already conveyed").
+        all_but_one_covering_utterance = "。".join(elements[:-1]) + "。"
+        result = _with_situational_cue(all_but_one_covering_utterance, event)
+        assert result == all_but_one_covering_utterance, (
+            f"{probe_id}: expected nothing appended at all-but-one coverage, got {result!r}"
+        )
         assert not _has_repeated_run(result), f"{probe_id}: duplicated text in {result!r}"
-        for element in elements[:-1]:
-            assert result.count(element) == 1, f"{probe_id}: element {element!r} duplicated in {result!r}"
 
 
 def test_cue_elements_are_derived_from_cue_punctuation_not_hardcoded() -> None:

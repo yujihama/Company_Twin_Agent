@@ -203,19 +203,47 @@ def situational_cue(event: CustomerEvent) -> str:
 #   - All-but-one (or all, for a single-element cue) elements already
 #     covered: the utterance already delivers the designed framing in its
 #     own words: append nothing.
-#   - Some but not all elements covered: append only the missing elements
-#     (joined as their own minimal sentence), so the already-voiced content
-#     is never repeated and the still-missing elements are still
-#     guaranteed to land.
-#   - No element recognizable at all (the pre-fix "bland" case this
-#     guarantee was originally written for): append the full designed cue
-#     verbatim, exactly as before.
+#   - Otherwise (some elements covered, or none at all): append the full
+#     designed cue verbatim.
 #
-# In every branch the delivery guarantee from §17.7 still holds exactly:
-# every designed element is present somewhere in the FINAL utterance. What
-# changes is that duplication of elements the LLM already voiced is now
-# avoided; see tests/test_probe_stimulus_delivery.py for both the coverage
-# skip/partial/low-coverage behavior and the no-duplication regression guard.
+# Round-9 pooled blind SME review follow-up (data/design/MASTER_DESIGN.md
+# §17.18): round 5's "partial coverage -> append only the missing elements,
+# joined as their own minimal sentence" branch is ITSELF a systematic
+# mechanical-generation artifact, not a fix. Elements are clauses split on
+# punctuation, so "the missing elements joined as a minimal sentence" is a
+# dangling clause fragment presented as a standalone sentence -- e.g. a lone
+# trailing "念のため確認したいのですが。" (R-037 etc.) or
+# "うまく進められなくて。歳のせいか分かりにくくて。" (P-10). These pass the
+# broken-tail guard (detect_broken_tail) because they end with the correct
+# sentence-final punctuation, but they read as obviously stitched-together
+# text to a human reviewer -- worse than the duplication this branch was
+# built to avoid.
+#
+# FIX: the fragment-stitching path is eliminated entirely. There are now only
+# two outcomes:
+#   - All-but-one (or all, for a single-element cue) coverage: append
+#     nothing. A lone missing sub-clause of an otherwise-conveyed situation
+#     is acceptable delivery -- the designed framing has already landed in
+#     the utterance in the LLM's own words, and appending a bare fragment for
+#     just that one clause is a worse artifact than leaving it out.
+#   - Anything below that (i.e. more than one element still missing, or a
+#     multi-element cue with only some elements covered): append the FULL
+#     cue verbatim, never a partial reconstruction. The r5 duplication risk
+#     this could otherwise reintroduce is already handled by the coverage
+#     check itself: a full-cue append only ever happens when coverage is low
+#     enough that fewer than (len(elements) - 1) elements are covered, so by
+#     construction the utterance cannot already contain a run long enough to
+#     duplicate against (see test_cue_appended_in_full_when_llm_utterance_is_bland
+#     and the round-9 regression tests below for the no-duplication guard on
+#     this branch).
+#
+# The original §17.7 "every designed element is present somewhere in the
+# FINAL utterance" guarantee still holds in the all-but-one-covered case
+# (all-but-one is, by definition, "delivered") and in the full-cue-append
+# case (verbatim, complete); it is deliberately NOT held for the dropped
+# missing-clause case, per the accepted-rationale above. See
+# tests/test_probe_stimulus_delivery.py for the updated coverage skip/append
+# behavior and the never-a-dangling-fragment regression guard.
 # ---------------------------------------------------------------------------
 
 _CUE_ELEMENT_SPLIT_PATTERN = re.compile(r"[。、！？…]")
@@ -286,38 +314,49 @@ def cue_coverage(cue: str, utterance: str) -> tuple[list[str], list[str]]:
 def _with_situational_cue(utterance: str, event: CustomerEvent) -> str:
     """Guarantee a probe's designed situational cue reaches the delivered
     utterance, without duplicating what the (possibly live-LLM-generated)
-    `utterance` already conveys in its own words.
+    `utterance` already conveys in its own words, and without ever appending
+    a dangling clause fragment as if it were a standalone sentence.
 
     A live customer LLM is shown event.world_visible only as backstory
     context in persona_prompt/reply_prompt, and a real customer's own scripted
     style example (scripted_customer_opening) already voices the same
     framing -- so the LLM usually paraphrases the designed elements rather
     than omitting them. See the module-level comment above `_cue_elements`
-    for the full coverage-conditional design and round-5 blind-SME-review
-    context. If the utterance already contains the cue verbatim (e.g. a
-    deterministic fixture already produced it), it is never duplicated.
+    for the full coverage-conditional design and round-5/round-9 blind-SME-
+    review context. If the utterance already contains the cue verbatim (e.g.
+    a deterministic fixture already produced it), it is never duplicated.
+
+    Only two outcomes are possible:
+      - All-but-one (or all, for a single-element cue) of the cue's elements
+        are already covered: append nothing. Near-complete coverage
+        constitutes delivery; a lone missing sub-clause of an otherwise-
+        conveyed situation is acceptable (round-9 accepted rationale: an
+        isolated appended fragment is a worse artifact than one missing
+        sub-clause).
+      - Otherwise: append the FULL cue verbatim. This only fires when
+        coverage is low enough (strictly more than one element still
+        missing) that the utterance cannot already contain a run long
+        enough to duplicate the cue against -- the round-5 duplication risk
+        is handled by this same coverage check, by construction.
     """
     cue = situational_cue(event)
     if not cue or cue in utterance:
         return utterance
     elements = _cue_elements(cue)
-    covered, missing = cue_coverage(cue, utterance)
+    _covered, missing = cue_coverage(cue, utterance)
     # "all-but-one" coverage (or full coverage for a single-element cue)
     # means the utterance already delivers the designed framing in its own
-    # words -- nothing further to append.
+    # words -- nothing further to append. A lone missing sub-clause is
+    # accepted delivery; see the docstring above.
     skip_if_missing_at_most = 1 if len(elements) > 1 else 0
     if len(missing) <= skip_if_missing_at_most:
         return utterance
-    if len(missing) == len(elements):
-        # Nothing recognizable at all -- the original "bland utterance"
-        # guarantee: append the full designed cue verbatim.
-        supplement = cue
-    else:
-        # Partial coverage: append only the still-missing elements, as their
-        # own minimal sentence, so already-voiced content is never repeated.
-        supplement = "。".join(missing)
-        if not supplement.endswith(("。", "！", "？", "…")):
-            supplement += "。"
+    # Below all-but-one coverage: append the full designed cue verbatim.
+    # Never stitch together only the missing elements -- that produces a
+    # dangling clause fragment presented as a standalone sentence (round-9
+    # pooled blind SME review finding), which is a worse artifact than
+    # simply repeating the fully-designed sentence.
+    supplement = cue
     utterance = utterance.rstrip()
     if not utterance:
         return supplement
