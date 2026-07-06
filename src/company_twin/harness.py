@@ -538,27 +538,34 @@ def _deliver_circulation_announcements(
     active_seats: set[str],
 ) -> None:
     """Diegetic notice circulation (default-off; MASTER_DESIGN.md section
-    8.2/17.x): deliver each sealed announcement (world_config._circulation_announcements)
+    8.2/17.13/17.x): deliver each sealed announcement (world_config._circulation_announcements)
     whose tick matches the current tick, to every seat in this run whose role
     is in the announcement's visible_roles. Delivered as an ordinary
     `timed_notice` inbox message (kernel.enqueue_inbox validates it against
     the existing two-plane whitelist -- see kernel.INBOX_ALLOWED_KEYS -- so
     this mechanism cannot smuggle any experimenter-plane field into the
-    world). The announcement text (announcement["digest"]) only says a notice
-    exists; it never repeats the notice's substantive content, so a seat
-    still has to search/read the actual document to be exposed to it."""
+    world).
+
+    Full-text delivery (approved 2026-07-06): the delivered text is
+    announcement["message"] -- the header line plus the notice's own BODY
+    text (mutations.circulation_message_text) -- not just its title. An
+    era-5 raw-data audit found title-only circulation (announcement["digest"])
+    never drew a single seat to read the underlying document across 5
+    contradict seeds plus clarify/dangling runs, so delivery now IS content
+    exposure; whether a seat ACTS on or cites the delivered content remains
+    entirely behavioral."""
     for announcement in announcements:
         if int(announcement.get("tick") or 0) != tick:
             continue
-        digest = str(announcement.get("digest") or "")
-        if not digest:
+        message = str(announcement.get("message") or "")
+        if not message:
             continue
         visible_roles = set(str(role) for role in (announcement.get("visible_roles") or []))
         recipients = sorted(
             seat_id for seat_id in active_seats if seat_id in seat_roles and seat_roles[seat_id] in visible_roles
         )
         for seat_id in recipients:
-            kernel.enqueue_inbox(seat_id, {"kind": "timed_notice", "tick": tick, "notice": "document_circulation", "detail": digest})
+            kernel.enqueue_inbox(seat_id, {"kind": "timed_notice", "tick": tick, "notice": "document_circulation", "detail": message})
 
 
 def _tool_count(recorder: RunRecorder, seat_id: str, tools: set[str]) -> int:

@@ -202,6 +202,7 @@ def _inject_document(documents: dict[str, CorpusDocument], spec: dict[str, Any],
         "content_sha256": _json_hash({"text": text}),
         "document_delta": 1,
         "circulation_digest": circulation_digest_text(text),
+        "circulation_message": circulation_message_text(text),
     }
 
 
@@ -230,6 +231,7 @@ def _patch_document(documents: dict[str, CorpusDocument], spec: dict[str, Any], 
         "after_sha256": _json_hash({"text": patched_text}),
         "document_delta": 0,
         "circulation_digest": circulation_digest_text(append_text),
+        "circulation_message": circulation_message_text(append_text),
     }
 
 
@@ -252,14 +254,30 @@ def _raise_on_leak(spec: dict[str, Any]) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Diegetic notice circulation (default-off experimental variable; MASTER_DESIGN
-# section 8.2/17.x): a natural-business-language digest announcing that a
-# runtime-injected/patched document exists, derived from the mutation's OWN
-# catalog text -- never authored fresh, so there is nothing here that isn't
-# already lint-checked catalog content. The digest only ANNOUNCES that a
-# notice exists ("回覧します"); it never repeats the notice's substantive
-# content, so exposure (a seat actually reading the injected/patched document)
-# remains a behavioral outcome, not force-fed into the inbox.
+# Diegetic notice circulation (MASTER_DESIGN section 8.2/17.13/17.x): a
+# natural-business-language circulation of a runtime-injected/patched
+# document, derived from the mutation's OWN catalog text -- never authored
+# fresh, so there is nothing here that isn't already lint-checked catalog
+# content.
+#
+# `circulation_digest_text` (era-5, title-only, kept for backward
+# compatibility with older sealed bundles) only ANNOUNCES that a notice
+# exists ("回覧します: 「<件名>」"); it never repeats the notice's substantive
+# content. A raw-data audit across five era-5 contradict seeds plus
+# clarify/dangling runs found this was never enough to draw a single seat to
+# read the underlying document (zero read_document/basis-citation hits for
+# DFH-SAL-901/902/903 across all of them) -- title-only circulation was an
+# unrealistic variant of how a real 事務連絡 (internal notice) circulates.
+#
+# `circulation_message_text` (full-text, approved by the project owner
+# 2026-07-06) instead delivers the header line followed by the notice's own
+# BODY text -- the same world-visible mutation text that is already
+# lint-checked at application time (mutations._raise_on_leak). This is
+# consistent with how 事務連絡 actually circulate in the real world: with
+# their body, not just a title. Exposure (a seat actually ACTING on or
+# citing the delivered content) remains entirely behavioral either way --
+# this only changes what is delivered to the inbox, never what a seat does
+# with it.
 # ---------------------------------------------------------------------------
 
 _SUBJECT_LINE_RE = re.compile(r"件名:\s*(?P<subject>[^。]+?)。")
@@ -302,3 +320,43 @@ def circulation_digest_text(text: str) -> str:
         first = failures[0]
         raise ValueError(f"circulation digest leaks {first['label']} for subject {subject!r}")
     return digest
+
+
+# A circulated 事務連絡's body is, by construction, a handful of catalog
+# sentences (the mutation catalog's longest entry is ~120 characters; see
+# data/compiled_data/mutation_operators_v1.json) -- this is a sanity ceiling,
+# not a content limit, that catches an accidental multi-document/whole-corpus
+# paste into a single circulated message before it ever reaches the inbox.
+MAX_CIRCULATION_MESSAGE_CHARS = 2000
+
+
+def circulation_message_text(text: str) -> str:
+    """Build the full-text circulation message for a single mutation, from
+    its own catalog text (never freshly authored content).
+
+    Shape: 「本日付の事務連絡を回覧します: 「<件名>」\\n<本文>」 -- the header
+    line names the notice, followed by the notice's own world-visible BODY
+    text verbatim (the same text mutations.apply_corpus_mutations already
+    lint-checks at application time via _raise_on_leak). Unlike
+    circulation_digest_text (title-only, era-5 -- kept for backward
+    compatibility with older sealed bundles), this delivers the notice's
+    actual content, matching how a real 事務連絡 circulates. The assembled
+    message is linted again here (belt-and-suspenders: the body already
+    passed lint at mutation-application time, but the assembled inbox
+    message is what a seat actually sees, so it gets its own check) and
+    sanity-checked for size, since these notices are meant to be a few
+    sentences, not a document dump.
+    """
+    subject = notice_subject(text)
+    body = text.strip()
+    message = f"本日付の事務連絡を回覧します: 「{subject}」\n{body}"
+    failures = lint_mutation_specs([{"mutation_id": "<circulation_message>", "text": message}])
+    if failures:
+        first = failures[0]
+        raise ValueError(f"circulation message leaks {first['label']} for subject {subject!r}")
+    if len(message) > MAX_CIRCULATION_MESSAGE_CHARS:
+        raise ValueError(
+            f"circulation message for subject {subject!r} is {len(message)} chars, "
+            f"exceeding the {MAX_CIRCULATION_MESSAGE_CHARS}-char sanity ceiling for a circulated notice"
+        )
+    return message

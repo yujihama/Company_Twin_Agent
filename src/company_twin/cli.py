@@ -161,7 +161,7 @@ def s1(
     seat_model: Annotated[list[str] | None, typer.Option("--seat-model", help="Per-seat model binding, e.g. emp-A=openrouter:qwen/qwen3.6-flash")] = None,
     scc_switch_tick: Annotated[int | None, typer.Option("--scc-switch-tick", help="Tick at which K-completion-gate becomes active")] = None,
     mutation: Annotated[list[str] | None, typer.Option("--mutation", help="Runtime corpus mutation_id from mutation_operators_v1.json; repeat for multiple")] = None,
-    circulate_notices: Annotated[bool, typer.Option("--circulate-notices/--no-circulate-notices", help="Diegetic notice circulation (default off, MASTER_DESIGN.md §17.x): at tick 1, announce each applied mutation's own document to every seat whose role is in that mutation's visible_roles, as a natural-business-phrasing timed_notice inbox message. The announcement only says a notice exists -- exposure to its content still requires the seat to search/read the document itself. Recorded in config.json's world.corpus.circulation")] = False,
+    circulate_notices: Annotated[bool, typer.Option("--circulate-notices/--no-circulate-notices", help="Diegetic notice circulation (default off, MASTER_DESIGN.md §17.13/17.x): at tick 1, circulate each applied mutation's own document (full text, not just its title) to every seat whose role is in that mutation's visible_roles, as a natural-business-phrasing timed_notice inbox message. Delivery counts as content exposure; whether a seat acts on or cites it remains behavioral. Recorded in config.json's world.corpus.circulation")] = False,
 ) -> None:
     """Run one live S1 multi-seat episode."""
     base = _root(root)
@@ -188,7 +188,7 @@ def s2(
     seat_model: Annotated[list[str] | None, typer.Option("--seat-model", help="Per-seat model binding, e.g. emp-A=openrouter:qwen/qwen3.6-flash")] = None,
     scc_switch_tick: Annotated[int | None, typer.Option("--scc-switch-tick", help="Tick at which K-completion-gate becomes active")] = None,
     mutation: Annotated[list[str] | None, typer.Option("--mutation", help="Runtime corpus mutation_id from mutation_operators_v1.json; repeat for multiple")] = None,
-    circulate_notices: Annotated[bool, typer.Option("--circulate-notices/--no-circulate-notices", help="Diegetic notice circulation (default off, MASTER_DESIGN.md §17.x): at tick 1, announce each applied mutation's own document to every seat whose role is in that mutation's visible_roles, as a natural-business-phrasing timed_notice inbox message. The announcement only says a notice exists -- exposure to its content still requires the seat to search/read the document itself. Recorded in config.json's world.corpus.circulation")] = False,
+    circulate_notices: Annotated[bool, typer.Option("--circulate-notices/--no-circulate-notices", help="Diegetic notice circulation (default off, MASTER_DESIGN.md §17.13/17.x): at tick 1, circulate each applied mutation's own document (full text, not just its title) to every seat whose role is in that mutation's visible_roles, as a natural-business-phrasing timed_notice inbox message. Delivery counts as content exposure; whether a seat acts on or cites it remains behavioral. Recorded in config.json's world.corpus.circulation")] = False,
 ) -> None:
     """Run one live S2 world (full deck)."""
     base = _root(root)
@@ -218,7 +218,7 @@ def campaign(
     seat_model: Annotated[list[str] | None, typer.Option("--seat-model", help="Per-seat model binding, e.g. emp-A=openrouter:qwen/qwen3.6-flash")] = None,
     scc_switch_tick: Annotated[int | None, typer.Option("--scc-switch-tick", help="Tick at which K-completion-gate becomes active")] = None,
     mutation: Annotated[list[str] | None, typer.Option("--mutation", help="Runtime corpus mutation_id from mutation_operators_v1.json; repeat for multiple")] = None,
-    circulate_notices: Annotated[bool, typer.Option("--circulate-notices/--no-circulate-notices", help="Diegetic notice circulation (default off, MASTER_DESIGN.md §17.x): at tick 1, announce each applied mutation's own document to every seat whose role is in that mutation's visible_roles, as a natural-business-phrasing timed_notice inbox message, in every S1/S2/anchor bundle of this campaign. The announcement only says a notice exists -- exposure to its content still requires the seat to search/read the document itself. Recorded in config.json's world.corpus.circulation")] = False,
+    circulate_notices: Annotated[bool, typer.Option("--circulate-notices/--no-circulate-notices", help="Diegetic notice circulation (default off, MASTER_DESIGN.md §17.13/17.x): at tick 1, circulate each applied mutation's own document (full text, not just its title) to every seat whose role is in that mutation's visible_roles, as a natural-business-phrasing timed_notice inbox message, in every S1/S2/anchor bundle of this campaign. Delivery counts as content exposure; whether a seat acts on or cites it remains behavioral. Recorded in config.json's world.corpus.circulation")] = False,
 ) -> None:
     """Run a live campaign: S0 battery -> S1 ensemble -> optional S2 + anchor -> acceptance."""
     base = _root(root)

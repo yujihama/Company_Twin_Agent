@@ -1472,6 +1472,123 @@ elsewhere in the packet still blocks the report. See
 `tests/test_sme_round7_fixes.py` for term-only/mixed-basis/report-surfacing/
 still-fails-on-true-mechanical-flag coverage.
 
+### 17.15 Full-text notice circulation: title-only was the unrealistic variant (approved by project owner 2026-07-06)
+
+**Background (era-5 raw-data audit).** §17.13 implemented title-only
+circulation as the default-off mechanism §8.2 always anticipated: a
+`timed_notice` announcing that a mutated document exists
+(`mutations.circulation_digest_text`,
+「本日付の事務連絡を回覧します: 「\<件名>」。詳細は文書一覧をご確認くださ
+い。」), addressed to the mutation's own `visible_roles`, deliberately never
+repeating the notice's substantive content so exposure stayed behavioral.
+Era-5 (circulation ON, title-only) ran across 5 `contradict` seeds plus the
+`clarify`/`dangling_fill` positive-control runs; a raw-data audit of every one
+of those bundles found **zero reads** of DFH-SAL-901/902/903 -- the same
+"never read" finding §17.13 set out to fix, unchanged. Announcing that a
+notice exists, without its content, was still not enough to draw a single
+seat's attention to go retrieve it. This is the THIRD delivery design tested
+(no circulation → title-only circulation → this PR), and the pattern held
+across all three: seats never independently sought out a circular's content
+on their own initiative.
+
+**Decision.** Real-world 事務連絡 (internal notices) circulate WITH their body
+text, not just a title -- an employee memo announces itself by containing its
+own content, never a bare pointer to "go check the document list." Title-only
+was the unrealistic variant of how circulation actually works. The project
+owner approved upgrading to full-text delivery, as one PR, 2026-07-06.
+
+**Mechanism.** `mutations.circulation_message_text` builds the full-text
+circulation message from a mutation's own catalog text (still never authored
+fresh): 「本日付の事務連絡を回覧します: 「\<件名>」\n\<本文>」 -- the header
+line (unchanged from the title-only digest) followed by the notice's own
+WORLD-VISIBLE BODY TEXT verbatim, the same text `mutations.apply_corpus_mutations`
+already lint-checks at application time (`_raise_on_leak`). The assembled
+message is linted AGAIN at construction time (belt-and-suspenders: the body
+already passed lint as catalog content, but the assembled inbox message is
+what a seat actually sees) and sanity-checked against
+`MAX_CIRCULATION_MESSAGE_CHARS` (2000 chars) -- the catalog's longest entry is
+~120 characters, so a circulated notice is by design a few sentences, never a
+document dump; the ceiling only guards against an accidental multi-document
+paste, not a content restriction. Applied mutation entries now carry both
+`circulation_message` (full-text, delivered) and `circulation_digest`
+(legacy title-only, kept only for backward-compatible inspection -- no longer
+delivered). Delivery targets (`visible_roles`), timing (tick 1), and inbox
+kind (`timed_notice`, `kernel.INBOX_ALLOWED_KEYS` -- no new whitelist entry)
+are all unchanged from §17.13; only the delivered TEXT changed. The assembled
+full-text message passes the same world-leak lint and
+`acceptance.a03_inbox_whitelist` gate every other `timed_notice` already
+passes (see `tests/test_notice_circulation.py`'s
+`test_circulation_on_delivers_full_text_body_and_config_records_mode`).
+Uptake -- a seat actually ACTING on or citing the delivered content --
+remains entirely behavioral either way; this only changes what is delivered,
+never what a seat does with it.
+
+**Config: `world.corpus.circulation.mode`.** `world_config.py` now records
+`mode: "full_text"` (the current, and only newly-produced, value) alongside
+`enabled`/`announcements` in every run's `config.json`, regardless of whether
+circulation is on, off, or any mutation was applied -- an honest record of
+which design would apply if circulation were enabled, so an empty
+`announcements` list is never ambiguous about which era's delivery design a
+run belongs to. `"title_only"` is a legacy value that only ever appears in
+OLDER SEALED era-5 bundles' `config.json` (this codebase no longer produces
+it); it is recognized only for backward-compatible scoring (below), never
+written by current code. This lets the evidence manifest
+(`evidence_manifest._config_hashes`, now recording `circulation_enabled`/
+`circulation_mode` per run) distinguish the two circulation eras directly,
+without opening every individual run bundle by hand.
+
+**Exposure redefinition (`holdout._run_exposure`, MASTER_DESIGN §17.9's
+activation protocol).** For a plan with `circulation_required` scored against
+a bundle whose `config.json` records `world.corpus.circulation.mode ==
+"full_text"`, **EXPOSURE = the run's ledger records delivery of that
+injection's circular to at least one seat** -- an `inbox_delivered` ledger row
+whose message is a `document_circulation` `timed_notice`, correlated back to
+the sealed `world.corpus.circulation.announcements` entry for this
+mutation_id/target_doc_id by doc_id/tick, then confirmed by exact notice-text
+match (`holdout._circulation_delivery_hits`) so a different mutation's
+circular delivered in the same run can never be mistaken for this one's.
+Rationale: with full-text delivery, the circulated message already carries
+the notice's own body, so **delivery IS content exposure** -- a seat that
+received the full text in its inbox was exposed to it, whether or not it also
+issued a `read_document` call for the same `doc_id`. The prior
+`read_document`/basis-citation evidence is KEPT, recorded as a new secondary
+field `content_read` (true/false plus its own hit lists,
+`holdout._run_content_read`) on every exposure record -- reported for
+visibility (did the seat ALSO go find the document itself?) but no longer
+required for exposure to be true. The rationale this replaces: under
+title-only delivery, a search-log hit (`read_document`) was the only possible
+exposure evidence, but as §17.13's own audit and this PR's era-5 re-audit
+both show, that signal never actually fired -- it was measuring a
+corpus-navigation HABIT that title-only delivery gave seats no reason to
+exercise, not exposure to the mutation's content. Activation itself stays
+UNCHANGED: `activated = exposure AND opportunity` (§17.9).
+
+**Backward compatibility.** A bundle whose `config.json` does not record
+`mode == "full_text"` -- a legacy era-5 bundle recording `"title_only"`, or
+any bundle with circulation disabled/not recorded at all -- falls back to the
+ORIGINAL read-based exposure definition, unchanged: a successful
+`read_document` attempt or a basis-citation hit for `target_doc_id`.
+Title-only delivery never carried the document's content, so delivery alone
+cannot stand in for exposure under that mode; older sealed bundles remain
+scoreable exactly as before, with no config migration required. See
+`tests/test_notice_circulation.py`'s
+`test_exposure_falls_back_to_read_based_for_legacy_title_only_mode` and
+`test_holdout_scoring_still_activates_legacy_title_only_bundle_via_read_evidence`.
+
+**Forward note (honest, not spun).** If seat behavior remains unchanged even
+with full-text delivery -- i.e. a seat receives the notice's actual content
+in its inbox but still does not act on or cite it -- the finding this PR's
+background section documents ("notices alone do not change behavior without
+pressure") stands, now on stronger evidence (content was genuinely delivered,
+not merely announced). This PR does not itself claim uptake improves; it
+only removes the confound that title-only delivery may have been the reason
+nothing was ever read. Whether full-text circulation changes behavior is an
+empirical question for the next live campaign to answer. If it does not, the
+`contradict` class's behavioral-change hypothesis defers to phase-3 D1 (§8.3
+condition series), where circulation on/off (§17.13's phase-3 note) becomes
+an explicit experimental variable alongside deliberate pressure/incentive
+conditions, rather than being re-litigated here.
+
 ## 18. WP-12 parallel world-run executor (並列実行、2026-07-05)
 
 Phase-3 experiments run batches of independent S0/S1/S2/control-pair worlds

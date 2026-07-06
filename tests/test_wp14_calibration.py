@@ -1056,6 +1056,9 @@ def test_holdout_plan_cli_records_control_run_roots(tmp_path: Path) -> None:
 
 
 def test_run_exposure_detects_read_document_attempt(tmp_path: Path) -> None:
+    """No config.json (or config.json without a recorded circulation mode)
+    falls back to the original read-based exposure definition (backward
+    compat with pre-full-text-circulation bundles)."""
     from company_twin.holdout import _run_exposure
 
     root = tmp_path / "run0"
@@ -1065,8 +1068,10 @@ def test_run_exposure_detects_read_document_attempt(tmp_path: Path) -> None:
     exposure = _run_exposure(root, "DFH-SAL-901")
 
     assert exposure["exposed"] is True
-    assert exposure["read_document_hits"]
-    assert exposure["read_document_hits"][0]["seat_id"] == "seat_sales_1"
+    assert exposure["basis"] == "content_read"
+    assert exposure["content_read"] is True
+    assert exposure["content_read_detail"]["read_document_hits"]
+    assert exposure["content_read_detail"]["read_document_hits"][0]["seat_id"] == "seat_sales_1"
 
 
 def test_run_exposure_detects_basis_citation(tmp_path: Path) -> None:
@@ -1086,8 +1091,8 @@ def test_run_exposure_detects_basis_citation(tmp_path: Path) -> None:
     exposure = _run_exposure(root, "DFH-SAL-901")
 
     assert exposure["exposed"] is True
-    assert exposure["basis_citation_hits"]
-    assert exposure["read_document_hits"] == []
+    assert exposure["content_read_detail"]["basis_citation_hits"]
+    assert exposure["content_read_detail"]["read_document_hits"] == []
 
 
 def test_run_exposure_false_when_doc_never_read(tmp_path: Path) -> None:

@@ -120,19 +120,35 @@ def build_world_config(
                 "effective_corpus_hash": effective_corpus_hash,
                 "document_count": len(design.documents) + _document_delta(normalized_mutations),
                 # Diegetic notice circulation (MASTER_DESIGN.md section 8.2 /
-                # 17.x): a default-off experimental variable. When enabled,
-                # every runtime-applied corpus mutation that injects/patches a
-                # document is announced (never force-fed content) to its own
+                # 17.13 / 17.x): a default-off experimental variable. When
+                # enabled, every runtime-applied corpus mutation that
+                # injects/patches a document is circulated to its own
                 # visible_roles at tick 1; see harness._run_world's delivery
                 # of `circulation.announcements` and kernel.validate_inbox_message
                 # (kind="timed_notice"). Recording `enabled` plus the exact
-                # announcements (doc_id/tick/visible_roles) here, regardless of
-                # whether any mutation was applied, makes this an honest
-                # record of what the sealed condition actually was -- an
-                # empty `announcements` list with mutations present would
-                # otherwise look identical to circulation being off.
+                # announcements (doc_id/tick/visible_roles/message) here,
+                # regardless of whether any mutation was applied, makes this
+                # an honest record of what the sealed condition actually was
+                # -- an empty `announcements` list with mutations present
+                # would otherwise look identical to circulation being off.
+                #
+                # `mode` distinguishes the two circulation designs tried
+                # across eras, so the evidence manifest can tell them apart:
+                # "title_only" (era-5, mutations.circulation_digest_text --
+                # announces a notice exists without its body; a raw-data
+                # audit found this NEVER drew a seat to read the underlying
+                # document across 5 contradict seeds + clarify/dangling runs)
+                # vs "full_text" (approved 2026-07-06, the current default
+                # once circulation is on -- mutations.circulation_message_text
+                # delivers the notice's own body after the header line,
+                # matching how a real 事務連絡 circulates). A run always
+                # records the mode it actually used, even when circulation is
+                # off (mode is still "full_text" -- the designed behavior if
+                # it were turned on -- so an empty announcements list is never
+                # ambiguous about which design would apply).
                 "circulation": {
                     "enabled": bool(circulate_notices),
+                    "mode": CIRCULATION_MODE,
                     "announcements": circulation_announcements,
                 },
             },
@@ -286,20 +302,32 @@ def _document_delta(mutations: list[dict[str, Any]]) -> int:
 #明示する" framing (the catalog itself never encodes a delivery tick).
 CIRCULATION_TICK = 1
 
+# Full-text delivery (MASTER_DESIGN.md section 17.x, approved by the project
+# owner 2026-07-06) replaces era-5's title-only design as the circulation
+# mechanism's current mode: the circulated message now carries the notice's
+# own body, not just its title. "title_only" remains a legacy value that only
+# ever appears in older sealed era-5 bundles' config.json (this codebase no
+# longer produces it) -- see holdout._run_exposure's mode-aware fallback.
+CIRCULATION_MODE_FULL_TEXT = "full_text"
+CIRCULATION_MODE_TITLE_ONLY = "title_only"
+CIRCULATION_MODE = CIRCULATION_MODE_FULL_TEXT
+
 
 def _circulation_announcements(mutations: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Build the sealed circulation announcement plan for `world.corpus.circulation`
     from applied mutation entries (mutations.apply_corpus_mutations' output,
-    which already carries `visible_roles` and `circulation_digest` for both
+    which already carries `visible_roles`, `circulation_digest` (legacy
+    title-only), and `circulation_message` (full-text) for both
     inject_document and patch_document actions -- see mutations.py). Skips
     (rather than raising on) any legacy applied-entry shape missing those
     keys, so a caller cannot silently OR loudly break by passing mutations
     from a pre-circulation code path; there simply is nothing to announce."""
     announcements: list[dict[str, Any]] = []
     for entry in mutations:
+        message = str(entry.get("circulation_message") or "")
         digest = str(entry.get("circulation_digest") or "")
         visible_roles = list(entry.get("visible_roles") or [])
-        if not digest or not visible_roles:
+        if not message or not visible_roles:
             continue
         announcements.append(
             {
@@ -307,6 +335,12 @@ def _circulation_announcements(mutations: list[dict[str, Any]]) -> list[dict[str
                 "doc_id": str(entry.get("doc_id") or ""),
                 "tick": CIRCULATION_TICK,
                 "visible_roles": visible_roles,
+                # `message` (full-text, what is actually delivered to the
+                # inbox under CIRCULATION_MODE) and `digest` (legacy
+                # title-only text, kept only for backward-compatible
+                # inspection/comparison -- never delivered) are both recorded
+                # sealed into the plan.
+                "message": message,
                 "digest": digest,
             }
         )
