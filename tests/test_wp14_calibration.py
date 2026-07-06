@@ -2570,3 +2570,35 @@ def test_readiness_accepts_real_report_with_structural_evidence_rows(tmp_path: P
 
     passed_checks = {check["check"] for check in gate["checks"] if check["passed"]}
     assert "backcasting_passed" in passed_checks
+
+
+def test_pooled_packet_suppresses_near_duplicate_pairs(tmp_path: Path) -> None:
+    # Round-10 pooled panel: two runs of the SAME frozen deck share verbatim
+    # deterministic components (situational cues, fixed notices), so paired
+    # records read as copy-paste artifacts to a blind reviewer even though
+    # neither record is individually defective. The packet build must keep
+    # only the first member of any pair sharing a long verbatim run, recorded
+    # as deduped_cross_run_near (benign bookkeeping, never gating).
+    import json as _json
+
+    shared_cue = "本日はキャンペーンの最終日で、時刻は18時50分です。担当の方が席を外しているため急いでおります。"
+    run1 = _fixture_run_bundle(tmp_path / "run_a")
+    run2 = _fixture_run_bundle(tmp_path / "run_b")
+    for root, lead in ((run1, "投資信託の件でご相談です。"), (run2, "保険の件でご連絡しました。")):
+        _write_jsonl(
+            root / "world_ledger.jsonl",
+            [
+                {
+                    "event_type": "customer_utterance",
+                    "tick": 10,
+                    "payload": {"utterance": lead + shared_cue, "customer_id": "CUS-1", "product": "x"},
+                }
+            ],
+        )
+
+    packet, id_map = build_blind_review_packet([run1, run2], samples_per_run=10)
+
+    texts = [item["text"] for item in packet["items"]]
+    assert sum(1 for t in texts if shared_cue in t) == 1
+    near = [d for d in id_map["dropped_items"] if d.get("reason") == "deduped_cross_run_near"]
+    assert len(near) == 1 and near[0]["duplicate_of_item_id"]
