@@ -124,6 +124,38 @@ def test_build_manifest_binds_sme_provenance(tmp_path: Path) -> None:
     assert sme["dropped_count"] == 0
 
 
+def test_build_manifest_records_customer_model_for_s2_bundles(tmp_path: Path) -> None:
+    # Customer-model knob (data/design/MASTER_DESIGN.md §17.11): the customer
+    # is world scenery, not the measurement subject, but its resolved model
+    # must still land somewhere in the recorded evidence provenance -- here,
+    # every s2_bundles run_root_details entry.
+    from company_twin.corpus import Corpus
+    from company_twin.harness import run_s2_world
+    from company_twin.recorder import RunRecorder
+    from conftest import FakeCustomerLLM, fake_seat_factory
+
+    design = _design()
+    corpus = Corpus.from_design(design)
+    s2_root = tmp_path / "s2_seed0"
+    run_s2_world(
+        design=design,
+        corpus=corpus,
+        run_root=s2_root,
+        seed=0,
+        ticks=1,
+        model="openrouter:qwen/qwen3.6-flash",
+        customer_model="openrouter:qwen/qwen3.5-9b",
+        seat_factory=fake_seat_factory(),
+        customer_llm=FakeCustomerLLM(recorder=RunRecorder(s2_root, run_id=s2_root.name)),
+    )
+
+    manifest = build_stage9_evidence_manifest(tmp_path)
+
+    s2_bundles = manifest["evidence"]["s2_bundles"]
+    assert s2_bundles["run_roots"] == ["s2_seed0"]
+    assert s2_bundles["run_root_details"][0]["customer_model"] == "openrouter:qwen/qwen3.5-9b"
+
+
 def test_build_manifest_binds_holdout_provenance(tmp_path: Path) -> None:
     plan = build_holdout_injection_plan(Path.cwd(), mutation_ids=["clarify_elderly_understanding_all"])
     write_holdout_inputs(tmp_path, plan)

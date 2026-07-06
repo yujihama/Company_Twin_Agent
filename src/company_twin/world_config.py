@@ -50,9 +50,18 @@ def build_world_config(
     scc_switch_tick: int | None = None,
     timed_notice_recipients: list[str] | None = None,
     seats_subset: list[str] | None = None,
+    customer_model: str | None = None,
 ) -> dict[str, Any]:
     normalized_knobs = {**DEFAULT_KNOBS, **(knobs or {})}
     model_name = normalize_openrouter_model(model)
+    # The customer is world scenery, not the measurement subject (seats are
+    # the measurement subject; see MASTER_DESIGN §17.11). Its model defaults
+    # to the same model as seats when no --customer-model override is given,
+    # preserving pre-existing behavior exactly; the resolved value is always
+    # recorded here so a run's config.json is an honest record of what
+    # actually generated the customer's utterances, whether or not an
+    # override was requested.
+    customer_model_name = normalize_openrouter_model(customer_model) if customer_model else model_name
     seats = _seat_configs(design, model_name, d4_enabled=d4_enabled, model_bindings=model_bindings)
     requested_seats = _normalize_seats_subset(seats_subset)
     if requested_seats is not None:
@@ -160,6 +169,7 @@ def build_world_config(
             "default": model_name,
             "provider": "openrouter",
             "family": "qwen",
+            "customer": customer_model_name,
         },
     }
     validate_world_config_schema(config)

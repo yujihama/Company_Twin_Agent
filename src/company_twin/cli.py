@@ -124,6 +124,7 @@ def s0(
     root: Annotated[Path | None, typer.Option("--root")] = None,
     run_root: Annotated[Path | None, typer.Option("--run-root")] = None,
     model: Annotated[str | None, typer.Option("--model")] = None,
+    customer_model: Annotated[str | None, typer.Option("--customer-model", help="Model for the customer LLM (world scenery, not the measurement subject); defaults to --model when unset. S0 never invokes a customer LLM, but the choice is still recorded in config.json for consistency with s1/s2/campaign")] = None,
     mutation: Annotated[list[str] | None, typer.Option("--mutation", help="Runtime corpus mutation_id from mutation_operators_v1.json; repeat for multiple")] = None,
 ) -> None:
     """Run one live S0 interpretation-battery row for a probe and seat."""
@@ -139,7 +140,7 @@ def s0(
         raise typer.BadParameter(f"unknown or untemplated span for S0: {span_id}")
     corpus, applied_mutations = _corpus_with_mutations(base, design, mutation)
     target_root = (run_root or make_run_root(base, f"s0_{probe}_{seat}")).resolve()
-    result = run_s0(design=design, corpus=corpus, probe_id=probe, seat_id=seat, run_root=target_root, span_id=span_id, model=model, variant=variant, mutations=applied_mutations)
+    result = run_s0(design=design, corpus=corpus, probe_id=probe, seat_id=seat, run_root=target_root, span_id=span_id, model=model, variant=variant, mutations=applied_mutations, customer_model=customer_model)
     write_triage(target_root)
     _echo_json(result)
 
@@ -154,6 +155,7 @@ def s1(
     root: Annotated[Path | None, typer.Option("--root")] = None,
     run_root: Annotated[Path | None, typer.Option("--run-root")] = None,
     model: Annotated[str | None, typer.Option("--model")] = None,
+    customer_model: Annotated[str | None, typer.Option("--customer-model", help="Model for the customer LLM (world scenery, not the measurement subject); defaults to --model when unset. Never affects seat model selection")] = None,
     prompt_mode: Annotated[str, typer.Option("--prompt-mode", help="scaffold | measurement")] = "scaffold",
     seat_model: Annotated[list[str] | None, typer.Option("--seat-model", help="Per-seat model binding, e.g. emp-A=openrouter:qwen/qwen3.6-flash")] = None,
     scc_switch_tick: Annotated[int | None, typer.Option("--scc-switch-tick", help="Tick at which K-completion-gate becomes active")] = None,
@@ -166,7 +168,7 @@ def s1(
     corpus, applied_mutations = _corpus_with_mutations(base, design, mutation)
     knobs = {"K-completion-gate": strict_completion, "K-material-picker": strict_material}
     target_root = (run_root or make_run_root(base, f"s1_{probe}")).resolve()
-    result = run_s1_episode(design=design, corpus=corpus, probe_id=probe, run_root=target_root, model=model, knobs=knobs, seed=seed, ticks=ticks, prompt_mode=prompt_mode, model_bindings=_seat_model_bindings(seat_model), scc_switch_tick=scc_switch_tick, mutations=applied_mutations)  # type: ignore[arg-type]
+    result = run_s1_episode(design=design, corpus=corpus, probe_id=probe, run_root=target_root, model=model, customer_model=customer_model, knobs=knobs, seed=seed, ticks=ticks, prompt_mode=prompt_mode, model_bindings=_seat_model_bindings(seat_model), scc_switch_tick=scc_switch_tick, mutations=applied_mutations)  # type: ignore[arg-type]
     write_triage(target_root)
     _echo_json(result)
 
@@ -179,6 +181,7 @@ def s2(
     root: Annotated[Path | None, typer.Option("--root")] = None,
     run_root: Annotated[Path | None, typer.Option("--run-root")] = None,
     model: Annotated[str | None, typer.Option("--model")] = None,
+    customer_model: Annotated[str | None, typer.Option("--customer-model", help="Model for the customer LLM (world scenery, not the measurement subject); defaults to --model when unset. Never affects seat model selection")] = None,
     prompt_mode: Annotated[str, typer.Option("--prompt-mode", help="scaffold | measurement")] = "scaffold",
     seat_model: Annotated[list[str] | None, typer.Option("--seat-model", help="Per-seat model binding, e.g. emp-A=openrouter:qwen/qwen3.6-flash")] = None,
     scc_switch_tick: Annotated[int | None, typer.Option("--scc-switch-tick", help="Tick at which K-completion-gate becomes active")] = None,
@@ -190,7 +193,7 @@ def s2(
     design = load_design(base)
     corpus, applied_mutations = _corpus_with_mutations(base, design, mutation)
     target_root = (run_root or make_run_root(base, "anchor_s2" if anchor else "s2")).resolve()
-    result = run_s2_world(design=design, corpus=corpus, run_root=target_root, model=model, knobs={}, seed=seed, ticks=ticks, anchor=anchor, prompt_mode=prompt_mode, model_bindings=_seat_model_bindings(seat_model), scc_switch_tick=scc_switch_tick, mutations=applied_mutations)  # type: ignore[arg-type]
+    result = run_s2_world(design=design, corpus=corpus, run_root=target_root, model=model, customer_model=customer_model, knobs={}, seed=seed, ticks=ticks, anchor=anchor, prompt_mode=prompt_mode, model_bindings=_seat_model_bindings(seat_model), scc_switch_tick=scc_switch_tick, mutations=applied_mutations)  # type: ignore[arg-type]
     write_triage(target_root)
     _echo_json(result)
 
@@ -207,6 +210,7 @@ def campaign(
     s2_ticks: Annotated[int, typer.Option("--s2-ticks")] = 40,
     root: Annotated[Path | None, typer.Option("--root")] = None,
     model: Annotated[str | None, typer.Option("--model")] = None,
+    customer_model: Annotated[str | None, typer.Option("--customer-model", help="Model for the customer LLM (world scenery, not the measurement subject); defaults to --model when unset. Never affects seat model selection")] = None,
     prompt_mode: Annotated[str, typer.Option("--prompt-mode", help="scaffold | measurement")] = "scaffold",
     seat_model: Annotated[list[str] | None, typer.Option("--seat-model", help="Per-seat model binding, e.g. emp-A=openrouter:qwen/qwen3.6-flash")] = None,
     scc_switch_tick: Annotated[int | None, typer.Option("--scc-switch-tick", help="Tick at which K-completion-gate becomes active")] = None,
@@ -222,6 +226,7 @@ def campaign(
         design=design,
         corpus=corpus,
         model=model,
+        customer_model=customer_model,
         s0_models=s0_models,
         s0_variants=s0_variants,
         s0_limit=s0_limit,

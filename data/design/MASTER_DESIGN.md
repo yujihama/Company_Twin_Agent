@@ -1209,6 +1209,93 @@ generic positive_control example was re-pointed at
 still positive_control under the new mapping) where the test's intent
 required a positive-control fixture.
 
+### 17.12 Round-5 blind SME review: unconditional cue append caused duplicated-paragraph artifacts, plus a customer-model quality knob (2026-07-06)
+
+Blind SME review round 5 (38 sampled items) flagged 8 mechanical-generation
+issues; 4/38 traced to our own instrument, not the world design. This section
+fixes both, in one PR.
+
+**Finding A -- duplicated situational-cue paragraphs.** §17.7's fix
+(`customer_agent._with_situational_cue`) guarantees delivery of a probe's
+designed situational cue by appending it to the customer's utterance
+*unconditionally*. But `persona_prompt` already hands the same
+`event.world_visible` framing to the customer LLM as backstory, and a live
+LLM usually *does* voice it in its own words -- it just doesn't voice it
+byte-identically to the canned cue. Unconditional appending then produces the
+same content twice in one utterance. Real example (probe P-04, control-era
+run): the LLM's own utterance said "...今日18時50分...担当の方が席を外して
+いるようなので、チャットで...暫定的に進めて..." and the appended cue then
+restated "本日はキャンペーンの最終日で、時刻18時50分なんです。...担当の方が
+席を外しているようなので、チャットでのご相談で暫定的に進めて..." -- the
+classic LLM-concatenation artifact reviewers flagged in 4/38 items.
+
+**Fix: coverage-conditional cue appending.** `customer_agent._with_situational_cue`
+now only appends what the utterance does not already convey:
+
+1. `_cue_elements(cue)` splits a designed cue into its own natural clauses on
+   its own punctuation (｡､！？…) -- a structural function of whatever text is
+   in `_PROBE_SITUATIONAL_CUES`, never a hardcoded per-probe token list, so
+   any future cue added to that dict is automatically covered.
+2. An element counts as already covered when a long enough contiguous run
+   shared between the element and the utterance (`_longest_substantive_common_run_len`)
+   contains at least one non-hiragana character (kanji/katakana/digit/ASCII).
+   Requiring a non-hiragana character in the matched run was necessary: a
+   plain longest-common-substring search is dominated by shared Japanese
+   grammatical boilerplate ("...のですが", "...ているようなので" are common to
+   almost any two sentences and are often *longer* than the real distinctive
+   content, e.g. "席を外" is 3 characters) -- without this guard, a bland,
+   unrelated utterance could falsely register as "covering" a cue element and
+   suppress delivery.
+3. Decision, by coverage:
+   - **All-but-one** elements covered (or full coverage for a single-element
+     cue): the utterance already delivers the designed framing in its own
+     words -- append nothing.
+   - **Some but not all** covered: append only the still-missing elements,
+     joined as their own minimal sentence, so already-voiced content is never
+     repeated while the missing elements are still guaranteed to land.
+   - **None** recognizable at all (the original "bland utterance" case
+     §17.7's guarantee was written for): append the full designed cue
+     verbatim, unchanged from before.
+
+The delivery guarantee from §17.7 is unchanged in substance and is
+re-stated precisely: every designed element is present somewhere in the
+FINAL utterance, in every branch above -- what changes is that duplication of
+elements the LLM already voiced is now avoided. `tests/test_probe_stimulus_delivery.py`
+covers: cue skipped when the utterance already covers (all-but-one of) the
+elements; cue appended in full for a bland utterance (every affected probe);
+only the missing elements appended under partial coverage, with every
+distinctive token present exactly once; a generic no-duplication guard
+(`_has_repeated_run`, a 30-character-window repeat detector that does not
+depend on knowing which phrase might repeat) exercised across the full deck
+with LLM-style paraphrase; and direct unit tests on `cue_coverage`/`_cue_elements`
+including the hiragana-boilerplate false-positive guard.
+
+**Finding B -- customer-side fluency breaks are a real but separate issue.**
+Round 5 also flagged disfluent customer phrasing ("可能ですでしょうか"、
+"何から始まれば", garbled sentences elsewhere). The customer is world scenery
+that provides stimulus, not the measurement subject (seats performing the
+controlled workflow actions are); upgrading the customer's model quality is
+therefore a legitimate fix that does not touch what is being measured.
+
+**Fix: `--customer-model` CLI knob.** `world_config.build_world_config` gained
+a `customer_model` parameter (defaults to the same resolved model as seats
+when unset, preserving all pre-existing behavior exactly) and now always
+records the resolved value at `config["model"]["customer"]`, independent of
+whether an override was requested -- so every run's `config.json` carries an
+honest record of what actually generated the customer's utterances.
+`harness.run_s0/run_s1_episode/run_s2_world` and `campaign.run_design_campaign`/
+`run_control_pair_campaign` thread `customer_model` through to
+`build_world_config` and (when no explicit `customer_llm` is supplied) into
+`default_customer_llm`'s `model=` argument. The CLI's `s0`/`s1`/`s2`/`campaign`
+commands gained a `--customer-model` option (S0 never invokes a customer LLM,
+but the option is still accepted and recorded for consistency across
+commands). Seat model selection (`--model`, `--seat-model`) is completely
+untouched by this change -- `tests/test_gap_pr2.py` asserts every seat
+binding is unaffected by `--customer-model`. `evidence_manifest._config_hashes`
+(used by every evidence class the Stage 9 manifest binds provenance for, not
+only S2 bundles) now also surfaces `customer_model`, so `stage9_evidence_manifest.json`
+records it alongside `seat_model_bindings`.
+
 ## 18. WP-12 parallel world-run executor (並列実行、2026-07-05)
 
 Phase-3 experiments run batches of independent S0/S1/S2/control-pair worlds

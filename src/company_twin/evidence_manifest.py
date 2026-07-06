@@ -91,6 +91,13 @@ def _config_hashes(run_root: Path) -> dict[str, Any]:
         "effective_corpus_hash": corpus.get("effective_corpus_hash"),
         "mutation_hash": corpus.get("mutation_hash"),
         "mutation_count": corpus.get("mutation_count"),
+        # Customer-model knob (data/design/MASTER_DESIGN.md §17.11): the
+        # customer is world scenery, never the measurement subject, but its
+        # resolved model is still recorded here so every evidence class this
+        # manifest binds provenance for -- not just s2_bundles' explicit
+        # seat_model_bindings below -- carries an honest record of what
+        # generated the customer's utterances in that run.
+        "customer_model": (config.get("model") or {}).get("customer"),
     }
 
 

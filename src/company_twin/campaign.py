@@ -127,6 +127,7 @@ def run_design_campaign(
     s2_ticks: int = 40,
     seat_factory: SeatFactory | None = None,
     customer_llm: CustomerLLM | None = None,
+    customer_model: str | None = None,
     prompt_mode: TurnPromptMode = "scaffold",
     model_bindings: dict[str, str] | None = None,
     scc_switch_tick: int | None = None,
@@ -136,6 +137,12 @@ def run_design_campaign(
 
     Cost is controlled by stage promotion (s0_limit / s1_k / with_s2), never by
     replacing agents with scripts. There is no non-live execution path.
+
+    `customer_model` (data/design/MASTER_DESIGN.md §17.11) overrides the
+    model used for the customer LLM only -- the customer is world scenery,
+    never the measurement subject -- and defaults to `model` when unset,
+    matching pre-existing behavior exactly. It has no effect when an explicit
+    `customer_llm` is supplied (the caller owns model selection then).
     """
     model_name = normalize_openrouter_model(model)
     campaign_root = root / "runs" / f"design_campaign_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
@@ -149,7 +156,7 @@ def run_design_campaign(
     s0_results: list[dict[str, Any]] = []
     for idx, row in enumerate(selected):
         s0_root = campaign_root / f"s0_{idx:03d}_{row.probe_id}_{row.seat_id}_v{row.variant}"
-        result = run_s0(design=design, corpus=corpus, probe_id=row.probe_id, seat_id=row.seat_id, run_root=s0_root, span_id=row.span_id, model=row.model, variant=row.variant, mutations=mutations, seat_factory=seat_factory)
+        result = run_s0(design=design, corpus=corpus, probe_id=row.probe_id, seat_id=row.seat_id, run_root=s0_root, span_id=row.span_id, model=row.model, variant=row.variant, mutations=mutations, seat_factory=seat_factory, customer_model=customer_model)
         write_triage(s0_root)
         s0_results.append({**asdict(row), **result})
     (campaign_root / "s0_results.json").write_text(json.dumps(s0_results, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -178,6 +185,7 @@ def run_design_campaign(
             seed=seed,
             seat_factory=seat_factory,
             customer_llm=customer_llm,
+            customer_model=customer_model,
             prompt_mode=prompt_mode,
             model_bindings=model_bindings,
             scc_switch_tick=scc_switch_tick,
@@ -201,6 +209,7 @@ def run_design_campaign(
             anchor=True,
             seat_factory=seat_factory,
             customer_llm=customer_llm,
+            customer_model=customer_model,
             prompt_mode=prompt_mode,
             model_bindings=model_bindings,
             scc_switch_tick=scc_switch_tick,
@@ -221,6 +230,7 @@ def run_design_campaign(
                 anchor=False,
                 seat_factory=seat_factory,
                 customer_llm=customer_llm,
+                customer_model=customer_model,
                 prompt_mode=prompt_mode,
                 model_bindings=model_bindings,
                 scc_switch_tick=scc_switch_tick,
@@ -232,6 +242,7 @@ def run_design_campaign(
     summary = {
         "campaign_root": str(campaign_root),
         "model": model_name,
+        "customer_model": normalize_openrouter_model(customer_model) if customer_model else model_name,
         "s0_models": campaign_s0_models,
         "model_bindings": model_bindings or {},
         "scc_switch_tick": scc_switch_tick,
@@ -268,6 +279,7 @@ def run_control_pair_campaign(
     seat_factory: SeatFactory | None = None,
     customer_llm: CustomerLLM | None = None,
     customer_llm_factory: Callable[[Path], CustomerLLM] | None = None,
+    customer_model: str | None = None,
     prompt_mode: TurnPromptMode = "measurement",
     model_bindings: dict[str, str] | None = None,
     scc_switch_tick: int | None = None,
@@ -340,6 +352,7 @@ def run_control_pair_campaign(
                             variant=variant,
                             mutations=mutation_result.applied,
                             seat_factory=seat_factory,
+                            customer_model=customer_model,
                         )
                         _stamp_control_pair_meta(
                             run_root,
@@ -379,6 +392,7 @@ def run_control_pair_campaign(
                 "seed": side["seed"],
                 "seat_factory": seat_factory,
                 "customer_llm": per_run_customer,
+                "customer_model": customer_model,
                 "prompt_mode": prompt_mode,
                 "model_bindings": model_bindings,
                 "scc_switch_tick": scc_switch_tick,

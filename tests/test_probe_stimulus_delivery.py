@@ -41,7 +41,9 @@ from company_twin.corpus import Corpus
 from company_twin.customer_agent import (
     CustomerActor,
     _PROBE_SITUATIONAL_CUES,
+    _cue_elements,
     _with_situational_cue,
+    cue_coverage,
     emit_customer_turn,
     scripted_customer_opening,
     situational_cue,
@@ -179,6 +181,159 @@ def test_with_situational_cue_handles_empty_utterance() -> None:
     event = event_for_probe(design, "P-04")
     result = _with_situational_cue("", event)
     assert result == situational_cue(event)
+
+
+# ---------------------------------------------------------------------------
+# (b2) round-5 blind SME review follow-up (data/design/MASTER_DESIGN.md
+# §17.11): coverage-conditional cue appending. Round 5 flagged 4/38 sampled
+# records where the LLM-generated utterance already voiced the designed cue's
+# elements in its own words and the unconditionally-appended canned cue then
+# restated the same content a second time -- a mechanical-generation
+# duplication artifact. The fix must (a) skip appending when the utterance
+# already covers (all-but-one of) the cue's elements, (b) append only the
+# missing elements when coverage is partial, and (c) still append the full
+# cue when the utterance covers none of it (the original §17.7 guarantee),
+# while never producing duplicated text in any case.
+# ---------------------------------------------------------------------------
+
+
+def _has_repeated_run(text: str, run_len: int = 30) -> bool:
+    """True if any contiguous substring of length `run_len` occurs more than
+    once in `text` -- a cheap, generic "this reads like duplicated text"
+    detector that does not depend on knowing which phrase might repeat."""
+    seen: set[str] = set()
+    for start in range(len(text) - run_len + 1):
+        window = text[start : start + run_len]
+        if window in seen:
+            return True
+        seen.add(window)
+    return False
+
+
+def test_cue_skipped_when_llm_utterance_already_covers_designed_elements() -> None:
+    # The round-5 regression itself: an LLM utterance that already
+    # paraphrases (not verbatim-copies) every designed element for P-04 must
+    # not get the canned cue appended on top.
+    design = _design()
+    event = event_for_probe(design, "P-04")
+    already_covering_utterance = (
+        "実はキャンペーンの最終日で、もう18時50分なんです。今日中に申込を終わらせたくて急いでいます。"
+        "担当の方が今、席を外されているようなので、チャットでのやり取りで暫定的に進めていただければと思います。"
+    )
+    result = _with_situational_cue(already_covering_utterance, event)
+    assert result == already_covering_utterance, f"cue was appended despite full coverage: {result!r}"
+    assert not _has_repeated_run(result)
+
+
+def test_cue_appended_in_full_when_llm_utterance_is_bland() -> None:
+    # The pre-existing §17.7 guarantee, unchanged: an utterance that conveys
+    # none of the designed elements still gets the full cue appended.
+    design = _design()
+    event = event_for_probe(design, "P-04")
+    bland_utterance = "お世話になっております。手続きについてご相談したいのですが、よろしくお願いします。"
+    result = _with_situational_cue(bland_utterance, event)
+    cue = situational_cue(event)
+    assert cue in result
+    assert not _has_repeated_run(result)
+
+
+@pytest.mark.parametrize("probe_id", sorted(_PROBE_SITUATIONAL_CUES))
+def test_cue_appended_in_full_for_every_probe_when_utterance_is_bland(probe_id: str) -> None:
+    design = _design()
+    event = event_for_probe(design, probe_id)
+    bland_utterance = "お世話になっております。手続きについてご相談したいのですが、よろしくお願いします。"
+    result = _with_situational_cue(bland_utterance, event)
+    cue = situational_cue(event)
+    assert cue in result, f"{probe_id}: full cue not appended for a bland utterance: {result!r}"
+    assert not _has_repeated_run(result)
+
+
+def test_cue_partially_appended_when_llm_utterance_partially_covers_elements() -> None:
+    # The exact round-5 shape: the LLM voices the time-pressure/manager-
+    # absence/chat/provisional elements in its own words but never mentions
+    # the campaign-final-day framing or the same-day urgency -- only those
+    # missing elements should be appended, and every designed element must
+    # still be present exactly once in the final utterance.
+    design = _design()
+    event = event_for_probe(design, "P-04")
+    partially_covering_utterance = (
+        "今日18時50分です。担当の方が席を外しているようなので、"
+        "チャットでのご相談で暫定的に進めさせていただければと思います。"
+    )
+    result = _with_situational_cue(partially_covering_utterance, event)
+    assert not _has_repeated_run(result)
+    for distinctive_token in ("18時50分", "チャット", "暫定", "急いで", "席を外"):
+        assert result.count(distinctive_token) == 1, f"{distinctive_token!r} duplicated or missing in {result!r}"
+    # The full canned cue must NOT appear verbatim as a block -- only the
+    # still-missing elements were appended, not the whole cue on top of an
+    # utterance that already covers most of it.
+    cue = situational_cue(event)
+    assert cue not in result
+
+
+def test_cue_coverage_partial_case_present_for_every_multi_element_probe() -> None:
+    # Cross-probe generalization of the partial-coverage behavior: covering
+    # every element but one must still leave that one element guaranteed to
+    # land, with the previously-covered elements never repeated.
+    design = _design()
+    for probe_id in sorted(_PROBE_SITUATIONAL_CUES):
+        event = event_for_probe(design, probe_id)
+        cue = situational_cue(event)
+        elements = [part.strip() for part in re.split(r"[。、！？…]", cue) if part.strip()]
+        if len(elements) < 2:
+            continue
+        # utterance covering every element except the last one, verbatim
+        # (verbatim coverage is a valid -- if unlikely -- special case of
+        # "already conveyed", and exercises the partial-coverage branch
+        # without depending on any particular paraphrase).
+        partially_covering_utterance = "。".join(elements[:-1]) + "。"
+        result = _with_situational_cue(partially_covering_utterance, event)
+        assert not _has_repeated_run(result), f"{probe_id}: duplicated text in {result!r}"
+        for element in elements[:-1]:
+            assert result.count(element) == 1, f"{probe_id}: element {element!r} duplicated in {result!r}"
+
+
+def test_cue_elements_are_derived_from_cue_punctuation_not_hardcoded() -> None:
+    # _cue_elements must be a structural function of whatever text is in
+    # _PROBE_SITUATIONAL_CUES (clause-splitting on its own punctuation), not
+    # a fixed per-probe token list -- this is the "derive from
+    # _PROBE_SITUATIONAL_CUES content, not hardcoded per test" requirement.
+    for probe_id, cue in _PROBE_SITUATIONAL_CUES.items():
+        elements = _cue_elements(cue)
+        assert elements, f"{probe_id}: no elements derived from its own cue text"
+        for element in elements:
+            assert element in cue, f"{probe_id}: derived element {element!r} not a substring of the source cue"
+        # re-deriving from the same cue text is deterministic
+        assert _cue_elements(cue) == elements
+
+
+def test_cue_coverage_ignores_shared_hiragana_boilerplate() -> None:
+    # A generic Japanese closing sentence shares pure-hiragana particle
+    # chains with almost any cue clause (e.g. "...のですが", "...したい
+    # のですが") without conveying any of its distinctive content. These
+    # must not register as covered elements -- otherwise a bland utterance
+    # could accidentally suppress the cue it was supposed to guarantee.
+    generic_utterance = "お世話になっております。手続きについてご相談したいのですが、よろしくお願いします。"
+    for probe_id, cue in _PROBE_SITUATIONAL_CUES.items():
+        covered, missing = cue_coverage(cue, generic_utterance)
+        assert covered == [], f"{probe_id}: generic boilerplate utterance falsely covered {covered!r}"
+        assert missing == _cue_elements(cue)
+
+
+def test_cue_never_duplicated_across_full_deck_with_llm_style_paraphrase() -> None:
+    # A broader regression guard: for every probe with a designed cue, an
+    # utterance that already paraphrases the scripted opening (which itself
+    # includes the cue, per scripted_customer_opening) must not end up with
+    # the cue's content duplicated once _with_situational_cue runs on it.
+    design = _design()
+    deck = build_customer_deck(design, include_routine=True)
+    for event in deck:
+        cue = situational_cue(event)
+        if not cue:
+            continue
+        scripted = scripted_customer_opening(event, persona_seed=7)
+        result = _with_situational_cue(scripted, event)
+        assert not _has_repeated_run(result), f"{event.probe_id}: duplicated text in {result!r}"
 
 
 # ---------------------------------------------------------------------------
