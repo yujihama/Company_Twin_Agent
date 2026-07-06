@@ -175,6 +175,169 @@ def test_seat_model_binding_reaches_runtime_factory(tmp_path: Path) -> None:
     assert config["world"]["population"]["binding"]["emp-A"] == "openrouter:qwen/qwen3.5-9b"
 
 
+# ---------------------------------------------------------------------------
+# Customer-model knob (data/design/MASTER_DESIGN.md §17.11): the customer is
+# world scenery, not the measurement subject (seats are), so upgrading its
+# model quality is legitimate and must never touch seat model selection. See
+# also company_twin.world_config.build_world_config's customer_model param
+# and cli.py's --customer-model option on s0/s1/s2/campaign.
+# ---------------------------------------------------------------------------
+
+
+def test_customer_model_defaults_to_seat_model_when_unset(tmp_path: Path) -> None:
+    design = load_design(Path.cwd())
+    corpus = Corpus.from_design(design)
+    run_root = tmp_path / "s1_customer_default"
+
+    run_s1_episode(
+        design=design,
+        corpus=corpus,
+        probe_id="P-01",
+        run_root=run_root,
+        seed=0,
+        ticks=1,
+        model="openrouter:qwen/qwen3.6-flash",
+        seat_factory=fake_seat_factory(),
+        customer_llm=_LateBoundCustomer(run_root),
+    )
+
+    config = json.loads((run_root / "config.json").read_text(encoding="utf-8"))
+    assert config["model"]["customer"] == "openrouter:qwen/qwen3.6-flash"
+    assert config["model"]["customer"] == config["model"]["default"]
+
+
+def test_customer_model_override_is_recorded_without_touching_seat_bindings(tmp_path: Path) -> None:
+    design = load_design(Path.cwd())
+    corpus = Corpus.from_design(design)
+    run_root = tmp_path / "s1_customer_override"
+
+    run_s1_episode(
+        design=design,
+        corpus=corpus,
+        probe_id="P-01",
+        run_root=run_root,
+        seed=0,
+        ticks=1,
+        model="openrouter:qwen/qwen3.6-flash",
+        customer_model="openrouter:qwen/qwen3.5-9b",
+        seat_factory=fake_seat_factory(),
+        customer_llm=_LateBoundCustomer(run_root),
+    )
+
+    config = json.loads((run_root / "config.json").read_text(encoding="utf-8"))
+    assert config["model"]["customer"] == "openrouter:qwen/qwen3.5-9b"
+    # seats keep the ordinary --model default; --customer-model must never
+    # change seat model selection.
+    assert config["model"]["default"] == "openrouter:qwen/qwen3.6-flash"
+    for seat_id, bound_model in config["world"]["population"]["binding"].items():
+        assert bound_model == "openrouter:qwen/qwen3.6-flash", f"seat {seat_id} model was affected by --customer-model"
+
+
+def test_customer_model_override_reaches_default_customer_llm_constructor(tmp_path: Path, monkeypatch) -> None:
+    # When no explicit customer_llm is supplied, --customer-model must reach
+    # the actual CustomerLLM constructor (default_customer_llm), not just the
+    # recorded config -- otherwise the knob would be cosmetic.
+    import company_twin.harness as harness_module
+
+    design = load_design(Path.cwd())
+    corpus = Corpus.from_design(design)
+    run_root = tmp_path / "s1_customer_ctor"
+    captured: dict[str, str] = {}
+
+    def fake_default_customer_llm(*, model: str, recorder: RunRecorder):
+        captured["model"] = model
+        return _LateBoundCustomer(run_root)
+
+    monkeypatch.setattr(harness_module, "default_customer_llm", fake_default_customer_llm)
+
+    run_s1_episode(
+        design=design,
+        corpus=corpus,
+        probe_id="P-01",
+        run_root=run_root,
+        seed=0,
+        ticks=1,
+        model="openrouter:qwen/qwen3.6-flash",
+        customer_model="openrouter:qwen/qwen3.5-9b",
+        seat_factory=fake_seat_factory(),
+        # customer_llm intentionally omitted: exercises the default_customer_llm path.
+    )
+
+    assert captured["model"] == "openrouter:qwen/qwen3.5-9b"
+
+
+def test_customer_model_recorded_for_s2_and_s0(tmp_path: Path) -> None:
+    design = load_design(Path.cwd())
+    corpus = Corpus.from_design(design)
+
+    s2_root = tmp_path / "s2_customer"
+    run_s2_world(
+        design=design,
+        corpus=corpus,
+        run_root=s2_root,
+        seed=0,
+        ticks=1,
+        model="openrouter:qwen/qwen3.6-flash",
+        customer_model="openrouter:qwen/qwen3.5-9b",
+        seat_factory=fake_seat_factory(),
+        customer_llm=_LateBoundCustomer(s2_root),
+    )
+    s2_config = json.loads((s2_root / "config.json").read_text(encoding="utf-8"))
+    assert s2_config["model"]["customer"] == "openrouter:qwen/qwen3.5-9b"
+
+    from company_twin.harness import run_s0
+
+    s0_root = tmp_path / "s0_customer"
+    run_s0(
+        design=design,
+        corpus=corpus,
+        probe_id="P-01",
+        seat_id="emp-A",
+        run_root=s0_root,
+        span_id=design.probes["P-01"].binds[0],
+        model="openrouter:qwen/qwen3.6-flash",
+        customer_model="openrouter:qwen/qwen3.5-9b",
+        seat_factory=fake_seat_factory(),
+    )
+    s0_config = json.loads((s0_root / "config.json").read_text(encoding="utf-8"))
+    assert s0_config["model"]["customer"] == "openrouter:qwen/qwen3.5-9b"
+
+
+def test_customer_model_cli_option_plumbs_into_s1(tmp_path: Path, monkeypatch) -> None:
+    import company_twin.cli as cli_module
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key-not-used")
+    monkeypatch.setattr(cli_module, "load_local_env", lambda root: None)
+    captured: dict[str, Any] = {}
+
+    def fake_run_s1_episode(**kwargs):
+        captured.update(kwargs)
+        (kwargs["run_root"]).mkdir(parents=True, exist_ok=True)
+        return {"run_root": str(kwargs["run_root"])}
+
+    monkeypatch.setattr(cli_module, "run_s1_episode", fake_run_s1_episode)
+
+    from typer.testing import CliRunner
+
+    runner = CliRunner()
+    run_root = tmp_path / "s1_cli_customer"
+    result = runner.invoke(
+        cli_module.app,
+        [
+            "s1",
+            "--root",
+            str(Path.cwd()),
+            "--run-root",
+            str(run_root),
+            "--customer-model",
+            "openrouter:qwen/qwen3.5-9b",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert captured.get("customer_model") == "openrouter:qwen/qwen3.5-9b"
+
+
 def test_rule_hit_rate_detection_miss_rate_and_coverage_map_are_written(tmp_path: Path) -> None:
     run_root = tmp_path / "s1_seed0"
     (run_root / "triage").mkdir(parents=True)

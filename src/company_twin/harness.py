@@ -57,12 +57,18 @@ def run_s0(
     variant: int = 0,
     mutations: list[dict[str, Any]] | None = None,
     seat_factory: SeatFactory | None = None,
+    customer_model: str | None = None,
 ) -> dict[str, Any]:
+    # S0 is a static one-seat interpretation battery: no customer LLM is ever
+    # invoked here. customer_model is accepted (and recorded into
+    # config.json's model.customer) purely so the CLI's --customer-model
+    # knob is uniform across s0/s1/s2/campaign, per
+    # data/design/MASTER_DESIGN.md §17.11; it has no other effect on S0.
     seat = design.seats[seat_id]
     model_name = normalize_openrouter_model(model)
     factory = seat_factory or default_seat_factory(root=design.root, model=model_name)
     recorder = RunRecorder(run_root, run_id=run_root.name, meta={"stage": "S0", "probe": probe_id, "span": span_id, "seat": seat_id, "model": model_name, "variant": variant})
-    write_config_snapshot(run_root, build_world_config(design, stage="S0", model=model_name, seed=variant, ticks=1, probe_id=probe_id, seat_id=seat_id, mutations=mutations, executed_s0_rows=1))
+    write_config_snapshot(run_root, build_world_config(design, stage="S0", model=model_name, seed=variant, ticks=1, probe_id=probe_id, seat_id=seat_id, mutations=mutations, executed_s0_rows=1, customer_model=customer_model))
     recorder.set_tick(1)
     kernel = WorldKernel(recorder, kernel_profile(design, valid_doc_ids=set(corpus.documents)))
     tools = build_role_tools(corpus=corpus, kernel=kernel, recorder=recorder, seat_id=seat_id, seat_role=seat.role, include_workflow=False)
@@ -183,6 +189,7 @@ def run_s1_episode(
     ticks: int = 6,
     seat_factory: SeatFactory | None = None,
     customer_llm: CustomerLLM | None = None,
+    customer_model: str | None = None,
     d4_enabled: bool = True,
     prompt_mode: TurnPromptMode = "scaffold",
     model_bindings: dict[str, str] | None = None,
@@ -206,6 +213,7 @@ def run_s1_episode(
         probe_id=probe_id,
         seat_factory=seat_factory,
         customer_llm=customer_llm,
+        customer_model=customer_model,
         d4_enabled=d4_enabled,
         prompt_mode=prompt_mode,
         model_bindings=model_bindings,
@@ -228,6 +236,7 @@ def run_s2_world(
     anchor: bool = False,
     seat_factory: SeatFactory | None = None,
     customer_llm: CustomerLLM | None = None,
+    customer_model: str | None = None,
     deck: list[CustomerEvent] | None = None,
     d4_enabled: bool = True,
     prompt_mode: TurnPromptMode = "scaffold",
@@ -252,6 +261,7 @@ def run_s2_world(
         probe_id=None,
         seat_factory=seat_factory,
         customer_llm=customer_llm,
+        customer_model=customer_model,
         d4_enabled=d4_enabled,
         prompt_mode=prompt_mode,
         model_bindings=model_bindings,
@@ -277,6 +287,7 @@ def _run_world(
     probe_id: str | None,
     seat_factory: SeatFactory | None,
     customer_llm: CustomerLLM | None,
+    customer_model: str | None = None,
     d4_enabled: bool = True,
     prompt_mode: TurnPromptMode = "scaffold",
     model_bindings: dict[str, str] | None = None,
@@ -304,6 +315,7 @@ def _run_world(
         mutations=mutations,
         timed_notice_recipients=timed_notice_recipients,
         seats_subset=seats_subset,
+        customer_model=customer_model,
     )
     write_config_snapshot(run_root, config)
     budgets = config["world"]["population"]["tick_budget"]
@@ -312,7 +324,7 @@ def _run_world(
     bindings = config["world"]["population"]["binding"]
     active_seats = set(bindings)
     kernel = WorldKernel(recorder, kernel_profile(design, knobs=knobs, schedule=schedule, scc_switch_enabled=not anchor, valid_doc_ids=set(corpus.documents)))
-    customer = customer_llm or default_customer_llm(model=model_name, recorder=recorder)
+    customer = customer_llm or default_customer_llm(model=config["model"]["customer"], recorder=recorder)
     absence: dict[str, list[int]] = config["world"]["population"].get("absence", {})
 
     seats_cache: dict[str, Any] = {}
