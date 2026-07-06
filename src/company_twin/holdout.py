@@ -175,6 +175,7 @@ def build_holdout_injection_plan(
     planned_ticks: int = 0,
     control_run_roots: list[str] | None = None,
     seeds_per_injection: int | dict[str, int] = 1,
+    require_circulation: bool = False,
 ) -> dict[str, Any]:
     """Build a WP-14 holdout injection plan from the WP-06 mutation catalog.
 
@@ -221,6 +222,21 @@ def build_holdout_injection_plan(
     `run_roots`/`auto_run_roots` alone don't change). An injection is
     DETECTED when at least one of its K seeded trials is both activated and a
     strict hit; see `compute_holdout_detection_rate`/`_score_injection`.
+
+    `require_circulation` (default False, MASTER_DESIGN.md section 17.x --
+    diegetic notice circulation) seals `circulation_required: true` into the
+    plan (part of `plan_hash`, exactly like `arm`/`control_run_roots` above).
+    When set, `verify_holdout_bundles` additionally requires every attributed
+    bundle's config.json to record `world.corpus.circulation.enabled: true`
+    (harness.py's `--circulate-notices`/`circulate_notices=True`) -- a bundle
+    run without circulation on fails verification, because the sealed
+    condition this plan pre-registered (circulation must be ON so the
+    injected/patched document has a realistic path to being read) was not
+    met. This does not change activation/exposure/opportunity scoring
+    (`compute_holdout_detection_rate` is unchanged, per the 2026-07-06
+    approved activation-aware protocol, MASTER_DESIGN.md section 17.9) --
+    circulation only makes exposure more realistically achievable; whether a
+    seat actually reads the document remains a behavioral outcome.
     """
     per_mutation_k = isinstance(seeds_per_injection, dict)
     if not per_mutation_k and seeds_per_injection < 1:
@@ -293,7 +309,14 @@ def build_holdout_injection_plan(
         "injection_count": len(injections),
         "injections": injections,
         "control_run_roots": list(control_run_roots or []),
-        "plan_hash": _json_hash({"injections": injections, "control_run_roots": list(control_run_roots or [])}),
+        "circulation_required": bool(require_circulation),
+        "plan_hash": _json_hash(
+            {
+                "injections": injections,
+                "control_run_roots": list(control_run_roots or []),
+                "circulation_required": bool(require_circulation),
+            }
+        ),
         "note": "Planning artifact only. Execution and scoring require live run bundles scored by compute_holdout_detection_rate.",
     }
     return payload
@@ -961,7 +984,14 @@ def _has_failure_marker(run_root: Path, meta: dict[str, Any]) -> bool:
     return False
 
 
-def _verify_one_injection_bundle(campaign_root: Path, injection: dict[str, Any], *, run_roots: list[Path], resolution_mode: str) -> dict[str, Any]:
+def _verify_one_injection_bundle(
+    campaign_root: Path,
+    injection: dict[str, Any],
+    *,
+    run_roots: list[Path],
+    resolution_mode: str,
+    circulation_required: bool = False,
+) -> dict[str, Any]:
     spec_hash = injection.get("spec_hash")
     mutation_id = str(injection.get("mutation_id") or "")
     planned_ticks = int(injection.get("planned_ticks") or 0)
@@ -982,7 +1012,9 @@ def _verify_one_injection_bundle(campaign_root: Path, injection: dict[str, Any],
         max_tick = _world_ledger_max_tick(run_root)
         tick_coverage_ok = planned_ticks <= 0 or max_tick >= planned_ticks
         failure_marker = _has_failure_marker(run_root, meta)
-        run_ok = spec_hash_consistent and is_s2 and tick_coverage_ok and not failure_marker
+        circulation_enabled = bool((corpus.get("circulation") or {}).get("enabled"))
+        circulation_ok = (not circulation_required) or circulation_enabled
+        run_ok = spec_hash_consistent and is_s2 and tick_coverage_ok and not failure_marker and circulation_ok
         if not spec_hash_consistent:
             problems.append(f"{run_root.name}: config.json mutation entries do not carry spec_hash={spec_hash!r}/mutation_id={mutation_id!r}")
         if not is_s2:
@@ -991,6 +1023,8 @@ def _verify_one_injection_bundle(campaign_root: Path, injection: dict[str, Any],
             problems.append(f"{run_root.name}: world_ledger max tick={max_tick} < planned_ticks={planned_ticks}")
         if failure_marker:
             problems.append(f"{run_root.name}: failure marker present")
+        if not circulation_ok:
+            problems.append(f"{run_root.name}: plan seals circulation_required=true but config.json world.corpus.circulation.enabled={circulation_enabled!r}")
         per_run.append(
             {
                 "run_root": run_root.name,
@@ -1001,6 +1035,9 @@ def _verify_one_injection_bundle(campaign_root: Path, injection: dict[str, Any],
                 "planned_ticks": planned_ticks,
                 "tick_coverage_ok": tick_coverage_ok,
                 "failure_marker": failure_marker,
+                "circulation_required": circulation_required,
+                "circulation_enabled": circulation_enabled,
+                "circulation_ok": circulation_ok,
                 "effective_corpus_hash": corpus.get("effective_corpus_hash"),
                 "mutation_hash": corpus.get("mutation_hash"),
                 "verified": run_ok,
@@ -1040,7 +1077,16 @@ def verify_holdout_bundles(campaign_root: Path, injection_plan: dict[str, Any], 
     visibility, but their bundle verification is gated separately inside
     ``score_benign_controls``, not here -- a benign_control bundle problem
     must not block the positive-control gate.
+
+    When the plan seals ``circulation_required: true`` (``holdout-plan
+    --require-circulation``, MASTER_DESIGN.md section 17.x), every attributed
+    bundle's config.json must additionally record
+    ``world.corpus.circulation.enabled: true`` (the run was launched with
+    ``--circulate-notices``/``circulate_notices=True``) -- a bundle run
+    without circulation on fails verification: the sealed condition this plan
+    pre-registered was not met, regardless of whether L0/L1 findings fired.
     """
+    circulation_required = bool(injection_plan.get("circulation_required"))
     injections = injection_plan.get("injections") or []
     per_injection: list[dict[str, Any]] = []
     for injection in injections:
@@ -1056,7 +1102,9 @@ def verify_holdout_bundles(campaign_root: Path, injection_plan: dict[str, Any], 
         else:
             resolution_mode = "exploration"
             run_roots = _matching_mutation_run_roots(campaign_root, str(injection.get("mutation_id") or ""))
-        row = _verify_one_injection_bundle(campaign_root, injection, run_roots=run_roots, resolution_mode=resolution_mode)
+        row = _verify_one_injection_bundle(
+            campaign_root, injection, run_roots=run_roots, resolution_mode=resolution_mode, circulation_required=circulation_required
+        )
         row["arm"] = _injection_arm(injection)
         per_injection.append(row)
     positive_rows = [row for row in per_injection if row["arm"] == ARM_POSITIVE_CONTROL]
@@ -1065,6 +1113,7 @@ def verify_holdout_bundles(campaign_root: Path, injection_plan: dict[str, Any], 
     return {
         "kind": "holdout_bundle_verification",
         "plan_hash": injection_plan.get("plan_hash"),
+        "circulation_required": circulation_required,
         "injection_count": total,
         "verified_count": verified_count,
         "all_verified": total > 0 and verified_count == total,
@@ -1186,6 +1235,7 @@ def score_benign_controls(
     injections = [injection for injection in (injection_plan.get("injections") or []) if _injection_arm(injection) == ARM_BENIGN_CONTROL]
     if not injections:
         return None
+    circulation_required = bool(injection_plan.get("circulation_required"))
     control_run_roots = list(injection_plan.get("control_run_roots") or [])
     per_injection: list[dict[str, Any]] = []
     passed_count = 0
@@ -1198,7 +1248,9 @@ def score_benign_controls(
         explicit_lookup = run_lookup is not None and injection_id in run_lookup
         declared_roots = list(injection.get("planned_run_roots") or [])
         resolution_mode = "explicit" if (explicit_lookup or declared_roots) else "exploration"
-        verification = _verify_one_injection_bundle(campaign_root, injection, run_roots=run_roots, resolution_mode=resolution_mode)
+        verification = _verify_one_injection_bundle(
+            campaign_root, injection, run_roots=run_roots, resolution_mode=resolution_mode, circulation_required=circulation_required
+        )
         bundle_ok = bool(verification["verified"])
         # Activation is recorded for a benign_control injection too, but for
         # VISIBILITY ONLY (MASTER_DESIGN.md section 17.9): benign_control's
@@ -1365,6 +1417,18 @@ def write_holdout_report(
     no-mutation control baseline (zero-firing trivially satisfies this); a
     type firing at all but staying at/below baseline no longer blocks
     passing on its own (see `score_benign_controls`'s `visibility_note`).
+
+    Diegetic notice circulation (MASTER_DESIGN.md section 17.x, approved
+    2026-07-06): when the plan seals `circulation_required: true`
+    (`holdout-plan --require-circulation`), `verify_holdout_bundles` and
+    `score_benign_controls` additionally require every attributed bundle's
+    config.json to record `world.corpus.circulation.enabled: true` -- a
+    bundle run without circulation on fails verification (the sealed
+    condition wasn't met), independent of its detection rate. This is a
+    bundle-attribution check only; activation/exposure/opportunity scoring
+    (compute_holdout_detection_rate, MASTER_DESIGN.md section 17.9) is
+    unchanged -- circulation makes exposure more realistically achievable, it
+    does not substitute for it.
     """
     inputs_path = campaign_root / "holdout_inputs.json"
     if not inputs_path.exists():
@@ -1468,6 +1532,12 @@ def write_holdout_report(
             "the operator's previously-expected anomaly types (rate <= control baseline per type; "
             "zero-firing trivially satisfies) -- this replaces the previous 'none fire at all' clause, which "
             "was too strict for a type that fires endemically at baseline.",
+            "Diegetic notice circulation (MASTER_DESIGN.md section 17.x, approved 2026-07-06): "
+            f"circulation_required={bundle_verification['circulation_required']} (sealed at holdout-plan time via "
+            "--require-circulation). When true, every attributed bundle's config.json must record "
+            "world.corpus.circulation.enabled=true (the run was launched with --circulate-notices) -- a bundle "
+            "without it fails bundle_verification/score_benign_controls regardless of detection rate; see each "
+            "per_injection row's runs[*].circulation_required/circulation_enabled/circulation_ok.",
         ],
         "measurement": measurement,
         "bundle_verification": bundle_verification,

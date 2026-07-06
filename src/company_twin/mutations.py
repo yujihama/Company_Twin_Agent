@@ -12,6 +12,15 @@ from .world_config import _json_hash
 
 
 CATALOG_PATH = Path("data") / "compiled_data" / "mutation_operators_v1.json"
+
+# The fixed role set the world corpus/retrieval profiles are defined over
+# (world_config.default_retrieval_profiles / harness.kernel_profile). A
+# document (or patch target) with visible_roles=None is readable by every
+# role (corpus.Corpus.readable_by), so a circulation announcement for such a
+# mutation is likewise addressed to every role -- this constant is what
+# resolves that "everyone" case to a concrete recipient list.
+ALL_ROLES: tuple[str, ...] = ("sales", "manager", "application", "second_line", "audit")
+
 LEAK_PATTERNS: tuple[tuple[str, str], ...] = (
     (r"\bAMB-\d+[A-Za-z0-9_-]*\b", "seeded span id"),
     (r"\bCONTRA-\d+[A-Za-z0-9_-]*\b", "seeded span id"),
@@ -192,6 +201,7 @@ def _inject_document(documents: dict[str, CorpusDocument], spec: dict[str, Any],
         "visible_roles": list(visible_roles),
         "content_sha256": _json_hash({"text": text}),
         "document_delta": 1,
+        "circulation_digest": circulation_digest_text(text),
     }
 
 
@@ -204,15 +214,22 @@ def _patch_document(documents: dict[str, CorpusDocument], spec: dict[str, Any], 
     original = documents[target_doc_id]
     patched_text = f"{original.text.rstrip()}\n\n{append_text.strip()}\n"
     documents[target_doc_id] = CorpusDocument(meta=original.meta, text=patched_text, visible_roles=original.visible_roles)
+    # A patch target with visible_roles=None (e.g. DFH-SAL-045) is readable by
+    # every role (corpus.Corpus.readable_by); resolve that to the concrete
+    # role list here so a circulation announcement has an explicit recipient
+    # set to work from, exactly like an injected document already has.
+    visible_roles = list(original.visible_roles) if original.visible_roles is not None else list(ALL_ROLES)
     return {
         "mutation_id": mutation_id,
         "operator": operator,
         "action": "patch_document",
         "doc_id": target_doc_id,
+        "visible_roles": visible_roles,
         "content_sha256": _json_hash({"append_text": append_text}),
         "before_sha256": _json_hash({"text": original.text}),
         "after_sha256": _json_hash({"text": patched_text}),
         "document_delta": 0,
+        "circulation_digest": circulation_digest_text(append_text),
     }
 
 
@@ -232,3 +249,56 @@ def _raise_on_leak(spec: dict[str, Any]) -> None:
     if failures:
         first = failures[0]
         raise ValueError(f"world-visible mutation text leaks {first['label']} in {first['mutation_id']}")
+
+
+# ---------------------------------------------------------------------------
+# Diegetic notice circulation (default-off experimental variable; MASTER_DESIGN
+# section 8.2/17.x): a natural-business-language digest announcing that a
+# runtime-injected/patched document exists, derived from the mutation's OWN
+# catalog text -- never authored fresh, so there is nothing here that isn't
+# already lint-checked catalog content. The digest only ANNOUNCES that a
+# notice exists ("回覧します"); it never repeats the notice's substantive
+# content, so exposure (a seat actually reading the injected/patched document)
+# remains a behavioral outcome, not force-fed into the inbox.
+# ---------------------------------------------------------------------------
+
+_SUBJECT_LINE_RE = re.compile(r"件名:\s*(?P<subject>[^。]+?)。")
+_LEAD_PHRASE_RE = re.compile(r"^(?P<lead>[^:：]+)[:：]")
+
+
+def notice_subject(text: str) -> str:
+    """Extract a short natural-language subject/label from a mutation's own
+    world-visible text, for use in a circulation digest.
+
+    Prefers the catalog's own "件名: ...。" business-memo convention (every
+    `inject_document` entry in mutation_operators_v1.json opens this way);
+    falls back to the leading "...:"/"...：" phrase (patch_document's
+    append_text opens with a label like "職務分掌訂正通知:" instead of 件名),
+    and finally to the first sentence/line if neither convention is present.
+    """
+    subject_match = _SUBJECT_LINE_RE.search(text)
+    if subject_match:
+        return subject_match.group("subject").strip()
+    lead_match = _LEAD_PHRASE_RE.match(text.strip())
+    if lead_match:
+        return lead_match.group("lead").strip()
+    first_line = text.strip().splitlines()[0] if text.strip() else ""
+    return first_line[:40].strip()
+
+
+def circulation_digest_text(text: str) -> str:
+    """Build the natural-business-phrasing circulation digest for a single
+    mutation, from its own catalog text (never freshly authored content).
+
+    Shape: 「本日付の事務連絡を回覧します: 「<件名>」。詳細は文書一覧をご確認ください。」
+    -- announces that a notice exists and where to look, without repeating
+    its substantive content, so a seat still has to search/read the actual
+    document for that content (exposure stays a behavioral outcome).
+    """
+    subject = notice_subject(text)
+    digest = f"本日付の事務連絡を回覧します: 「{subject}」。詳細は文書一覧をご確認ください。"
+    failures = lint_mutation_specs([{"mutation_id": "<circulation_digest>", "text": digest}])
+    if failures:
+        first = failures[0]
+        raise ValueError(f"circulation digest leaks {first['label']} for subject {subject!r}")
+    return digest

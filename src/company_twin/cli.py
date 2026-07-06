@@ -126,6 +126,7 @@ def s0(
     model: Annotated[str | None, typer.Option("--model")] = None,
     customer_model: Annotated[str | None, typer.Option("--customer-model", help="Model for the customer LLM (world scenery, not the measurement subject); defaults to --model when unset. S0 never invokes a customer LLM, but the choice is still recorded in config.json for consistency with s1/s2/campaign")] = None,
     mutation: Annotated[list[str] | None, typer.Option("--mutation", help="Runtime corpus mutation_id from mutation_operators_v1.json; repeat for multiple")] = None,
+    circulate_notices: Annotated[bool, typer.Option("--circulate-notices/--no-circulate-notices", help="Diegetic notice circulation (default off, MASTER_DESIGN.md §17.x): announce each injected/patched mutation to its visible_roles. S0 has no tick loop, so this has no delivery effect here; accepted only for CLI uniformity with s1/s2/campaign and recorded in config.json")] = False,
 ) -> None:
     """Run one live S0 interpretation-battery row for a probe and seat."""
     base = _root(root)
@@ -140,7 +141,7 @@ def s0(
         raise typer.BadParameter(f"unknown or untemplated span for S0: {span_id}")
     corpus, applied_mutations = _corpus_with_mutations(base, design, mutation)
     target_root = (run_root or make_run_root(base, f"s0_{probe}_{seat}")).resolve()
-    result = run_s0(design=design, corpus=corpus, probe_id=probe, seat_id=seat, run_root=target_root, span_id=span_id, model=model, variant=variant, mutations=applied_mutations, customer_model=customer_model)
+    result = run_s0(design=design, corpus=corpus, probe_id=probe, seat_id=seat, run_root=target_root, span_id=span_id, model=model, variant=variant, mutations=applied_mutations, customer_model=customer_model, circulate_notices=circulate_notices)
     write_triage(target_root)
     _echo_json(result)
 
@@ -160,6 +161,7 @@ def s1(
     seat_model: Annotated[list[str] | None, typer.Option("--seat-model", help="Per-seat model binding, e.g. emp-A=openrouter:qwen/qwen3.6-flash")] = None,
     scc_switch_tick: Annotated[int | None, typer.Option("--scc-switch-tick", help="Tick at which K-completion-gate becomes active")] = None,
     mutation: Annotated[list[str] | None, typer.Option("--mutation", help="Runtime corpus mutation_id from mutation_operators_v1.json; repeat for multiple")] = None,
+    circulate_notices: Annotated[bool, typer.Option("--circulate-notices/--no-circulate-notices", help="Diegetic notice circulation (default off, MASTER_DESIGN.md §17.x): at tick 1, announce each applied mutation's own document to every seat whose role is in that mutation's visible_roles, as a natural-business-phrasing timed_notice inbox message. The announcement only says a notice exists -- exposure to its content still requires the seat to search/read the document itself. Recorded in config.json's world.corpus.circulation")] = False,
 ) -> None:
     """Run one live S1 multi-seat episode."""
     base = _root(root)
@@ -168,7 +170,7 @@ def s1(
     corpus, applied_mutations = _corpus_with_mutations(base, design, mutation)
     knobs = {"K-completion-gate": strict_completion, "K-material-picker": strict_material}
     target_root = (run_root or make_run_root(base, f"s1_{probe}")).resolve()
-    result = run_s1_episode(design=design, corpus=corpus, probe_id=probe, run_root=target_root, model=model, customer_model=customer_model, knobs=knobs, seed=seed, ticks=ticks, prompt_mode=prompt_mode, model_bindings=_seat_model_bindings(seat_model), scc_switch_tick=scc_switch_tick, mutations=applied_mutations)  # type: ignore[arg-type]
+    result = run_s1_episode(design=design, corpus=corpus, probe_id=probe, run_root=target_root, model=model, customer_model=customer_model, knobs=knobs, seed=seed, ticks=ticks, prompt_mode=prompt_mode, model_bindings=_seat_model_bindings(seat_model), scc_switch_tick=scc_switch_tick, mutations=applied_mutations, circulate_notices=circulate_notices)  # type: ignore[arg-type]
     write_triage(target_root)
     _echo_json(result)
 
@@ -186,6 +188,7 @@ def s2(
     seat_model: Annotated[list[str] | None, typer.Option("--seat-model", help="Per-seat model binding, e.g. emp-A=openrouter:qwen/qwen3.6-flash")] = None,
     scc_switch_tick: Annotated[int | None, typer.Option("--scc-switch-tick", help="Tick at which K-completion-gate becomes active")] = None,
     mutation: Annotated[list[str] | None, typer.Option("--mutation", help="Runtime corpus mutation_id from mutation_operators_v1.json; repeat for multiple")] = None,
+    circulate_notices: Annotated[bool, typer.Option("--circulate-notices/--no-circulate-notices", help="Diegetic notice circulation (default off, MASTER_DESIGN.md §17.x): at tick 1, announce each applied mutation's own document to every seat whose role is in that mutation's visible_roles, as a natural-business-phrasing timed_notice inbox message. The announcement only says a notice exists -- exposure to its content still requires the seat to search/read the document itself. Recorded in config.json's world.corpus.circulation")] = False,
 ) -> None:
     """Run one live S2 world (full deck)."""
     base = _root(root)
@@ -193,7 +196,7 @@ def s2(
     design = load_design(base)
     corpus, applied_mutations = _corpus_with_mutations(base, design, mutation)
     target_root = (run_root or make_run_root(base, "anchor_s2" if anchor else "s2")).resolve()
-    result = run_s2_world(design=design, corpus=corpus, run_root=target_root, model=model, customer_model=customer_model, knobs={}, seed=seed, ticks=ticks, anchor=anchor, prompt_mode=prompt_mode, model_bindings=_seat_model_bindings(seat_model), scc_switch_tick=scc_switch_tick, mutations=applied_mutations)  # type: ignore[arg-type]
+    result = run_s2_world(design=design, corpus=corpus, run_root=target_root, model=model, customer_model=customer_model, knobs={}, seed=seed, ticks=ticks, anchor=anchor, prompt_mode=prompt_mode, model_bindings=_seat_model_bindings(seat_model), scc_switch_tick=scc_switch_tick, mutations=applied_mutations, circulate_notices=circulate_notices)  # type: ignore[arg-type]
     write_triage(target_root)
     _echo_json(result)
 
@@ -215,6 +218,7 @@ def campaign(
     seat_model: Annotated[list[str] | None, typer.Option("--seat-model", help="Per-seat model binding, e.g. emp-A=openrouter:qwen/qwen3.6-flash")] = None,
     scc_switch_tick: Annotated[int | None, typer.Option("--scc-switch-tick", help="Tick at which K-completion-gate becomes active")] = None,
     mutation: Annotated[list[str] | None, typer.Option("--mutation", help="Runtime corpus mutation_id from mutation_operators_v1.json; repeat for multiple")] = None,
+    circulate_notices: Annotated[bool, typer.Option("--circulate-notices/--no-circulate-notices", help="Diegetic notice circulation (default off, MASTER_DESIGN.md §17.x): at tick 1, announce each applied mutation's own document to every seat whose role is in that mutation's visible_roles, as a natural-business-phrasing timed_notice inbox message, in every S1/S2/anchor bundle of this campaign. The announcement only says a notice exists -- exposure to its content still requires the seat to search/read the document itself. Recorded in config.json's world.corpus.circulation")] = False,
 ) -> None:
     """Run a live campaign: S0 battery -> S1 ensemble -> optional S2 + anchor -> acceptance."""
     base = _root(root)
@@ -239,6 +243,7 @@ def campaign(
         model_bindings=_seat_model_bindings(seat_model),
         scc_switch_tick=scc_switch_tick,
         mutations=applied_mutations,
+        circulate_notices=circulate_notices,
     )
     _echo_json(payload)
 
@@ -571,6 +576,7 @@ def holdout_plan(
     control_run_root: Annotated[list[str] | None, typer.Option("--control-run-root", help="Designated no-mutation control run-root name, sealed into the plan (part of plan_hash) for delta-aware detection and benign-control baseline scoring; repeat for multiple")] = None,
     seeds_per_injection: Annotated[int, typer.Option("--seeds-per-injection", help="Global default number of independent seeded run roots to plan per injection (requires --auto-run-roots when > 1); sealed into plan_hash. Default 1 keeps the pre-existing holdout_<mutation_id> naming. Overridden per-mutation by --injection-seeds")] = 1,
     injection_seeds: Annotated[list[str] | None, typer.Option("--injection-seeds", help="Per-mutation seed-count override as mutation_id=K (e.g. --injection-seeds contradict_chat_approval_recorded=5); repeat for multiple mutations. Falls back to --seeds-per-injection for any mutation_id not listed. Sealed into plan_hash (MASTER_DESIGN.md section 17.11)")] = None,
+    require_circulation: Annotated[bool, typer.Option("--require-circulation", help="Seal circulation_required: true into the plan (part of plan_hash, MASTER_DESIGN.md §17.x): verify_holdout_bundles then additionally requires every attributed bundle's config.json to record world.corpus.circulation.enabled=true (the run was launched with --circulate-notices) -- a bundle without it fails verification even if its detection rate would otherwise pass")] = False,
     root: Annotated[Path | None, typer.Option("--root")] = None,
 ) -> None:
     """WP-14: build a holdout injection plan from the WP-06 mutation catalog and write holdout_inputs.json."""
@@ -597,6 +603,7 @@ def holdout_plan(
         planned_ticks=planned_ticks,
         control_run_roots=control_run_root,
         seeds_per_injection=seeds_arg,
+        require_circulation=require_circulation,
     )
     write_holdout_inputs(campaign_root.resolve(), plan)
     _echo_json(plan)

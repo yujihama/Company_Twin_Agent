@@ -1296,6 +1296,100 @@ binding is unaffected by `--customer-model`. `evidence_manifest._config_hashes`
 only S2 bundles) now also surfaces `customer_model`, so `stage9_evidence_manifest.json`
 records it alongside `seat_model_bindings`.
 
+### 17.13 Diegetic timed-notice circulation: default-off experimental variable (approved by project owner 2026-07-06)
+
+**Background (raw-data audit, all four holdout eras).** §8.2 always
+anticipated this: "salienceが必要な場合は、diegetic timed-notice circulation等の
+default-off実験変数として別途明示する" -- runtime-injected M1 mutation documents
+receive no search ranking boost by design (§8.2), so nothing in the world
+mechanism ever surfaced them to a seat's attention beyond ordinary
+`search_corpus` retrieval. An audit across all four holdout eras' raw evidence
+(`attempts.jsonl`/`basis_records.jsonl` for every campaign that ran a
+runtime-injected notice mutation -- DFH-SAL-901/902/903, DFH-CUS-006 fill) found
+**zero references**: no seat, in any campaign, ever read one of these
+documents. The mutation was correctly filed into the searchable corpus (WP-06
+mechanism working as designed) but never activated. This is consistent with
+what era-3's holdout report already called `baseline_confounded` and era-4's
+activation-aware protocol (§17.9) surfaced as `activation=0/3` under the
+exposure criterion for multiple positive-control injections -- what earlier
+eras read as era-2 "detections" of `clarify`/`dangling_fill` were baseline
+noise, not evidence the documents were ever found. Document-injection
+mutations therefore had **no causal channel into behavior** across every prior
+era: an unread document cannot have caused anything a seat did.
+
+**Decision.** The project owner approved implementing exactly the default-off
+mechanism §8.2 always named, as one PR, on 2026-07-06.
+
+**Mechanism.** When enabled, each runtime-applied corpus mutation that
+injects/patches a document (`mutations.apply_corpus_mutations`) is announced
+at tick 1 (the world's first daily inbox delivery) to every seat whose role is
+in the mutation's `visible_roles`, as an ordinary `timed_notice` inbox message
+(`kernel.enqueue_inbox`/`validate_inbox_message` -- not a new inbox kind, so
+the existing two-plane whitelist, `INBOX_ALLOWED_KEYS["timed_notice"]`,
+already covers it structurally). The announcement text is a natural
+business-memo digest derived from the mutation's OWN catalog text (never
+freshly authored): `mutations.notice_subject` extracts the 件名 (or, for a
+`patch_document` mutation whose `append_text` has no 件名 line, the leading
+label phrase before its colon), and `mutations.circulation_digest_text` wraps
+it as 「本日付の事務連絡を回覧します: 「\<件名>」。詳細は文書一覧をご確認くだ
+さい。」 -- every digest is itself linted against the world-leak patterns
+(`mutations.lint_mutation_specs`) before being accepted, so it inherits the
+same experimenter-vocabulary/seeded-span-id guarantee as the underlying
+mutation text. Critically, the announcement only says a notice **exists**; it
+never repeats the notice's substantive content, so exposure (a seat actually
+searching for and reading the injected/patched document) remains a
+behavioral outcome, not force-fed content -- this is the same
+observe-vs-force-feed line §8.2 draws for M1 mutations generally, now applied
+to the announcement mechanism too.
+
+A `patch_document` mutation's target (e.g. `role_table_fix_quality_owner`
+patching `DFH-SAL-045`, `visible_roles=None` meaning readable by every role)
+resolves circulation to the full 5-role set; an `inject_document` mutation
+with role-scoped `visible_roles` (e.g. `clarify_elderly_understanding_sales_only`,
+`sales` only) circulates only to that scope, preserving the asymmetric-visibility
+condition the mutation was designed to create.
+
+**Flag, off by default, recorded honestly.** `--circulate-notices` /
+`--no-circulate-notices` (default off) is added to the CLI's `s0`/`s1`/`s2`/
+`campaign` commands (threaded as `circulate_notices` through
+`harness.run_s0/run_s1_episode/run_s2_world/_run_world` and
+`campaign.run_design_campaign`); S0 has no tick loop to deliver into, so the
+flag is accepted there only for CLI uniformity (matching the existing
+`--customer-model` precedent, §17.11) and has no delivery effect.
+`world_config.build_world_config` gained `circulate_notices` and always
+records `world.corpus.circulation = {"enabled": bool, "announcements": [...]}`
+in `config.json` regardless of whether it is on, off, or whether any mutation
+was even applied -- an honest record of the sealed condition, never an
+absence that could be mistaken for "nothing to announce". Each announcement
+entry records `mutation_id`/`doc_id`/`tick`/`visible_roles`/`digest`. No new
+inbox kind, no new leak-lint category, no experimenter vocabulary: the
+announcement passes the same `validate_inbox_message`/`a03_inbox_whitelist`
+gate every other `timed_notice` already passes.
+
+**Holdout integration.** `holdout-plan` gained `--require-circulation`, which
+seals `circulation_required: true` into the plan (part of `plan_hash`,
+alongside the existing `arm`/`control_run_roots` seals from §17.5/§17.11).
+`holdout.verify_holdout_bundles` (and `score_benign_controls`, which reuses
+the same bundle check) then additionally requires every attributed bundle's
+`config.json` to record `world.corpus.circulation.enabled: true` -- a bundle
+run without circulation on fails verification outright, because the sealed
+pre-registered condition was not met, independent of whatever detection rate
+it happens to score. Activation/exposure/opportunity scoring itself
+(`compute_holdout_detection_rate`, §17.9) is **unchanged**: circulation only
+gives the injected/patched document a realistic path into a seat's attention
+(a document a seat was never told exists is unlikely to be searched for);
+whether a seat actually reads it, and whether reading it changes behavior,
+remains exactly the behavioral question the holdout protocol was already
+designed to measure.
+
+**Phase 3 note.** Circulation on/off -- including *asymmetric* circulation
+(announcing to a subset of a mutation's own `visible_roles`, layering a second
+asymmetry on top of the document-visibility asymmetry some mutations already
+have) -- becomes an explicit experimental variable in phase 3, exactly as
+§8.2 anticipated ("...等のdefault-off実験変数として別途明示する"). It is not
+folded into the D1-D5 condition series (§8.3) by this PR; that remains a
+phase-3 design decision.
+
 ## 18. WP-12 parallel world-run executor (並列実行、2026-07-05)
 
 Phase-3 experiments run batches of independent S0/S1/S2/control-pair worlds

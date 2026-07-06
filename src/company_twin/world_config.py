@@ -51,6 +51,7 @@ def build_world_config(
     timed_notice_recipients: list[str] | None = None,
     seats_subset: list[str] | None = None,
     customer_model: str | None = None,
+    circulate_notices: bool = False,
 ) -> dict[str, Any]:
     normalized_knobs = {**DEFAULT_KNOBS, **(knobs or {})}
     model_name = normalize_openrouter_model(model)
@@ -98,6 +99,7 @@ def build_world_config(
     notice_source = timed_notice_recipients if timed_notice_recipients is not None else _default_timed_notice_recipients(design)
     notice_recipients = sorted(set(notice_source))
     approval_notice_recipients = sorted(set(_approval_notice_recipients(design)))
+    circulation_announcements = _circulation_announcements(normalized_mutations) if circulate_notices else []
     config = {
         "schema_version": "company_twin.world_config.v2",
         "stage": stage,
@@ -117,6 +119,22 @@ def build_world_config(
                 "mutation_hash": mutation_hash,
                 "effective_corpus_hash": effective_corpus_hash,
                 "document_count": len(design.documents) + _document_delta(normalized_mutations),
+                # Diegetic notice circulation (MASTER_DESIGN.md section 8.2 /
+                # 17.x): a default-off experimental variable. When enabled,
+                # every runtime-applied corpus mutation that injects/patches a
+                # document is announced (never force-fed content) to its own
+                # visible_roles at tick 1; see harness._run_world's delivery
+                # of `circulation.announcements` and kernel.validate_inbox_message
+                # (kind="timed_notice"). Recording `enabled` plus the exact
+                # announcements (doc_id/tick/visible_roles) here, regardless of
+                # whether any mutation was applied, makes this an honest
+                # record of what the sealed condition actually was -- an
+                # empty `announcements` list with mutations present would
+                # otherwise look identical to circulation being off.
+                "circulation": {
+                    "enabled": bool(circulate_notices),
+                    "announcements": circulation_announcements,
+                },
             },
             "kernel_profile": {
                 "name": "anchor_erp_standard" if anchor else "erp_standard",
@@ -258,6 +276,41 @@ def _approval_notice_recipients(design: DesignInputs) -> list[str]:
 
 def _document_delta(mutations: list[dict[str, Any]]) -> int:
     return sum(int(item.get("document_delta") or 0) for item in mutations)
+
+
+# Diegetic notice circulation is announced at tick 1 (this run's first daily
+# inbox delivery) for every applied mutation, unconditionally of that
+# mutation's own catalog fields -- the circulation TICK is a property of the
+# *delivery mechanism* (tick 1's daily inbox delivery), not of the mutation
+# catalog, per MASTER_DESIGN.md section 8.2's "salienceが必要な場合は...別途
+#明示する" framing (the catalog itself never encodes a delivery tick).
+CIRCULATION_TICK = 1
+
+
+def _circulation_announcements(mutations: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Build the sealed circulation announcement plan for `world.corpus.circulation`
+    from applied mutation entries (mutations.apply_corpus_mutations' output,
+    which already carries `visible_roles` and `circulation_digest` for both
+    inject_document and patch_document actions -- see mutations.py). Skips
+    (rather than raising on) any legacy applied-entry shape missing those
+    keys, so a caller cannot silently OR loudly break by passing mutations
+    from a pre-circulation code path; there simply is nothing to announce."""
+    announcements: list[dict[str, Any]] = []
+    for entry in mutations:
+        digest = str(entry.get("circulation_digest") or "")
+        visible_roles = list(entry.get("visible_roles") or [])
+        if not digest or not visible_roles:
+            continue
+        announcements.append(
+            {
+                "mutation_id": str(entry.get("mutation_id") or ""),
+                "doc_id": str(entry.get("doc_id") or ""),
+                "tick": CIRCULATION_TICK,
+                "visible_roles": visible_roles,
+                "digest": digest,
+            }
+        )
+    return announcements
 
 
 def _role_card_meta(root: Path, role: str) -> dict[str, str]:
