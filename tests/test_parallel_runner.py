@@ -20,10 +20,12 @@ from typer.testing import CliRunner
 from company_twin.cli import app
 from company_twin.parallel_runner import (
     BATCH_MANIFEST_FILENAME,
+    OPENROUTER_CREDITS_URL,
     BatchSpec,
     BatchSpecError,
     RunSpec,
     build_retry_spec,
+    check_openrouter_credits,
     delete_partial_roots,
     load_batch_manifest,
     run_batch,
@@ -355,7 +357,9 @@ def test_delete_partial_roots_only_removes_existing_dirs(tmp_path: Path) -> None
 # ---------------------------------------------------------------------------
 
 
-def test_cli_run_batch_fails_loudly_before_launch_on_existing_run_root(tmp_path: Path) -> None:
+def test_cli_run_batch_fails_loudly_before_launch_on_existing_run_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # No API key -> the credits preflight is skipped without any network call.
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
     runner = CliRunner()
     existing = tmp_path / "runs" / "clash"
     existing.mkdir(parents=True)
@@ -371,6 +375,8 @@ def test_cli_run_batch_fails_loudly_before_launch_on_existing_run_root(tmp_path:
 
 def test_cli_run_batch_warns_above_rate_limit_threshold(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     import company_twin.cli as cli_module
+
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
 
     def fake_run_batch(spec, *, base_dir, batch_dir, **kwargs):
         return {
@@ -391,3 +397,193 @@ def test_cli_run_batch_warns_above_rate_limit_threshold(tmp_path: Path, monkeypa
     result = runner.invoke(app, ["run-batch", "--batch-spec", str(batch_spec_path), "--root", str(tmp_path)])
     assert result.exit_code == 0
     assert "concurrency=5" in result.output or "exceeds" in result.output
+
+
+# ---------------------------------------------------------------------------
+# credits preflight (incident 2026-07-06: batch exhausted OpenRouter credits
+# mid-flight; 402 Insufficient credits failed 8/11 runs). All HTTP here is a
+# stub -- no test ever touches the real endpoint.
+# ---------------------------------------------------------------------------
+
+
+def _credits_body(total: float, usage: float) -> str:
+    return json.dumps({"data": {"total_credits": total, "total_usage": usage}})
+
+
+def test_check_openrouter_credits_reports_remaining_balance() -> None:
+    seen: dict = {}
+
+    def stub_http_get(url: str, headers: dict, timeout: float) -> tuple[int, str]:
+        seen["url"] = url
+        seen["headers"] = headers
+        return 200, _credits_body(10.0, 4.5)
+
+    report = check_openrouter_credits(api_key="sk-or-test", http_get=stub_http_get)
+    assert report["status"] == "ok"
+    assert report["remaining_credits"] == pytest.approx(5.5)
+    assert report["total_credits"] == pytest.approx(10.0)
+    assert report["total_usage"] == pytest.approx(4.5)
+    assert report["checked_at"]
+    assert seen["url"] == OPENROUTER_CREDITS_URL
+    assert seen["headers"]["Authorization"] == "Bearer sk-or-test"
+
+
+def test_check_openrouter_credits_skipped_without_api_key() -> None:
+    def must_not_be_called(url: str, headers: dict, timeout: float) -> tuple[int, str]:
+        raise AssertionError("no API key -> no HTTP call")
+
+    report = check_openrouter_credits(api_key=None, http_get=must_not_be_called)
+    assert report["status"] == "skipped"
+    assert "OPENROUTER_API_KEY" in report["detail"]
+    assert report["remaining_credits"] is None
+
+
+def test_check_openrouter_credits_non_200_is_unavailable_not_fatal() -> None:
+    report = check_openrouter_credits(api_key="k", http_get=lambda u, h, t: (500, "boom"))
+    assert report["status"] == "unavailable"
+    assert "HTTP 500" in report["detail"]
+    assert report["remaining_credits"] is None
+
+
+def test_check_openrouter_credits_network_error_is_unavailable_not_raised() -> None:
+    def exploding_http_get(url: str, headers: dict, timeout: float) -> tuple[int, str]:
+        raise OSError("connection refused")
+
+    report = check_openrouter_credits(api_key="k", http_get=exploding_http_get)
+    assert report["status"] == "unavailable"
+    assert "connection refused" in report["detail"]
+
+
+def test_check_openrouter_credits_bad_payload_is_unavailable() -> None:
+    for body in ("not json", json.dumps({"data": {}}), json.dumps({"data": {"total_credits": "x", "total_usage": None}})):
+        report = check_openrouter_credits(api_key="k", http_get=lambda u, h, t, body=body: (200, body))
+        assert report["status"] == "unavailable", body
+        assert report["remaining_credits"] is None
+
+
+def test_run_batch_records_credits_preflight_in_manifest(tmp_path: Path) -> None:
+    base_dir = tmp_path / "root"
+    base_dir.mkdir()
+    spec = BatchSpec.from_dict({"runs": [_run_dict("a", "runs/a")]})
+    validate_batch_spec(spec, base_dir=base_dir)
+    preflight = check_openrouter_credits(api_key="k", http_get=lambda u, h, t: (200, _credits_body(20.0, 3.0)))
+
+    manifest = run_batch(
+        spec,
+        base_dir=base_dir,
+        batch_dir=tmp_path / "batch_out",
+        command_builder=lambda run: _sleep_stub(0.0),
+        credits_preflight=preflight,
+    )
+    assert manifest["credits_preflight"] == preflight
+
+    persisted = json.loads((tmp_path / "batch_out" / BATCH_MANIFEST_FILENAME).read_text(encoding="utf-8"))
+    assert persisted["credits_preflight"]["remaining_credits"] == pytest.approx(17.0)
+
+
+def _cli_credits_fixture(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, preflight: dict) -> tuple[CliRunner, Path, dict]:
+    """Stub both the credits check and run_batch on the CLI module; returns
+    (runner, batch spec path, dict capturing the run_batch call)."""
+    import company_twin.cli as cli_module
+
+    monkeypatch.setattr(cli_module, "check_openrouter_credits", lambda **kwargs: preflight)
+    launched: dict = {}
+
+    def fake_run_batch(spec, *, base_dir, batch_dir, **kwargs):
+        launched["spec"] = spec
+        launched["kwargs"] = kwargs
+        return {
+            "schema_version": "company_twin.batch_manifest.v1",
+            "passed": True,
+            "runs": [],
+            "failed_run_ids": [],
+            "concurrency": spec.concurrency,
+            "credits_preflight": kwargs.get("credits_preflight"),
+        }
+
+    monkeypatch.setattr(cli_module, "run_batch", fake_run_batch)
+    batch_spec_path = tmp_path / "batch.json"
+    batch_spec_path.write_text(json.dumps({"runs": [_run_dict("a", "runs/a")], "concurrency": 1}), encoding="utf-8")
+    return CliRunner(), batch_spec_path, launched
+
+
+def test_cli_run_batch_prints_balance_and_records_it_in_manifest(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    preflight = {
+        "status": "ok",
+        "remaining_credits": 15.5,
+        "total_credits": 20.0,
+        "total_usage": 4.5,
+        "detail": None,
+        "checked_at": "2026-07-07T00:00:00+00:00",
+    }
+    runner, batch_spec_path, launched = _cli_credits_fixture(tmp_path, monkeypatch, preflight)
+    result = runner.invoke(app, ["run-batch", "--batch-spec", str(batch_spec_path), "--root", str(tmp_path)])
+    assert result.exit_code == 0
+    assert "OpenRouter credits remaining: 15.50" in result.output
+    assert "warning" not in result.output
+    assert launched["kwargs"]["credits_preflight"] == preflight
+
+
+def test_cli_run_batch_low_balance_warns_but_launches_by_default(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    preflight = {
+        "status": "ok",
+        "remaining_credits": 0.4,
+        "total_credits": 20.0,
+        "total_usage": 19.6,
+        "detail": None,
+        "checked_at": "2026-07-07T00:00:00+00:00",
+    }
+    runner, batch_spec_path, launched = _cli_credits_fixture(tmp_path, monkeypatch, preflight)
+    result = runner.invoke(
+        app, ["run-batch", "--batch-spec", str(batch_spec_path), "--root", str(tmp_path), "--min-credits", "2.0"]
+    )
+    assert result.exit_code == 0
+    assert "below --min-credits" in result.output
+    assert launched  # warn-only default: the batch still launched
+
+
+def test_cli_run_batch_low_balance_aborts_before_launch_with_flag(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    preflight = {
+        "status": "ok",
+        "remaining_credits": 0.4,
+        "total_credits": 20.0,
+        "total_usage": 19.6,
+        "detail": None,
+        "checked_at": "2026-07-07T00:00:00+00:00",
+    }
+    runner, batch_spec_path, launched = _cli_credits_fixture(tmp_path, monkeypatch, preflight)
+    result = runner.invoke(
+        app,
+        [
+            "run-batch",
+            "--batch-spec",
+            str(batch_spec_path),
+            "--root",
+            str(tmp_path),
+            "--min-credits",
+            "2.0",
+            "--abort-on-low-credits",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "below --min-credits" in result.output
+    assert not launched  # aborted BEFORE any run launched
+
+
+def test_cli_run_batch_unavailable_endpoint_warns_and_continues(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    preflight = {
+        "status": "unavailable",
+        "remaining_credits": None,
+        "total_credits": None,
+        "total_usage": None,
+        "detail": "credits endpoint unreachable: connection refused",
+        "checked_at": "2026-07-07T00:00:00+00:00",
+    }
+    runner, batch_spec_path, launched = _cli_credits_fixture(tmp_path, monkeypatch, preflight)
+    result = runner.invoke(
+        app,
+        ["run-batch", "--batch-spec", str(batch_spec_path), "--root", str(tmp_path), "--abort-on-low-credits"],
+    )
+    assert result.exit_code == 0  # unavailable endpoint never blocks, even with the abort flag
+    assert "unavailable" in result.output
+    assert launched["kwargs"]["credits_preflight"] == preflight

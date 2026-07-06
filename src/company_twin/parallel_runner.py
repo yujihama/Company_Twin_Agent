@@ -55,6 +55,18 @@ concurrency further does not scale linearly and can start trading individual
 run latency for no net throughput gain (or trip hard rate-limit errors that
 surface as ordinary run failures). `run-batch` defaults to `--concurrency 3`
 and prints a warning (not a hard block) when concurrency > 4.
+
+Credits preflight (incident 2026-07-06): an 11-run batch ran the OpenRouter
+account out of credits ~2h in, stalling/failing 8 of 11 runs with 402
+Insufficient credits. The ops-notes rule "キャンペーン前に残高確認" is now
+structural: before launching anything, `run-batch` queries the OpenRouter
+credits endpoint (`check_openrouter_credits`), prints the remaining balance,
+warns -- or aborts with `--abort-on-low-credits` -- when it is below
+`--min-credits`, and records the pre-launch balance in `batch_manifest.json`
+(`credits_preflight`). The check itself never blocks a batch when the
+endpoint is unreachable or returns garbage: an unavailable balance check is a
+warning, not a launch failure, because the endpoint being down says nothing
+about whether the runs would succeed.
 """
 from __future__ import annotations
 
@@ -65,6 +77,8 @@ import shutil
 import subprocess
 import sys
 import time
+import urllib.error
+import urllib.request
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -74,6 +88,13 @@ BATCH_MANIFEST_SCHEMA_VERSION = "company_twin.batch_manifest.v1"
 BATCH_MANIFEST_FILENAME = "batch_manifest.json"
 DEFAULT_CONCURRENCY = 3
 RATE_LIMIT_WARN_THRESHOLD = 4
+
+OPENROUTER_CREDITS_URL = "https://openrouter.ai/api/v1/credits"
+CREDITS_CHECK_TIMEOUT_SECONDS = 10.0
+# Observed cost anchor for sizing --min-credits: one S2 40-tick run has cost
+# ~0.85-1.2 OpenRouter credits (more when the customer seat runs a plus-tier
+# model), so a batch needs roughly 1.2 x len(runs) credits of headroom.
+DEFAULT_MIN_CREDITS = 1.0
 
 _VALID_STAGES = {"s0", "s1", "s2", "control-pair-campaign"}
 
@@ -294,6 +315,76 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _default_credits_http_get(url: str, headers: dict[str, str], timeout: float) -> tuple[int, str]:
+    """GET `url`, returning (status_code, body_text). HTTP errors are returned,
+    not raised, so a 402/500 from the credits endpoint is data, not a crash."""
+    request = urllib.request.Request(url, headers=headers, method="GET")
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            return response.status, response.read().decode("utf-8", errors="replace")
+    except urllib.error.HTTPError as exc:
+        return exc.code, exc.read().decode("utf-8", errors="replace")
+
+
+def check_openrouter_credits(
+    *,
+    api_key: str | None,
+    http_get: Any = None,
+    timeout: float = CREDITS_CHECK_TIMEOUT_SECONDS,
+) -> dict[str, Any]:
+    """Query the OpenRouter credits endpoint and report the remaining balance.
+
+    Added after the 2026-07-06 incident (batch ran out of credits mid-flight,
+    402s failed 8/11 runs). Returns a plain dict so it can be embedded
+    verbatim in batch_manifest.json:
+
+      status: "ok" | "skipped" | "unavailable"
+      remaining_credits / total_credits / total_usage: floats when status=="ok"
+      detail: human-readable reason when status != "ok"
+      checked_at: UTC ISO timestamp
+
+    NEVER raises and never blocks by itself -- "the endpoint is down" must not
+    be able to stop a batch (the caller decides what to do with a low
+    balance). `http_get(url, headers, timeout) -> (status_code, body_text)`
+    defaults to a stdlib urllib GET; tests substitute a stub here so no
+    network call ever happens offline.
+    """
+    checked_at = _now_iso()
+    report: dict[str, Any] = {
+        "status": "unavailable",
+        "remaining_credits": None,
+        "total_credits": None,
+        "total_usage": None,
+        "detail": None,
+        "checked_at": checked_at,
+    }
+    if not api_key:
+        report["status"] = "skipped"
+        report["detail"] = "OPENROUTER_API_KEY is not set; credits preflight skipped"
+        return report
+    http_get = http_get or _default_credits_http_get
+    try:
+        status_code, body = http_get(OPENROUTER_CREDITS_URL, {"Authorization": f"Bearer {api_key}"}, timeout)
+    except Exception as exc:  # noqa: BLE001 -- an unreachable endpoint must warn, never block
+        report["detail"] = f"credits endpoint unreachable: {exc}"
+        return report
+    if status_code != 200:
+        report["detail"] = f"credits endpoint returned HTTP {status_code}"
+        return report
+    try:
+        data = json.loads(body)["data"]
+        total_credits = float(data["total_credits"])
+        total_usage = float(data["total_usage"])
+    except (json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
+        report["detail"] = f"credits endpoint returned an unexpected payload: {exc!r}"
+        return report
+    report["status"] = "ok"
+    report["total_credits"] = total_credits
+    report["total_usage"] = total_usage
+    report["remaining_credits"] = total_credits - total_usage
+    return report
+
+
 def _default_python_cmd(run: RunSpec) -> list[str]:
     return [sys.executable, "-m", "company_twin.cli", *run.build_cli_args()]
 
@@ -305,6 +396,7 @@ def run_batch(
     batch_dir: Path,
     command_builder: Any = None,
     env: dict[str, str] | None = None,
+    credits_preflight: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Execute every run in `spec` under a bounded worker pool.
 
@@ -316,6 +408,10 @@ def run_batch(
     are written. Validation (see `validate_batch_spec`) must already have
     passed -- this function does not re-check run_root existence, so callers
     (the CLI command, tests) call `validate_batch_spec` first every time.
+    `credits_preflight` is the (already-completed) `check_openrouter_credits`
+    report from just before launch; it is recorded verbatim in
+    batch_manifest.json so a post-mortem can see what the balance was when
+    the batch started.
     """
     command_builder = command_builder or _default_python_cmd
     batch_dir.mkdir(parents=True, exist_ok=True)
@@ -381,6 +477,7 @@ def run_batch(
         "stagger_seconds": spec.stagger_seconds,
         "started_at": batch_started_at,
         "ended_at": batch_ended_at,
+        "credits_preflight": credits_preflight,
         "runs": [r.to_dict() for r in ordered],
         "failed_run_ids": [r.run_id for r in ordered if r.status != "succeeded"],
         "passed": not any_failed,
