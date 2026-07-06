@@ -528,15 +528,51 @@ def build_blind_review_packet(
     Scoring keys on item_id within the packet itself, so the neutral ids are
     internally sufficient for score_sme_blind_review()/
     write_sme_blind_review_report().
+
+    Round-9 pooled blind SME review follow-up (data/design/MASTER_DESIGN.md
+    §17.18): `sample_run_bundle_excerpts` only dedupes normalized excerpt
+    content WITHIN one run_root's own candidate list. A pooled panel built
+    from multiple control runs of the same world/seed pairing (e.g. two
+    same-world control bundles doubled into one 78-item panel, per §17.17)
+    can therefore surface the SAME underlying business content twice -- once
+    from each run -- as two separate reviewer-facing items (round 9 found
+    R-026/R-065, verbatim-identical kernel campaign-deadline notices from the
+    two control runs, offset by 39 positions in the pooled packet). A blind
+    reviewer sees two "different" items that are actually the same text,
+    which reads as either a template artifact or silently inflates/deflates
+    the effective panel size depending on how it lands.
+
+    Fixed by deduping normalized excerpt content ACROSS every run_root in one
+    packet build (not just within each run's own excerpt list): a
+    cross-run-duplicate excerpt is skipped entirely (only the first
+    occurrence, from the earliest run_root in `run_roots` order, is kept as a
+    packet item) and the skip is recorded in the id map (never the packet)
+    under ``dropped_items`` with ``reason: "deduped_cross_run"``, referencing
+    both the kept item and the run_root/excerpt_id that was skipped, so the
+    dedup stays fully auditable without leaking into the reviewer-facing
+    packet.
     """
     if reviewer_type not in REVIEWER_TYPES:
         raise ValueError(f"reviewer_type must be one of {REVIEWER_TYPES}, got {reviewer_type!r}")
     items: list[dict[str, Any]] = []
     entries: list[dict[str, Any]] = []
     dropped: list[dict[str, Any]] = []
+    seen_normalized_cross_run: dict[str, str] = {}  # normalized content -> item_id that kept it
     for run_root in run_roots:
         excerpts = sample_run_bundle_excerpts(run_root, limit=samples_per_run)
         for excerpt in excerpts:
+            normalized = _normalize_excerpt_content(excerpt["text"])
+            existing_item_id = seen_normalized_cross_run.get(normalized) if normalized else None
+            if existing_item_id is not None:
+                dropped.append(
+                    {
+                        "run_root": run_root.name,
+                        "excerpt_id": excerpt["excerpt_id"],
+                        "reason": "deduped_cross_run",
+                        "duplicate_of_item_id": existing_item_id,
+                    }
+                )
+                continue
             stripped = strip_experimenter_vocabulary(excerpt["text"])
             if stripped["redactions"]:
                 dropped.append(
@@ -567,6 +603,8 @@ def build_blind_review_packet(
                     "redaction_count": len(stripped["redactions"]),
                 }
             )
+            if normalized:
+                seen_normalized_cross_run[normalized] = item_id
     packet_hash = _json_hash([item["text"] for item in items])
     packet = {
         "schema_version": SME_BLIND_REVIEW_SCHEMA_VERSION,
@@ -860,17 +898,26 @@ def write_sme_blind_review_report(campaign_root: Path) -> dict[str, Any]:
 
     Expert-review hardening (SME gate honesty):
     - sme_blind_review_id_map.json is REQUIRED alongside the packet; this
-      report reads `dropped_count` from it, not from the packet (the packet
+      report reads drop bookkeeping from it, not from the packet (the packet
       never carries drop bookkeeping -- see build_blind_review_packet). A
       missing id map is an honest block, not a silent skip.
-    - Any leaked_vocabulary_redacted drop (dropped_count > 0) counts as an
-      ARTIFACT DETECTION, not an exclusion: it means the world itself leaked
-      experimenter vocabulary into a rendered record, which is a defect to
-      fix in the world (MASTER_DESIGN.md section 17.2's diegetic
+    - Any leaked_vocabulary_redacted drop (leak_dropped_count > 0) counts as
+      an ARTIFACT DETECTION, not an exclusion: it means the world itself
+      leaked experimenter vocabulary into a rendered record, which is a
+      defect to fix in the world (MASTER_DESIGN.md section 17.2's diegetic
       record-quality fix), not something to quietly paper over by dropping
-      the offending excerpt from the packet. dropped_count > 0 therefore
-      fails this report with that stated reason, regardless of how well the
-      remaining (clean) items scored.
+      the offending excerpt from the packet. leak_dropped_count > 0
+      therefore fails this report with that stated reason, regardless of how
+      well the remaining (clean) items scored.
+    - Round-9 pooled blind SME review follow-up (MASTER_DESIGN.md §17.18): a
+      deduped_cross_run drop (build_blind_review_packet skipping a
+      normalized-content duplicate of an already-kept item, sourced from a
+      different run_root in the same pooled packet build) is NOT an
+      artifact detection -- it is expected, benign bookkeeping for a pooled
+      multi-run panel (the same underlying business content can legitimately
+      recur across control runs of the same world/seed pairing). It is
+      counted separately (`deduped_cross_run_count`) and reported, but never
+      gates the pass/fail verdict the way a leak drop does.
     - reviewer_type ("human_sme" | "ai_proxy") is read from the packet and
       carried into the report as claim_level: an ai_proxy pass is labeled
       "internal_calibration" (a self-consistency signal only); a human_sme
@@ -917,7 +964,7 @@ def write_sme_blind_review_report(campaign_root: Path) -> dict[str, Any]:
                     "required_input": "sme_blind_review_id_map.json",
                     "detail": (
                         "sme_blind_review_id_map.json is required alongside the packet -- "
-                        "dropped_count (leaked-vocabulary artifact detections) can only be read from it."
+                        "leak_dropped_count (leaked-vocabulary artifact detections) can only be read from it."
                     ),
                 }
             ],
@@ -926,7 +973,19 @@ def write_sme_blind_review_report(campaign_root: Path) -> dict[str, Any]:
         (campaign_root / "sme_blind_review.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
         return payload
     id_map = json.loads(id_map_path.read_text(encoding="utf-8"))
-    dropped_count = int(id_map.get("dropped_count") or 0)
+    dropped_items = id_map.get("dropped_items") or []
+    leak_dropped_count = sum(1 for item in dropped_items if item.get("reason") == "leaked_vocabulary_redacted")
+    deduped_cross_run_count = sum(1 for item in dropped_items if item.get("reason") == "deduped_cross_run")
+    # Backward compatibility: an id map written before per-reason breakdown
+    # existed (or by any other caller) may only carry the aggregate
+    # dropped_count with no dropped_items reasons. Treat that legacy shape as
+    # entirely leak drops (the strictest interpretation) rather than silently
+    # passing a report that cannot actually tell the two reasons apart.
+    if not dropped_items:
+        legacy_dropped_count = int(id_map.get("dropped_count") or 0)
+        leak_dropped_count = legacy_dropped_count
+        deduped_cross_run_count = 0
+    dropped_count = leak_dropped_count + deduped_cross_run_count
 
     scoring = score_sme_blind_review(packet)
     target = float(packet.get("plausibility_target") or SME_PLAUSIBILITY_TARGET)
@@ -952,7 +1011,7 @@ def write_sme_blind_review_report(campaign_root: Path) -> dict[str, Any]:
         else 1.0
     )
     mechanical_within_tolerance = mechanical_rate <= SME_MECHANICAL_RATE_TOLERANCE
-    no_leak_drops = dropped_count == 0
+    no_leak_drops = leak_dropped_count == 0
     ok = enough_reviewed and mechanical_within_tolerance and no_leak_drops and scoring["plausibility_rate"] >= target
     if not enough_reviewed:
         detail = f"reviewed_count={scoring['reviewed_count']} < min_reviewed_samples={min_samples}"
@@ -965,7 +1024,7 @@ def write_sme_blind_review_report(campaign_root: Path) -> dict[str, Any]:
         )
     elif not no_leak_drops:
         detail = (
-            f"dropped_count={dropped_count} leaked_vocabulary_redacted excerpt(s) detected in "
+            f"leak_dropped_count={leak_dropped_count} leaked_vocabulary_redacted excerpt(s) detected in "
             "sme_blind_review_id_map.json -- this is an artifact detection (the world leaked "
             "experimenter vocabulary into a rendered record); fix the world, not the packet"
         )
@@ -990,7 +1049,14 @@ def write_sme_blind_review_report(campaign_root: Path) -> dict[str, Any]:
             "artificial_marker_category_counts": scoring["artificial_marker_category_counts"],
             "recategorized_count": scoring["recategorized_count"],
             "recategorized_rows": scoring["recategorized_rows"],
+            # Backward-compatible aggregate (historically the only drop
+            # reason was leaked_vocabulary_redacted, so this equaled
+            # leak_dropped_count). Now the sum of both reasons; the gate
+            # itself keys off leak_dropped_count only -- see
+            # deduped_cross_run_count for the benign pooled-panel reason.
             "dropped_count": dropped_count,
+            "leak_dropped_count": leak_dropped_count,
+            "deduped_cross_run_count": deduped_cross_run_count,
             "plausibility_rate": scoring["plausibility_rate"],
             "rows": scoring["rows"],
         }
@@ -1006,7 +1072,8 @@ def write_sme_blind_review_report(campaign_root: Path) -> dict[str, Any]:
         "notes": [
             "Packet items are stripped of experimenter-plane vocabulary before reaching a reviewer (strip_experimenter_vocabulary).",
             "An unfilled or under-filled packet always fails honestly; this report never marks a pass without scored reviewer rows.",
-            "dropped_count > 0 (from sme_blind_review_id_map.json) is an artifact detection, not exclusion bookkeeping: it fails this report because the world itself leaked vocabulary, not because the sample was incomplete.",
+            "leak_dropped_count > 0 (from sme_blind_review_id_map.json, reason=leaked_vocabulary_redacted) is an artifact detection, not exclusion bookkeeping: it fails this report because the world itself leaked vocabulary, not because the sample was incomplete.",
+            "2026-07-06 pooled-panel dedup fix (MASTER_DESIGN.md §17.18): deduped_cross_run_count (reason=deduped_cross_run) counts normalized-content duplicates skipped across run_roots within one packet build -- benign, expected bookkeeping for a pooled multi-run panel, and never fails this report the way a leak drop does.",
             f"reviewer_type={reviewer_type!r} -> claim_level={claim_level!r}: an ai_proxy pass is an internal calibration signal only, never an external human_sme claim.",
             "2026-07-05 approved recalibration (MASTER_DESIGN.md section 17): only a mechanical_generation "
             "artificial-marker flag fails an item/gates the report; design_content/statistical_structure "

@@ -1970,6 +1970,90 @@ def test_build_blind_review_packet_drops_items_with_even_a_single_redaction(tmp_
     assert id_map["dropped_items"][0]["run_root"] == "run_leaky"
 
 
+# ---------------------------------------------------------------------------
+# Round-9 pooled blind SME review follow-up (data/design/MASTER_DESIGN.md
+# §17.18): cross-run normalized-content dedup. A pooled panel built from
+# multiple run_roots (e.g. two same-world control bundles, per §17.17's
+# approved pooled protocol) must never surface the same underlying content
+# twice as two "different" reviewer-facing items just because it happened to
+# be sampled from two different run bundles.
+# ---------------------------------------------------------------------------
+
+
+def test_build_blind_review_packet_dedupes_identical_notice_across_two_run_roots(tmp_path: Path) -> None:
+    # The exact round-9 shape: two control runs of the same world/seed
+    # pairing produce a verbatim-identical kernel campaign-deadline notice
+    # (R-026/R-065 in the round-9 pooled panel, offset by 39 positions).
+    shared_notice = "キャンペーン投信の申込期日は7月10日までです。忘れずにご確認ください。"
+    run_a = tmp_path / "control_run_a"
+    run_a.mkdir(parents=True, exist_ok=True)
+    _write_jsonl(run_a / "chat_channel.jsonl", [{"body": shared_notice}, {"body": "run_aだけにある別件の連絡です。"}])
+    (run_a / "world_ledger.jsonl").write_text("", encoding="utf-8")
+    (run_a / "attempts.jsonl").write_text("", encoding="utf-8")
+
+    run_b = tmp_path / "control_run_b"
+    run_b.mkdir(parents=True, exist_ok=True)
+    _write_jsonl(run_b / "chat_channel.jsonl", [{"body": shared_notice}, {"body": "run_bだけにある別件の連絡です。"}])
+    (run_b / "world_ledger.jsonl").write_text("", encoding="utf-8")
+    (run_b / "attempts.jsonl").write_text("", encoding="utf-8")
+
+    packet, id_map = build_blind_review_packet([run_a, run_b])
+
+    # Only one packet item for the shared notice -- not two.
+    matching_items = [item for item in packet["items"] if shared_notice in item["text"]]
+    assert len(matching_items) == 1
+    kept_item_id = matching_items[0]["item_id"]
+
+    # Both run-unique excerpts still make it into the packet.
+    all_text = " ".join(item["text"] for item in packet["items"])
+    assert "run_aだけにある別件の連絡です。" in all_text
+    assert "run_bだけにある別件の連絡です。" in all_text
+
+    # The skip is recorded in the id map, never in the reviewer-facing packet.
+    assert "deduped_cross_run" not in json.dumps(packet, ensure_ascii=False)
+    dedup_drops = [item for item in id_map["dropped_items"] if item["reason"] == "deduped_cross_run"]
+    assert len(dedup_drops) == 1
+    assert dedup_drops[0]["run_root"] == "control_run_b"
+    assert dedup_drops[0]["duplicate_of_item_id"] == kept_item_id
+    assert id_map["dropped_count"] == 1
+
+
+def test_cross_run_dedup_does_not_fail_the_gate(tmp_path: Path) -> None:
+    # deduped_cross_run is benign, expected pooled-panel bookkeeping -- unlike
+    # a leaked_vocabulary_redacted drop, it must never fail
+    # write_sme_blind_review_report on its own.
+    shared_notice = "キャンペーン投信の申込期日は7月10日までです。忘れずにご確認ください。"
+    run_a = _fixture_run_bundle(tmp_path / "run_a")
+    _write_jsonl(
+        run_a / "chat_channel.jsonl",
+        [
+            {"body": "本日の申込、意向把握のメモが未記入なので確認してもらえますか。"},
+            {"body": "承知しました、確認して午後に折り返します。"},
+            {"body": "顧客への再説明は完了しました、記録も残しています。"},
+            {"body": shared_notice},
+        ],
+    )
+    run_b = tmp_path / "run_b"
+    run_b.mkdir(parents=True, exist_ok=True)
+    _write_jsonl(run_b / "chat_channel.jsonl", [{"body": shared_notice}])
+    (run_b / "world_ledger.jsonl").write_text("", encoding="utf-8")
+    (run_b / "attempts.jsonl").write_text("", encoding="utf-8")
+
+    packet, id_map = build_blind_review_packet([run_a, run_b], samples_per_run=10)
+    assert id_map["dropped_count"] >= 1
+    assert any(item["reason"] == "deduped_cross_run" for item in id_map["dropped_items"])
+    assert not any(item["reason"] == "leaked_vocabulary_redacted" for item in id_map["dropped_items"])
+    for item in packet["items"]:
+        item["response"] = {"plausible_workplace_scene": 5, "internally_consistent": 5, "no_artificial_markers": "no"}
+    write_sme_blind_review_inputs(tmp_path, packet, id_map)
+
+    payload = write_sme_blind_review_report(tmp_path)
+
+    assert payload["passed"] is True
+    assert payload["checks"][0]["leak_dropped_count"] == 0
+    assert payload["checks"][0]["deduped_cross_run_count"] >= 1
+
+
 def test_sme_blind_review_report_blocked_when_inputs_missing(tmp_path: Path) -> None:
     payload = write_sme_blind_review_report(tmp_path)
 
@@ -2299,9 +2383,11 @@ def test_sme_blind_review_report_fails_when_dropped_count_positive(tmp_path: Pat
 
     assert payload["passed"] is False
     assert payload["status"] == "blocked"
-    assert "dropped_count=1" in payload["checks"][0]["detail"]
+    assert "leak_dropped_count=1" in payload["checks"][0]["detail"]
     assert "artifact detection" in payload["checks"][0]["detail"]
     assert payload["checks"][0]["dropped_count"] == 1
+    assert payload["checks"][0]["leak_dropped_count"] == 1
+    assert payload["checks"][0]["deduped_cross_run_count"] == 0
 
 
 def test_sme_blind_review_report_labels_ai_proxy_as_internal_calibration(tmp_path: Path) -> None:
