@@ -662,3 +662,159 @@ def detect_non_japanese_tokens(text: str) -> list[str]:
         if word not in hits:
             hits.append(word)
     return hits
+
+
+# ---------------------------------------------------------------------------
+# Round-7 blind SME review follow-up (data/design/MASTER_DESIGN.md §17.14):
+# customer-output glitch guard.
+#
+# Round 7 flagged three mechanical_generation items. Two are genuine
+# stochastic glitches in the customer-facing LLM output, distinct in kind from
+# the language-mixing artifacts §17.5/§17.8 already guard against:
+#
+#   R-037: a repeated contiguous fragment (the same clause emitted twice in
+#     one utterance) plus a truncated tail (the utterance simply stops
+#     mid-clause with no sentence-final punctuation).
+#   R-038: outright corrupted text ("進めてよかまだ") -- not a real Japanese
+#     conjugation, reading as a dropped/garbled token sequence.
+#
+# (The third flag, R-008's "乗換保険", is a miscategorized FROZEN-CORPUS
+# product term, not a generation artifact at all -- that is fixed at the
+# scoring layer, sme_blind_review.py §17.14, never here: this module's job is
+# only to catch genuine customer-output glitches before they reach the world.)
+#
+# This extends the same guard shape as §17.5/§17.8 (detect deterministically,
+# retry once via agents.DeepAgentCustomer, keep honestly if still flagged) and
+# applies to the CUSTOMER path only -- seat-authored text is the measurement
+# subject and must never be filtered or retried on this basis.
+#
+# Detectors added below are deliberately conservative (false-positive retries
+# are cheap, but a detector that fires on ordinary fluent Japanese would churn
+# the customer LLM for no reason):
+#
+#   - detect_repeated_fragment: reuses the tests' `_has_repeated_run` pattern
+#     (any contiguous run of >= ~20 chars occurring twice in the text) --
+#     genuine duplicated-fragment generation artifacts reliably produce a much
+#     longer repeated run than any real recurring Japanese boilerplate
+#     (particle chains/closings top out well under 20 chars; see
+#     customer_agent._longest_substantive_common_run_len's docstring for the
+#     same observation in a different guard).
+#   - detect_broken_tail: "broken/truncated tail" in full generality (an
+#     utterance that trails off mid-word, or contains an impossible
+#     conjugation) is not a tractable deterministic check -- there is no
+#     grammar engine here. The tractable subset implemented is: (a) missing
+#     sentence-final punctuation at the very end AND the last clause is
+#     shorter than a small threshold (a genuinely truncated generation stops
+#     abruptly after only a few characters of its final clause; a merely
+#     terminal-punctuation-optional but otherwise complete-length clause is
+#     not flagged, keeping this conservative), OR (b) an obviously-corrupt
+#     pattern: the same character repeated 4+ times in a row (never occurs in
+#     natural Japanese business speech), or an isolated single-hiragana
+#     clause (a clause of length 1 between separators, which cannot stand on
+#     its own as a natural utterance fragment -- e.g. R-038's trailing "た"-
+#     like debris).
+#
+# Both detectors are pure/deterministic and return `False`/`[]` on ordinary
+# fluent text; see tests/test_customer_glitch_guard.py for the exact
+# unaffected-by-real-utterances regression coverage.
+# ---------------------------------------------------------------------------
+
+_SENTENCE_FINAL_PUNCTUATION: tuple[str, ...] = ("。", "！", "？", "」", "…", "!", "?")
+
+# A genuinely truncated generation stops abruptly after only a short final
+# clause; a longer trailing clause without terminal punctuation is far more
+# likely to be an ordinary (if slightly informal) utterance, so is not
+# flagged -- keeping this conservative per the task's instruction that
+# false-positive retries should not churn.
+_TRUNCATED_TAIL_MAX_CLAUSE_LEN = 12
+
+_CLAUSE_SPLIT_PATTERN = re.compile(r"[。、！？」…]")
+
+# Same character repeated 4+ times in a row: never occurs in natural Japanese
+# business speech, and is a common shape for corrupted/garbled generation
+# output.
+_REPEATED_CHAR_PATTERN = re.compile(r"(.)\1{3,}")
+
+
+def _has_repeated_run(text: str, run_len: int = 20) -> bool:
+    """True if any contiguous substring of length `run_len` occurs more than
+    once in `text`.
+
+    Adapted from the test-side `_has_repeated_run` pattern already used for
+    the situational-cue duplication regression guard
+    (tests/test_probe_stimulus_delivery.py), lowered from 30 to ~20 chars
+    here: a cue-duplication regression test compares two long, largely
+    overlapping renderings of the *same* designed sentence (so 30 chars is
+    still comfortably conservative there), whereas a round-7-style repeated
+    *fragment* artifact can be a shorter clause repeated verbatim. 20 chars
+    remains well above any ordinary shared Japanese boilerplate (particle
+    chains, closings), so this stays a conservative, low-false-positive
+    signal specifically for genuine duplicated-generation text.
+    """
+    if len(text) < run_len * 2:
+        return False
+    seen: set[str] = set()
+    for start in range(len(text) - run_len + 1):
+        window = text[start : start + run_len]
+        if window in seen:
+            return True
+        seen.add(window)
+    return False
+
+
+def detect_repeated_fragment(text: str) -> bool:
+    """True when `text` contains a repeated contiguous run of >= ~20 chars.
+
+    A deterministic, generic "this reads like duplicated text" detector --
+    does not depend on knowing which phrase might repeat. See the module
+    comment above for the round-7 (R-037) motivation.
+    """
+    return _has_repeated_run(text)
+
+
+def _clauses(text: str) -> list[str]:
+    return [clause.strip() for clause in _CLAUSE_SPLIT_PATTERN.split(text) if clause.strip()]
+
+
+def detect_broken_tail(text: str) -> bool:
+    """True when `text` shows the tractable subset of "broken/truncated
+    tail": either (a) it ends without sentence-final punctuation AND its last
+    clause is short (a genuinely truncated generation stops abruptly after
+    only a short final clause), or (b) it contains an obviously-corrupt
+    pattern -- the same character repeated 4+ times in a row, or an isolated
+    single-hiragana clause (a one-character clause cannot stand alone as a
+    natural utterance fragment).
+
+    Deliberately conservative: a long trailing clause with no terminal
+    punctuation is not flagged (informal-but-complete phrasing is common and
+    should not churn a retry), and full grammatical validation ("impossible
+    conjugation") is out of scope -- see the module comment above.
+    """
+    stripped = text.strip()
+    if not stripped:
+        return False
+    if _REPEATED_CHAR_PATTERN.search(stripped):
+        return True
+    clauses = _clauses(stripped)
+    if any(len(clause) == 1 and _is_hiragana_char(clause) for clause in clauses):
+        return True
+    if not stripped.endswith(_SENTENCE_FINAL_PUNCTUATION):
+        last_clause = clauses[-1] if clauses else stripped
+        if len(last_clause) < _TRUNCATED_TAIL_MAX_CLAUSE_LEN:
+            return True
+    return False
+
+
+def detect_customer_output_glitch(text: str) -> list[str]:
+    """Return the distinct glitch signals found in a customer utterance, if
+    any. Empty list means "nothing detected" -- a safety-net lint, not proof
+    of a well-formed utterance. Mirrors `detect_non_japanese_tokens`'s
+    empty-list-means-clean contract so `agents.DeepAgentCustomer` can wire
+    both guards through the same retry shape.
+    """
+    hits: list[str] = []
+    if detect_repeated_fragment(text):
+        hits.append("repeated_fragment")
+    if detect_broken_tail(text):
+        hits.append("broken_tail")
+    return hits

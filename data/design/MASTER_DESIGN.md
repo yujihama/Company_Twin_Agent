@@ -1390,6 +1390,88 @@ have) -- becomes an explicit experimental variable in phase 3, exactly as
 folded into the D1-D5 condition series (§8.3) by this PR; that remains a
 phase-3 design decision.
 
+### 17.14 Round-7 blind SME review: customer-output glitch guard + frozen-corpus-term recategorization (approved by project owner 2026-07-06)
+
+**Round 7 result.** Plausibility 0.846 (>= 0.8 target), zero vocabulary
+drops. Three `mechanical_generation` flags blocked the gate:
+
+- **R-008**: the product name "乗換保険" flagged as a machine-generation
+  artifact.
+- **R-037**: a repeated fragment (the same clause emitted twice in one
+  utterance) plus a truncated tail.
+- **R-038**: broken/corrupted text ("進めてよかまだ").
+
+The project owner approved both fixes below as one PR, 2026-07-06.
+
+**(1) Customer-output glitch guard (extends §17.5/§17.8, customer path
+ONLY).** R-037/R-038 are genuine stochastic customer-LLM glitches, distinct
+in kind from the language-mixing artifacts §17.5/§17.8 already guard
+against. Fixed by extending the exact same guard shape (detect
+deterministically in `customer_agent`, retry once through
+`agents.DeepAgentCustomer.__call__`'s ordinary `llm_invoke`/`llm_response`
+recording path, keep the text honestly if still flagged after one retry --
+never a silent rewrite):
+
+- `customer_agent.detect_repeated_fragment`: a repeated contiguous run of
+  >= ~20 chars within one utterance, adapted from the
+  `tests/test_probe_stimulus_delivery.py` `_has_repeated_run` test-util
+  pattern (the situational-cue duplication regression guard already used
+  the same "longest-repeated-contiguous-run" shape; lowered here from 30 to
+  ~20 chars since a duplicated fragment can be a shorter clause than the
+  full designed-cue comparison that guard runs on -- still comfortably
+  above any ordinary shared Japanese boilerplate).
+- `customer_agent.detect_broken_tail`: full "broken/truncated tail" or
+  "impossible conjugation" detection is not tractable without a grammar
+  engine, so only the tractable subset is implemented: (a) the utterance
+  ends without sentence-final punctuation (`。！？」…` etc.) AND its last
+  clause is short (a genuinely truncated generation stops abruptly after
+  only a short final clause -- a long trailing clause without terminal
+  punctuation is NOT flagged, keeping this conservative per the
+  false-positive-retries-are-cheap-but-shouldn't-churn requirement), or (b)
+  an obviously-corrupt pattern: the same character repeated 4+ times in a
+  row, or an isolated single-hiragana clause (a one-character clause
+  cannot stand alone as a natural utterance fragment -- covers R-038's
+  shape).
+
+Both detectors return empty/false on ordinary fluent Japanese (see
+`tests/test_customer_glitch_guard.py` for the unaffected-by-real-utterances
+regression coverage) and apply to the CUSTOMER path only -- seat-authored
+text is the measurement subject and must never be filtered or retried on
+this basis.
+
+**(2) Frozen-corpus-term recategorization in SME scoring (APPROVED
+gate-semantics fix; zero-mechanical-flags requirement UNCHANGED).** R-008's
+"乗換保険" is not a generation artifact: it is the frozen-corpus product name
+for probe P-03 (`deck.py`'s `PROBE_ROUTES["P-03"]["product"]`,
+`data/compiled_data/world_config_v2.yaml`'s "P-03 乗換保険(期限W2金)", and
+`data/compiled_data/deck_v2.json`), already documented in §17.6 as
+"frozen-corpus naming (e.g. 乗換保険)" -- the corpus document set is frozen
+for comparability across calibration rounds, so this name cannot be renamed
+away. Flagging it as `mechanical_generation` is a gate-semantics
+miscategorization (it is really the `design_content` kind §17.6 already
+carves out), not a genuine machine-generation defect.
+
+`sme_blind_review.py` gained `FROZEN_CORPUS_TERMS = ("乗換保険",)` (a tuple,
+structured for future additions) and a response `note` field (optional free
+text). `score_sme_blind_review` now recategorizes a `mechanical_generation`
+flag to `design_content` for counting purposes when, and only when: (i) a
+listed term actually appears in the item's own text (never recategorize on
+the reviewer's say-so alone), (ii) the reviewer's `note` references that
+same term, and (iii) the note cites no other basis (duplication, broken
+text, system vocabulary) -- if it does, that other basis stands and the
+item is left `mechanical_generation`. Each recategorization is recorded
+per-row (`recategorized_from: "mechanical_generation"`,
+`recategorization_basis: "frozen_corpus_term:乗換保険"`) and surfaced in
+`write_sme_blind_review_report`'s `checks[0].recategorized_count`/
+`recategorized_rows` (also present in `scoring`), so the transparency is
+machine-visible rather than a silent count adjustment. This is strictly a
+categorization-correctness fix, not a threshold change: the gate is still
+`mechanical_generation_flag_count == 0` (unchanged from §17.6), a mixed-basis
+note still fails the gate, and any other true `mechanical_generation` flag
+elsewhere in the packet still blocks the report. See
+`tests/test_sme_round7_fixes.py` for term-only/mixed-basis/report-surfacing/
+still-fails-on-true-mechanical-flag coverage.
+
 ## 18. WP-12 parallel world-run executor (並列実行、2026-07-05)
 
 Phase-3 experiments run batches of independent S0/S1/S2/control-pair worlds
