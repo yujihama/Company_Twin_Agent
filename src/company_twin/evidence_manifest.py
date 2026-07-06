@@ -23,10 +23,21 @@ than silently averaged away or hidden -- see MASTER_DESIGN.md section 17.3.
 same provenance fields from the *current* report files and requires them to
 match what the manifest recorded; a mismatch or a missing manifest means the
 overall gate cannot reach 10/10.
+
+Package-origin provenance (2026-07-06 incident): a stray `pip install -e`
+from an agent worktree silently repointed the editable install, so
+`python -m company_twin.cli` executed from the MAIN checkout ran code from a
+frozen worktree while this manifest attributed artifacts to the main
+checkout's commit. The manifest therefore records the RESOLVED package origin
+(`Path(company_twin.__file__).parent`), the git commit of THAT directory's
+repo, and a `package_origin_matches_cwd_repo` boolean; the readiness check
+fails whenever the executing package does not belong to the campaign's repo
+checkout or the two commits differ.
 """
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -54,19 +65,88 @@ def _git_commit(root: Path) -> str:
     it is recorded as "unknown" instead, which downstream consistency checks
     treat as a (visible) provenance gap rather than a crash.
     """
+    return _git_output(root, "rev-parse", "HEAD")
+
+
+def _git_toplevel(root: Path) -> str:
+    """Best-effort worktree top-level directory of the repo containing `root`.
+
+    Distinct git worktrees of the same repository report DIFFERENT top-level
+    paths, which is exactly what makes this usable for detecting a package
+    executing out of a frozen agent worktree while the operator works in the
+    main checkout. Returns "unknown" (never raises) outside a repo.
+    """
+    out = _git_output(root, "rev-parse", "--show-toplevel")
+    if out == "unknown":
+        return out
+    try:
+        return str(Path(out).resolve())
+    except OSError:
+        return out
+
+
+def _git_output(root: Path, *args: str) -> str:
     try:
         result = subprocess.run(
-            ["git", "rev-parse", "HEAD"],
+            ["git", *args],
             cwd=str(root),
             capture_output=True,
             text=True,
             timeout=10,
             check=False,
         )
-        commit = result.stdout.strip()
-        return commit if result.returncode == 0 and commit else "unknown"
+        out = result.stdout.strip()
+        return out if result.returncode == 0 and out else "unknown"
     except (OSError, subprocess.SubprocessError):
         return "unknown"
+
+
+def _package_dir() -> Path:
+    """Resolved directory of the company_twin package that is ACTUALLY
+    executing -- which, after a stray `pip install -e` from another worktree,
+    is not necessarily under the repo checkout the operator is working in."""
+    import company_twin
+
+    return Path(company_twin.__file__).resolve().parent
+
+
+def _same_path(a: str, b: str) -> bool:
+    return os.path.normcase(a) == os.path.normcase(b)
+
+
+def resolve_package_provenance(*, cwd: Path | None = None) -> dict[str, Any]:
+    """Bind the executing package to its true git origin (2026-07-06 incident).
+
+    Records where `import company_twin` actually resolved to, the git commit
+    of THAT directory's repo, and the same pair for the operator-side repo
+    checkout (`cwd` -- the campaign's repo checkout the command was run
+    from). `package_origin_matches_cwd_repo` is True only when both sides are
+    known, share the same worktree top-level, and are at the same commit; any
+    "unknown" (git unavailable, package outside a repo) is a visible
+    provenance gap and reports False rather than guessing.
+    """
+    package_dir = _package_dir()
+    cwd_dir = (cwd or Path.cwd()).resolve()
+    package_repo_root = _git_toplevel(package_dir)
+    package_git_commit = _git_commit(package_dir)
+    cwd_repo_root = _git_toplevel(cwd_dir)
+    cwd_git_commit = _git_commit(cwd_dir)
+    matches = (
+        package_repo_root != "unknown"
+        and cwd_repo_root != "unknown"
+        and _same_path(package_repo_root, cwd_repo_root)
+        and package_git_commit != "unknown"
+        and package_git_commit == cwd_git_commit
+    )
+    return {
+        "package_dir": str(package_dir),
+        "package_repo_root": package_repo_root,
+        "package_git_commit": package_git_commit,
+        "cwd": str(cwd_dir),
+        "cwd_repo_root": cwd_repo_root,
+        "cwd_git_commit": cwd_git_commit,
+        "package_origin_matches_cwd_repo": matches,
+    }
 
 
 def _meta_timing(run_root: Path) -> dict[str, Any]:
@@ -232,7 +312,12 @@ def build_stage9_evidence_manifest(campaign_root: Path, *, command_line: list[st
     fabricated.
     """
     campaign_root = campaign_root.resolve()
-    root_for_git = (code_root or Path(__file__).resolve().parents[2])
+    # code_root anchors the OPERATOR side of the provenance comparison (the
+    # campaign's repo checkout the command was launched from). It must NOT be
+    # derived from __file__ -- that is the package side, and deriving both
+    # sides from the same place is exactly the blindness that let the
+    # 2026-07-06 stale-editable-install incident mis-attribute commits.
+    package_provenance = resolve_package_provenance(cwd=code_root)
 
     backcasting = _backcasting_evidence(campaign_root)
     sme = _sme_evidence(campaign_root)
@@ -273,7 +358,11 @@ def build_stage9_evidence_manifest(campaign_root: Path, *, command_line: list[st
         "schema_version": EVIDENCE_MANIFEST_SCHEMA_VERSION,
         "kind": "stage9_evidence_manifest",
         "campaign_root": str(campaign_root),
-        "git_commit": _git_commit(root_for_git),
+        # git_commit is the commit of the repo the EXECUTING package belongs
+        # to (not whatever repo the CWD happens to be in): artifacts must be
+        # attributed to the code that actually produced them.
+        "git_commit": package_provenance["package_git_commit"],
+        "package_provenance": package_provenance,
         "command_line": list(command_line) if command_line is not None else list(sys.argv),
         "evidence": {
             "backcasting": {**backcasting, "run_root_details": backcasting_run_root_details},
@@ -362,8 +451,15 @@ def check_manifest_consistency(campaign_root: Path) -> dict[str, Any]:
     and compare them against what stage9_evidence_manifest.json recorded.
 
     Returns a dict with `passed` (manifest exists AND every checked field
-    matches) and `mismatches` (a list of human-readable field diffs). This is
-    a pure read-only comparison; it never rewrites the manifest.
+    matches AND the executing package belongs to the campaign's repo
+    checkout) and `mismatches` (a list of human-readable field diffs). This
+    is a pure read-only comparison; it never rewrites the manifest.
+
+    The package-origin condition (2026-07-06 stale-editable-install
+    incident): when `import company_twin` resolves outside the repo checkout
+    this check is running from -- or to a different commit -- every
+    provenance claim this process could make is suspect, so the check fails
+    regardless of how well the manifest matches the report files.
     """
     campaign_root = campaign_root.resolve()
     manifest_path = campaign_root / EVIDENCE_MANIFEST_FILENAME
@@ -379,6 +475,16 @@ def check_manifest_consistency(campaign_root: Path) -> dict[str, Any]:
         }
     current = build_stage9_evidence_manifest(campaign_root)
     mismatches: list[str] = []
+    package_provenance = current.get("package_provenance") or {}
+    if not package_provenance.get("package_origin_matches_cwd_repo"):
+        mismatches.append(
+            "package_provenance: executing package at "
+            f"{package_provenance.get('package_dir')!r} (repo {package_provenance.get('package_repo_root')!r}, "
+            f"commit {package_provenance.get('package_git_commit')!r}) does not belong to the campaign's repo "
+            f"checkout (cwd repo {package_provenance.get('cwd_repo_root')!r}, commit "
+            f"{package_provenance.get('cwd_git_commit')!r}) -- stale editable install? "
+            "Re-run `pip install -e .` from the intended checkout."
+        )
     recorded_evidence = recorded.get("evidence") or {}
     current_evidence = current.get("evidence") or {}
     for evidence_class, fields in _CONSISTENCY_FIELDS.items():
@@ -401,5 +507,6 @@ def check_manifest_consistency(campaign_root: Path) -> dict[str, Any]:
         "manifest_present": True,
         "mismatches": mismatches,
         "world_versions": current.get("world_versions"),
+        "package_provenance": package_provenance,
         "detail": "" if ok else f"{len(mismatches)} field mismatch(es) between manifest and current report files: {mismatches}",
     }

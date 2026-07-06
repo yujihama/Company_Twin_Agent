@@ -16,11 +16,13 @@ from company_twin.backcasting import extract_backcasting_cases, write_backcastin
 from company_twin.backcasting_run import BACKCASTING_RESULTS_SCHEMA_VERSION, JUDGE_PROMPT_VERSION, select_backcasting_sample
 from company_twin.cli import app
 from company_twin.design_loader import load_design
+from company_twin import evidence_manifest as evidence_manifest_module
 from company_twin.evidence_manifest import (
     EVIDENCE_MANIFEST_FILENAME,
     EVIDENCE_MANIFEST_SCHEMA_VERSION,
     build_stage9_evidence_manifest,
     check_manifest_consistency,
+    resolve_package_provenance,
     write_stage9_evidence_manifest,
 )
 from company_twin.holdout import build_holdout_injection_plan, write_holdout_inputs, write_holdout_report
@@ -496,8 +498,141 @@ def load_mutation_catalog_spec(mutation_id: str) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
+# package-origin provenance (2026-07-06 stale-editable-install incident):
+# a `pip install -e` run from a frozen agent worktree repointed the editable
+# install, so the MAIN checkout silently executed stale code while the
+# manifest attributed artifacts to the main checkout's commit.
+# ---------------------------------------------------------------------------
+
+
+def test_build_manifest_records_package_provenance(tmp_path: Path) -> None:
+    manifest = build_stage9_evidence_manifest(tmp_path)
+
+    provenance = manifest["package_provenance"]
+    assert Path(provenance["package_dir"]).name == "company_twin"
+    # git_commit must be attributed to the repo of the EXECUTING package,
+    # never to whatever repo the CWD happens to be in.
+    assert manifest["git_commit"] == provenance["package_git_commit"]
+    assert isinstance(provenance["package_origin_matches_cwd_repo"], bool)
+    # The test suite imports company_twin from this checkout's src/ (pytest
+    # pythonpath) and runs from the same checkout, so origin must match here.
+    assert provenance["package_origin_matches_cwd_repo"] is True
+
+
+def test_package_provenance_mismatch_when_package_outside_any_repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    stale_pkg = tmp_path / "frozen_worktree" / "src" / "company_twin"
+    stale_pkg.mkdir(parents=True)
+    monkeypatch.setattr(evidence_manifest_module, "_package_dir", lambda: stale_pkg)
+
+    provenance = resolve_package_provenance()
+
+    assert provenance["package_dir"] == str(stale_pkg)
+    assert provenance["package_repo_root"] == "unknown"
+    assert provenance["package_origin_matches_cwd_repo"] is False
+
+
+def test_package_provenance_mismatch_when_repo_roots_differ(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    stale_pkg = tmp_path / "frozen_worktree" / "src" / "company_twin"
+    stale_pkg.mkdir(parents=True)
+    monkeypatch.setattr(evidence_manifest_module, "_package_dir", lambda: stale_pkg)
+    monkeypatch.setattr(
+        evidence_manifest_module,
+        "_git_toplevel",
+        lambda root: "/repos/frozen_worktree" if root == stale_pkg else "/repos/main",
+    )
+    monkeypatch.setattr(evidence_manifest_module, "_git_commit", lambda root: "abc123")
+
+    provenance = resolve_package_provenance(cwd=tmp_path)
+
+    assert provenance["package_origin_matches_cwd_repo"] is False
+
+
+def test_package_provenance_mismatch_when_commits_differ(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    stale_pkg = tmp_path / "frozen_worktree" / "src" / "company_twin"
+    stale_pkg.mkdir(parents=True)
+    monkeypatch.setattr(evidence_manifest_module, "_package_dir", lambda: stale_pkg)
+    monkeypatch.setattr(evidence_manifest_module, "_git_toplevel", lambda root: "/repos/main")
+    monkeypatch.setattr(
+        evidence_manifest_module,
+        "_git_commit",
+        lambda root: "stale-commit" if root == stale_pkg else "current-commit",
+    )
+
+    provenance = resolve_package_provenance(cwd=tmp_path)
+
+    assert provenance["package_origin_matches_cwd_repo"] is False
+
+
+def test_package_provenance_matches_when_same_repo_and_commit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    pkg = tmp_path / "checkout" / "src" / "company_twin"
+    pkg.mkdir(parents=True)
+    monkeypatch.setattr(evidence_manifest_module, "_package_dir", lambda: pkg)
+    monkeypatch.setattr(evidence_manifest_module, "_git_toplevel", lambda root: "/repos/main")
+    monkeypatch.setattr(evidence_manifest_module, "_git_commit", lambda root: "abc123")
+
+    provenance = resolve_package_provenance(cwd=tmp_path)
+
+    assert provenance["package_origin_matches_cwd_repo"] is True
+
+
+def test_check_manifest_consistency_fails_on_stale_package_origin(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """An otherwise perfectly consistent manifest must NOT pass while the
+    executing package does not belong to this repo checkout: every provenance
+    claim the process makes would be attributed to the wrong code."""
+    write_stage9_evidence_manifest(tmp_path)
+    assert check_manifest_consistency(tmp_path)["passed"] is True
+
+    stale_pkg = tmp_path / "frozen_worktree" / "src" / "company_twin"
+    stale_pkg.mkdir(parents=True)
+    monkeypatch.setattr(evidence_manifest_module, "_package_dir", lambda: stale_pkg)
+
+    result = check_manifest_consistency(tmp_path)
+
+    assert result["passed"] is False
+    assert any("package_provenance" in m for m in result["mismatches"])
+    assert result["package_provenance"]["package_origin_matches_cwd_repo"] is False
+
+
+def test_readiness_manifest_check_fails_on_stale_package_origin(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _write_backcasting_evidence(tmp_path)
+    write_stage9_evidence_manifest(tmp_path)
+
+    stale_pkg = tmp_path / "frozen_worktree" / "src" / "company_twin"
+    stale_pkg.mkdir(parents=True)
+    monkeypatch.setattr(evidence_manifest_module, "_package_dir", lambda: stale_pkg)
+
+    gate = run_readiness_gate(tmp_path)
+
+    manifest_check = next(check for check in gate["checks"] if check["check"] == "stage9_evidence_manifest_consistent")
+    assert manifest_check["passed"] is False
+    assert manifest_check["package_provenance"]["package_origin_matches_cwd_repo"] is False
+    assert gate["passed"] is False
+
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
+
+
+def _combined_output(result: Any) -> str:
+    combined = result.output
+    try:
+        combined += result.stderr
+    except (ValueError, AttributeError):
+        pass  # stderr mixed into output (older click) or not captured
+    return combined
+
+
+def test_readiness_cli_prints_provenance_banner(tmp_path: Path) -> None:
+    runner = CliRunner()
+
+    result = runner.invoke(app, ["readiness", "--campaign-root", str(tmp_path)])
+
+    # Empty campaign root -> the gate honestly fails (exit 1), but the
+    # provenance banner must have been printed regardless.
+    assert result.exit_code == 1
+    assert "[provenance]" in _combined_output(result)
+    assert "package_origin_matches_cwd_repo=" in _combined_output(result)
 
 
 def test_stage9_evidence_manifest_cli_writes_manifest_file(tmp_path: Path) -> None:

@@ -79,9 +79,13 @@ def run_readiness_gate(campaign_root: Path, *, semantic_threshold: float = 0.8) 
 def _stage9_evidence_manifest_check(campaign_root: Path) -> dict[str, Any]:
     """Manifest must exist AND its recorded values must match the current
     report files (packet_hash vs SME inputs, plan_hash vs holdout_inputs,
-    sample seed/hash vs backcasting results, judge fields vs g3 files).
-    Mismatch or absence -> the overall gate cannot reach 10/10 (11/11
-    including this check)."""
+    sample seed/hash vs backcasting results, judge fields vs g3 files) AND
+    the executing company_twin package must belong to this repo checkout at
+    the same commit (package_origin_matches_cwd_repo -- guards against the
+    2026-07-06 stale-editable-install incident, where a `pip install -e`
+    from a frozen agent worktree made `python -m company_twin.cli` in the
+    main checkout silently execute stale code). Mismatch or absence -> the
+    overall gate cannot reach 10/10 (11/11 including this check)."""
     from .evidence_manifest import check_manifest_consistency
 
     result = check_manifest_consistency(campaign_root)
@@ -92,6 +96,7 @@ def _stage9_evidence_manifest_check(campaign_root: Path) -> dict[str, Any]:
         "manifest_present": result.get("manifest_present"),
         "mismatches": result.get("mismatches"),
         "world_versions": result.get("world_versions"),
+        "package_provenance": result.get("package_provenance"),
     }
 
 
