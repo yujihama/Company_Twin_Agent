@@ -2098,7 +2098,10 @@ def test_sme_blind_review_report_fails_on_artificial_marker_flag(tmp_path: Path)
     payload = write_sme_blind_review_report(tmp_path)
 
     assert payload["passed"] is False
-    assert "artificial_marker_flag_count" in payload["checks"][0]["detail"]
+    # Approval #9 (MASTER_DESIGN.md §17.20): the detail string now names the
+    # routine-panel basis the verdict is actually computed over.
+    assert "routine_panel" in payload["checks"][0]["detail"]
+    assert "artificial_marker_category_counts" in payload["checks"][0]["detail"]
 
 
 # ---------------------------------------------------------------------------

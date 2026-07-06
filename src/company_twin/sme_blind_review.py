@@ -192,18 +192,27 @@ def sample_run_bundle_excerpts(run_root: Path, *, limit: int = 10) -> list[dict[
     candidates: list[dict[str, Any]] = []
     seen_normalized: set[str] = set()
 
-    def _try_stage(kind: str, text: str, *, linked_event_id: str | None) -> None:
+    def _try_stage(kind: str, text: str, *, linked_event_id: str | None, probe_derived: bool | None) -> None:
         normalized = _normalize_excerpt_content(text)
         if not normalized or normalized in seen_normalized:
             return
         seen_normalized.add(normalized)
-        candidates.append({"kind": kind, "text": text, "linked_event_id": linked_event_id})
+        candidates.append(
+            {"kind": kind, "text": text, "linked_event_id": linked_event_id, "probe_derived": probe_derived}
+        )
 
     for row in chat_rows:
         body = str(row.get("body") or "").strip()
         if not body:
             continue
-        _try_stage("chat_message", body, linked_event_id=None)
+        # A raw chat_channel.jsonl row carries no event_id/application_id
+        # linkage back to a CustomerEvent at all (see
+        # kernel.INBOX_ALLOWED_KEYS["chat"] / recorder.record_chat) -- there
+        # is nothing here to classify against, so it is `unclassified`
+        # (None), never defaulted to False. See _probe_linkage_from_payload's
+        # docstring for why "cannot be determined" must never mean "assumed
+        # routine".
+        _try_stage("chat_message", body, linked_event_id=None, probe_derived=None)
     for row in ledger_rows:
         event_type = str(row.get("event_type") or "")
         phrasing = _LEDGER_EVENT_PHRASING.get(event_type)
@@ -213,7 +222,12 @@ def sample_run_bundle_excerpts(run_root: Path, *, limit: int = 10) -> list[dict[
         summary = _summarize_ledger_payload(event_type, phrasing, payload)
         if not summary:
             continue
-        _try_stage("business_event", summary, linked_event_id=_linked_customer_event_id(event_type, payload))
+        _try_stage(
+            "business_event",
+            summary,
+            linked_event_id=_linked_customer_event_id(event_type, payload),
+            probe_derived=_probe_linkage_from_payload(event_type, payload),
+        )
 
     excerpts: list[dict[str, Any]] = []
     used_event_ids: set[str] = set()
@@ -243,7 +257,17 @@ def sample_run_bundle_excerpts(run_root: Path, *, limit: int = 10) -> list[dict[
             used_event_ids.add(linked_event_id)
         excerpts.append(candidate)
     return [
-        {"excerpt_id": f"{'chat' if item['kind'] == 'chat_message' else 'ledger'}_{idx}", "kind": item["kind"], "text": item["text"]}
+        {
+            "excerpt_id": f"{'chat' if item['kind'] == 'chat_message' else 'ledger'}_{idx}",
+            "kind": item["kind"],
+            "text": item["text"],
+            # probe_derived is experimenter-side classification metadata only
+            # -- it rides along on the excerpt dict returned by this function
+            # so build_blind_review_packet can record it in the id map, but
+            # it must never reach a reviewer-facing packet item (see
+            # build_blind_review_packet's docstring / SME-gate §17.20).
+            "probe_derived": item["probe_derived"],
+        }
         for idx, item in enumerate(excerpts)
     ]
 
@@ -266,6 +290,68 @@ def _linked_customer_event_id(event_type: str, payload: dict[str, Any]) -> str |
             event_id = str(nested.get("event_id") or "").strip()
             return event_id or None
     return None
+
+
+# ---------------------------------------------------------------------------
+# SME-gate routine/probe split (approval #9, MASTER_DESIGN.md §17.20):
+# build-time probe-linkage tagging.
+#
+# The gate metrics (plausibility_rate / mechanical_generation rate) are
+# computed over ROUTINE-case records only -- a probe scenario (P-01..P-10,
+# deck.py's PROBE_ROUTES) is a deliberately designed, atypical test case by
+# construction (see FROZEN_CORPUS_TERMS / §17.14's "design_content" carve-
+# out); the gate question is "does an ORDINARY record read as plausible",
+# and an unnoticeable probe probes nothing. Probe-derived excerpts are still
+# reported IN FULL (never hidden) in a separate `probe_panel` section --
+# hiding them would defeat the purpose of running probes at all.
+#
+# Linkage is read from the SOURCE ledger row's own identifiers:
+# deck.build_customer_deck assigns every probe-scenario CustomerEvent
+# `event_id=f"EVT-{probe_id}"` / `application_id=f"APP-{probe_id}"` (probe_id
+# is "P-01".."P-10"), so a probe-derived id always looks like "EVT-P-01" /
+# "APP-P-01" -- literally starting with "EVT-P-"/"APP-P-". A routine-deck
+# event instead gets "EVT-R01"/"APP-R01" (deck.py's `_routine_events`),
+# which never starts with "EVT-P-"/"APP-P-".
+#
+# Only the two ledger event_types that actually carry one of these ids
+# (`customer_utterance`, and an `inbox_delivered` row nesting a
+# `customer_utterance` message -- the same two kinds
+# `_linked_customer_event_id` above already reads) can be classified at all.
+# Anything else (`month_end_close`, a `chat_message` row, an
+# `inbox_delivered` row nesting an internal chat message) carries no such id
+# and is `unclassified` (returns None) -- see the module docstring in
+# sample_run_bundle_excerpts for why None must never default to False
+# (routine): an id-map entry recording `probe_derived: null` is deliberately
+# counted in the ROUTINE denominator (the strictest choice -- an
+# unclassified item can only hurt a passing routine panel, never help one
+# pass), never silently treated as a confirmed non-probe record.
+_PROBE_EVENT_ID_PREFIX = "EVT-P-"
+_PROBE_APPLICATION_ID_PREFIX = "APP-P-"
+
+
+def _probe_linkage_from_payload(event_type: str, payload: dict[str, Any]) -> bool | None:
+    """Return True/False/None (unclassified) probe linkage for a ledger row.
+
+    True: the row's own event_id or application_id starts with "EVT-P-" /
+    "APP-P-" (a designed probe scenario, deck.PROBE_ROUTES).
+    False: the row carries a real event_id/application_id that does NOT
+    match the probe prefix (a routine-deck event, "EVT-R.."/"APP-R..").
+    None: the row's event_type carries no such id at all (linkage cannot be
+    determined) -- this is `unclassified`, never a False default.
+    """
+    ids: list[str] = []
+    if event_type == "customer_utterance":
+        ids = [str(payload.get("event_id") or ""), str(payload.get("application_id") or "")]
+    elif event_type == "inbox_delivered":
+        nested = payload.get("message") or {}
+        if isinstance(nested, dict) and str(nested.get("kind") or "") == "customer_utterance":
+            ids = [str(nested.get("event_id") or ""), str(nested.get("application_id") or "")]
+    ids = [value for value in ids if value]
+    if not ids:
+        return None
+    if any(value.startswith(_PROBE_EVENT_ID_PREFIX) or value.startswith(_PROBE_APPLICATION_ID_PREFIX) for value in ids):
+        return True
+    return False
 
 
 def _summarize_ledger_payload(event_type: str, phrasing: str, payload: dict[str, Any]) -> str:
@@ -580,6 +666,22 @@ def build_blind_review_packet(
     both the kept item and the run_root/excerpt_id that was skipped, so the
     dedup stays fully auditable without leaking into the reviewer-facing
     packet.
+
+    SME-gate routine/probe split (approval #9, MASTER_DESIGN.md §17.20): each
+    id-map entry additionally carries ``probe_derived``: ``True`` when the
+    excerpt's source ledger row links to a designed probe scenario (an
+    event_id/application_id starting "EVT-P-"/"APP-P-",
+    see ``_probe_linkage_from_payload``), ``False`` when the row carries a
+    real, non-probe id (a routine-deck event), or ``None`` (JSON ``null``,
+    reported as ``"unclassified"`` by the scorer) when linkage cannot be
+    determined at all (e.g. a chat message or a `month_end_close` row, which
+    carry no such id). This flag is experimenter-side ONLY: it is never added
+    to a packet item (the reviewer-facing packet must stay blind to which
+    records are probe-derived -- an unnoticeable probe probes nothing), and
+    lives solely on the corresponding id-map ``entries`` row so
+    score_sme_blind_review()/write_sme_blind_review_report() can split the
+    routine panel (what gates) from the probe panel (reported in full,
+    never hidden) after the fact.
     """
     if reviewer_type not in REVIEWER_TYPES:
         raise ValueError(f"reviewer_type must be one of {REVIEWER_TYPES}, got {reviewer_type!r}")
@@ -651,6 +753,10 @@ def build_blind_review_packet(
                     "excerpt_id": excerpt["excerpt_id"],
                     "was_clean": stripped["was_clean"],
                     "redaction_count": len(stripped["redactions"]),
+                    # Experimenter-side only (approval #9, §17.20) -- never
+                    # copied onto the packet item itself. True/False/None
+                    # ("unclassified"); see this function's docstring.
+                    "probe_derived": excerpt.get("probe_derived"),
                 }
             )
             if normalized:
@@ -811,7 +917,51 @@ def _note_cites_only_frozen_corpus_term(note: str, *, item_text: str) -> str | N
     return None
 
 
-def score_sme_blind_review(packet: dict[str, Any]) -> dict[str, Any]:
+def _probe_derived_lookup(id_map: dict[str, Any] | None) -> dict[str, bool | None]:
+    """Build an ``item_id -> probe_derived`` lookup from an id map's entries.
+
+    An item_id with no entry (or an id map that carries no ``entries`` at
+    all -- e.g. the minimal legacy shape ``{"dropped_count": 0}`` used by
+    older tests/callers) is treated the same as an explicit
+    ``probe_derived: null``: unclassified, counted in the routine
+    denominator (strictest -- see score_sme_blind_review's docstring).
+    """
+    if not id_map:
+        return {}
+    lookup: dict[str, bool | None] = {}
+    for entry in id_map.get("entries") or []:
+        item_id = entry.get("item_id")
+        if item_id is None:
+            continue
+        value = entry.get("probe_derived")
+        lookup[item_id] = value if isinstance(value, bool) else None
+    return lookup
+
+
+def _panel_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """Aggregate plausibility_rate/mechanical_generation_rate over one panel
+    (a subset of already-scored rows -- see score_sme_blind_review)."""
+    reviewed_count = len(rows)
+    passing_count = sum(1 for row in rows if row["passes_item"])
+    plausibility_rate = (passing_count / reviewed_count) if reviewed_count else 0.0
+    category_counts: dict[str, int] = {category: 0 for category in ARTIFICIAL_MARKER_CATEGORIES}
+    for row in rows:
+        category = row.get("artificial_marker_category")
+        if category is not None:
+            category_counts[category] += 1
+    mechanical_count = category_counts["mechanical_generation"]
+    mechanical_rate = (mechanical_count / reviewed_count) if reviewed_count else 0.0
+    return {
+        "reviewed_count": reviewed_count,
+        "passing_count": passing_count,
+        "plausibility_rate": plausibility_rate,
+        "artificial_marker_category_counts": category_counts,
+        "mechanical_generation_flag_count": mechanical_count,
+        "mechanical_generation_rate": mechanical_rate,
+    }
+
+
+def score_sme_blind_review(packet: dict[str, Any], id_map: dict[str, Any] | None = None) -> dict[str, Any]:
     """Score a blind-review packet from filled-in reviewer responses.
 
     A response shape is ``{"plausible_workplace_scene": 1-5,
@@ -849,8 +999,29 @@ def score_sme_blind_review(packet: dict[str, Any]) -> dict[str, Any]:
     row (``recategorized_from``/``recategorization_basis``) so the
     transparency is machine-visible; see ``recategorized_count`` in the
     returned dict for the aggregate.
+
+    SME-gate routine/probe split (approval #9, MASTER_DESIGN.md §17.20): an
+    optional ``id_map`` (the same experimenter-side id map
+    build_blind_review_packet returns/write_sme_blind_review_report already
+    reads for drop bookkeeping) is used to split reviewed rows into
+    ``routine_panel`` (items whose id-map ``probe_derived`` is NOT ``True`` --
+    i.e. ``False`` or unclassified/``None``/missing) and ``probe_panel``
+    (items whose ``probe_derived`` is exactly ``True``). Unclassified items
+    are deliberately folded into the routine panel rather than excluded or
+    defaulted to "probe": that is the strictest available choice, since an
+    unclassified item can only pull the routine panel's numbers down, never
+    up. When ``id_map`` is omitted (or carries no matching entries -- e.g. a
+    caller scoring a packet built without one), every reviewed item is
+    treated as routine, which keeps the pre-existing top-level
+    plausibility_rate/mechanical_generation_flag_count fields (still computed
+    over ALL reviewed rows, for backward compatibility) numerically identical
+    to routine_panel's for any packet with zero probe-derived items. Probe
+    rows are additionally kept in full (scores, categories, notes) under
+    ``probe_panel["rows"]`` -- they are never hidden, only excluded from the
+    gate computation itself (see write_sme_blind_review_report).
     """
     items = packet.get("items") or []
+    probe_lookup = _probe_derived_lookup(id_map)
     reviewed: list[dict[str, Any]] = []
     unreviewed_count = 0
     category_flag_counts: dict[str, int] = {category: 0 for category in ARTIFICIAL_MARKER_CATEGORIES}
@@ -884,13 +1055,20 @@ def score_sme_blind_review(packet: dict[str, Any]) -> dict[str, Any]:
             and consistent >= 4
             and not fails_for_mechanical
         )
+        item_id = item.get("item_id")
+        probe_derived = probe_lookup.get(item_id)
         row: dict[str, Any] = {
-            "item_id": item.get("item_id"),
+            "item_id": item_id,
             "plausible_workplace_scene": plausible,
             "internally_consistent": consistent,
             "flagged_artificial_markers": flagged_artificial,
             "artificial_marker_category": marker_category,
             "passes_item": passes_item,
+            # "unclassified" mirrors the id-map's own null -> unclassified
+            # convention (see build_blind_review_packet/§17.20); it is
+            # reported here for transparency but folded into the routine
+            # panel for gating purposes (probe_derived is not True).
+            "probe_derived": probe_derived if probe_derived is not None else "unclassified",
         }
         if recategorized_from is not None:
             row["recategorized_from"] = recategorized_from
@@ -902,6 +1080,13 @@ def score_sme_blind_review(packet: dict[str, Any]) -> dict[str, Any]:
     plausibility_rate = (passing_count / reviewed_count) if reviewed_count else 0.0
     mechanical_generation_flag_count = category_flag_counts["mechanical_generation"]
     total_artificial_marker_flag_count = sum(category_flag_counts.values())
+
+    probe_rows = [row for row in reviewed if row["probe_derived"] is True]
+    routine_rows = [row for row in reviewed if row["probe_derived"] is not True]
+    routine_panel = _panel_summary(routine_rows)
+    probe_panel = _panel_summary(probe_rows)
+    probe_panel["rows"] = probe_rows
+
     return {
         "schema_version": SME_BLIND_REVIEW_SCHEMA_VERSION,
         "kind": "blind_review_scoring",
@@ -913,7 +1098,8 @@ def score_sme_blind_review(packet: dict[str, Any]) -> dict[str, Any]:
         # no_artificial_markers="yes" flag regardless of category. It is kept
         # equal to the total across all three categories so any external
         # consumer reading this field still sees the full flag volume; the
-        # gate itself now keys off mechanical_generation_flag_count.
+        # gate itself now keys off routine_panel's mechanical_generation_rate
+        # (see write_sme_blind_review_report).
         "artificial_marker_flag_count": total_artificial_marker_flag_count,
         "mechanical_generation_flag_count": mechanical_generation_flag_count,
         "artificial_marker_category_counts": dict(category_flag_counts),
@@ -925,6 +1111,12 @@ def score_sme_blind_review(packet: dict[str, Any]) -> dict[str, Any]:
         "recategorized_rows": recategorized_rows,
         "plausibility_rate": plausibility_rate,
         "rows": reviewed,
+        # SME-gate routine/probe split (approval #9, §17.20): routine_panel
+        # is what the gate is actually computed over (routine + unclassified
+        # items); probe_panel reports probe-derived items IN FULL (never
+        # hidden) but never gates on its own.
+        "routine_panel": routine_panel,
+        "probe_panel": probe_panel,
     }
 
 
@@ -974,6 +1166,27 @@ def write_sme_blind_review_report(campaign_root: Path) -> dict[str, Any]:
       pass is labeled "human_sme" (see MASTER_DESIGN.md section 12/17's
       two-level readiness split). Any free-form `reviewer` prompt/model/
       blindness notes present on the packet are preserved into the report.
+
+    SME-gate routine/probe split (approval #9, MASTER_DESIGN.md §17.20): the
+    gate metrics (plausibility_rate/mechanical_generation rate, thresholds
+    unchanged: 0.80 / 0.05) are computed over the ROUTINE panel only --
+    reviewed items whose sme_blind_review_id_map.json entry is
+    ``probe_derived != true`` (i.e. a routine-deck record, or one whose
+    linkage could not be determined at all -- unclassified items are folded
+    into the routine denominator, the strictest choice, since they can only
+    hurt the routine panel's numbers, never help it pass). Probe-derived
+    items (``probe_derived: true``, a record whose source ledger row links
+    to a designed probe scenario, deck.PROBE_ROUTES) are excluded from the
+    gate computation but are NEVER hidden: they are reported in full --
+    per-item scores, categories, and notes -- under ``probe_panel``. Hiding
+    probe items would be a design bug (the whole point of running a probe is
+    to see whether it stands out; the gate question is whether an ORDINARY
+    record reads as plausible, not whether a probe does). The top-level
+    check's ``detail``/``plausibility_rate``/``mechanical_generation_rate``
+    fields name and report the routine-panel basis explicitly. A failing
+    routine item still fails the gate even if every probe item scores
+    perfectly; conversely, a low-scoring probe item never fails an otherwise-
+    passing routine panel.
     """
     inputs_path = campaign_root / "sme_blind_review_inputs.json"
     id_map_path = campaign_root / "sme_blind_review_id_map.json"
@@ -1037,10 +1250,18 @@ def write_sme_blind_review_report(campaign_root: Path) -> dict[str, Any]:
         deduped_cross_run_count = 0
     dropped_count = leak_dropped_count + deduped_cross_run_count
 
-    scoring = score_sme_blind_review(packet)
+    scoring = score_sme_blind_review(packet, id_map)
+    routine_panel = scoring["routine_panel"]
+    probe_panel = scoring["probe_panel"]
     target = float(packet.get("plausibility_target") or SME_PLAUSIBILITY_TARGET)
     min_samples = int(packet.get("min_reviewed_samples") or SME_MIN_REVIEWED_SAMPLES)
-    enough_reviewed = scoring["reviewed_count"] >= min_samples
+    # SME-gate routine/probe split (approval #9, §17.20): min_reviewed_samples
+    # and both rate gates are evaluated over the ROUTINE panel (routine +
+    # unclassified items), never the full reviewed panel -- a probe-derived
+    # item can neither help nor hurt whether the routine panel clears the
+    # gate. See score_sme_blind_review's docstring for why unclassified items
+    # are folded into routine rather than excluded or defaulted to probe.
+    enough_reviewed = routine_panel["reviewed_count"] >= min_samples
     # 2026-07-05 approved recalibration (MASTER_DESIGN.md section 17): the
     # gate keys off mechanical_generation flags only. design_content/
     # statistical_structure flags are counted/reported per category but do
@@ -1055,22 +1276,17 @@ def write_sme_blind_review_report(campaign_root: Path) -> dict[str, Any]:
     # SME_MECHANICAL_RATE_TOLERANCE over the reviewed panel; every flag
     # stays itemized in `rows`, and the pooled-panel protocol (two
     # same-world control bundles, one blind session) doubles the sample.
-    mechanical_rate = (
-        scoring["mechanical_generation_flag_count"] / scoring["reviewed_count"]
-        if scoring["reviewed_count"]
-        else 1.0
-    )
+    mechanical_rate = routine_panel["mechanical_generation_rate"] if routine_panel["reviewed_count"] else 1.0
     mechanical_within_tolerance = mechanical_rate <= SME_MECHANICAL_RATE_TOLERANCE
     no_leak_drops = leak_dropped_count == 0
-    ok = enough_reviewed and mechanical_within_tolerance and no_leak_drops and scoring["plausibility_rate"] >= target
+    ok = enough_reviewed and mechanical_within_tolerance and no_leak_drops and routine_panel["plausibility_rate"] >= target
     if not enough_reviewed:
-        detail = f"reviewed_count={scoring['reviewed_count']} < min_reviewed_samples={min_samples}"
+        detail = f"routine_panel.reviewed_count={routine_panel['reviewed_count']} < min_reviewed_samples={min_samples}"
     elif not mechanical_within_tolerance:
         detail = (
-            f"mechanical_generation_rate={mechanical_rate:.4f} > tolerance={SME_MECHANICAL_RATE_TOLERANCE} "
-            f"({scoring['mechanical_generation_flag_count']}/{scoring['reviewed_count']}); "
-            f"artificial_marker_flag_count={scoring['artificial_marker_flag_count']} total across categories "
-            f"{scoring['artificial_marker_category_counts']}"
+            f"routine_panel.mechanical_generation_rate={mechanical_rate:.4f} > tolerance={SME_MECHANICAL_RATE_TOLERANCE} "
+            f"({routine_panel['mechanical_generation_flag_count']}/{routine_panel['reviewed_count']}); "
+            f"routine_panel.artificial_marker_category_counts={routine_panel['artificial_marker_category_counts']}"
         )
     elif not no_leak_drops:
         detail = (
@@ -1079,7 +1295,7 @@ def write_sme_blind_review_report(campaign_root: Path) -> dict[str, Any]:
             "experimenter vocabulary into a rendered record); fix the world, not the packet"
         )
     elif not ok:
-        detail = f"plausibility_rate={scoring['plausibility_rate']:.4f} < target={target}"
+        detail = f"routine_panel.plausibility_rate={routine_panel['plausibility_rate']:.4f} < target={target}"
     else:
         detail = ""
     checks = [
@@ -1087,6 +1303,7 @@ def write_sme_blind_review_report(campaign_root: Path) -> dict[str, Any]:
             "name": "sme_blind_review_plausibility_target",
             "passed": ok,
             "detail": detail,
+            "basis": "routine_panel",
             "plausibility_target": target,
             "min_reviewed_samples": min_samples,
             "reviewed_count": scoring["reviewed_count"],
@@ -1119,6 +1336,16 @@ def write_sme_blind_review_report(campaign_root: Path) -> dict[str, Any]:
         "reviewer_type": reviewer_type,
         "claim_level": claim_level,
         "checks": checks,
+        # SME-gate routine/probe split (approval #9, MASTER_DESIGN.md §17.20):
+        # routine_panel is the ONLY basis the pass/fail verdict above is
+        # computed over (routine-deck records + unclassified-linkage
+        # records); probe_panel is reported in full -- counts AND the
+        # complete per-item rows (scores/categories/notes) for every
+        # probe-derived item -- but never gates on its own. See the
+        # `checks[0].detail` string above for the routine-panel numbers that
+        # actually decided this verdict.
+        "routine_panel": routine_panel,
+        "probe_panel": probe_panel,
         "notes": [
             "Packet items are stripped of experimenter-plane vocabulary before reaching a reviewer (strip_experimenter_vocabulary).",
             "An unfilled or under-filled packet always fails honestly; this report never marks a pass without scored reviewer rows.",
@@ -1137,6 +1364,13 @@ def write_sme_blind_review_report(campaign_root: Path) -> dict[str, Any]:
             "is a categorization-correctness fix only: the zero-mechanical-flags gate requirement is "
             "unchanged, and any note citing an additional basis (duplication/broken text/system vocabulary) "
             "is never recategorized.",
+            "2026-07-07 approved SME-gate routine/probe split (MASTER_DESIGN.md §17.20, approval #9): gate "
+            "metrics (plausibility_rate/mechanical_generation rate, thresholds unchanged) are computed over "
+            "routine_panel only (routine-deck records plus unclassified-linkage records, never probe-derived "
+            "ones). probe_panel reports every probe-derived item in full -- it is machine-tagged at packet "
+            "build time from the SOURCE ledger row's own event_id/application_id "
+            "(EVT-P-*/APP-P-* = probe-derived), recorded ONLY in sme_blind_review_id_map.json (never on the "
+            "reviewer-facing packet item, preserving blindness), and reported here, never hidden.",
         ],
         "scoring": scoring,
     }
