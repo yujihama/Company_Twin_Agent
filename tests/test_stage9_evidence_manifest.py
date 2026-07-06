@@ -313,8 +313,23 @@ def test_external_claim_readiness_false_by_default(tmp_path: Path) -> None:
 
     assert summary["passed"] is False
     item_names = {item["item"] for item in summary["items"]}
-    assert {"human_sme_review", "g3_negative_calibration_recorded", "holdout_with_positive_and_negative_controls", "single_post_fix_world_version"} == item_names
-    assert all(item["passed"] is False for item in summary["items"])
+    assert {
+        "human_sme_review",
+        "g3_negative_calibration_recorded",
+        "holdout_with_positive_and_negative_controls",
+        "single_post_fix_world_version",
+        "holdout_deferred_classes_validated",
+    } == item_names
+    # Every item is false by default EXCEPT holdout_deferred_classes_validated:
+    # with no holdout_report.json at all, there is no deferred class recorded,
+    # so there is nothing pending to validate -- this one item trivially
+    # passes on an empty campaign_root (MASTER_DESIGN.md section 17.16).
+    non_deferred_items = [item for item in summary["items"] if item["item"] != "holdout_deferred_classes_validated"]
+    assert all(item["passed"] is False for item in non_deferred_items)
+    deferred_item = next(item for item in summary["items"] if item["item"] == "holdout_deferred_classes_validated")
+    assert deferred_item["passed"] is True
+    # Overall summary is still false overall (gated by the other items).
+    assert summary["passed"] is False
 
 
 def test_external_claim_readiness_ai_proxy_sme_does_not_satisfy_human_sme_item(tmp_path: Path) -> None:

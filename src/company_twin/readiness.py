@@ -161,6 +161,51 @@ def _g3_negative_calibration_check(campaign_root: Path) -> dict[str, Any]:
     }
 
 
+def _holdout_deferred_classes_validated_item(holdout_report: dict[str, Any]) -> dict[str, Any]:
+    """External-claim item `holdout_deferred_classes_validated` (MASTER_DESIGN.md
+    section 17.16, approval #7): a `deferred_pressure_dependent`-arm holdout
+    class (e.g. `contradict_chat_approval_recorded` as of this PR) is, by
+    construction, an UNRESOLVED external claim -- its behavioral-change
+    question was deferred to a specific phase-3 condition (D1, time-pressure)
+    rather than answered by this holdout. This item is FALSE whenever the
+    holdout report records at least one deferred class (there is currently no
+    phase-3 D1 validation artifact this check can recognize as satisfying the
+    deferral -- deferral is a pending external claim, not a self-certifying
+    one). A holdout report with NO deferred_injections section (no deferred
+    classes at all -- either an old plan, or a plan that never used the arm)
+    trivially passes this item: there is nothing pending to validate.
+
+    This is an EXTERNAL-CLAIM-ONLY concern: internal_observation_readiness /
+    run_readiness_gate's own `passed` field is unaffected by deferred classes
+    beyond the ordinary requirement that holdout_report.json itself pass
+    (_holdout_check) -- a deferred class does not fail the internal holdout
+    gate (compute_holdout_detection_rate already excludes it from the
+    positive-control denominator), it only keeps the external claim honestly
+    incomplete.
+    """
+    deferred_injections = holdout_report.get("deferred_injections")
+    has_deferred = isinstance(deferred_injections, dict) and int(deferred_injections.get("injection_count") or 0) > 0
+    passed = not has_deferred
+    if passed:
+        detail = ""
+    else:
+        deferred_mutation_ids = sorted(
+            {str(row.get("mutation_id") or "") for row in (deferred_injections.get("per_injection") or [])}
+        )
+        detail = (
+            f"holdout_report.json records {deferred_injections.get('injection_count')} deferred_pressure_dependent "
+            f"class(es) ({deferred_mutation_ids}) still awaiting their pre-registered phase-3 D1 (time-pressure) "
+            "validation (MASTER_DESIGN.md section 17.16, approval #7) -- an external claim cannot be made for a "
+            "deferred class until that validation runs."
+        )
+    return {
+        "item": "holdout_deferred_classes_validated",
+        "passed": passed,
+        "detail": detail,
+        "deferred_class_count": int(deferred_injections.get("injection_count") or 0) if isinstance(deferred_injections, dict) else 0,
+    }
+
+
 def build_external_claim_readiness_summary(campaign_root: Path) -> dict[str, Any]:
     """External-claim readiness summary block (MASTER_DESIGN.md section 12/17.3).
 
@@ -174,7 +219,12 @@ def build_external_claim_readiness_summary(campaign_root: Path) -> dict[str, Any
       (no-mutation control) injections, not positive-only;
     - all evidence drawn from a single post-fix world version (no
       effective_corpus_hash heterogeneity across evidence classes -- see
-      evidence_manifest.world_versions).
+      evidence_manifest.world_versions);
+    - every `deferred_pressure_dependent`-arm holdout class (MASTER_DESIGN.md
+      section 17.16, approval #7 pre-registered before era-6) to have
+      completed its pre-registered phase-3 validation (see
+      `holdout_deferred_classes_validated` below) -- a deferred class is, by
+      construction, an unresolved external claim until phase-3 D1 runs.
     """
     items: list[dict[str, Any]] = []
 
@@ -219,6 +269,8 @@ def build_external_claim_readiness_summary(campaign_root: Path) -> dict[str, Any
         }
     )
 
+    items.append(_holdout_deferred_classes_validated_item(holdout_report))
+
     return {
         "label": "external_claim_readiness",
         "passed": all(item["passed"] for item in items),
@@ -226,8 +278,10 @@ def build_external_claim_readiness_summary(campaign_root: Path) -> dict[str, Any
         "note": (
             "Informational-but-honest, expected mostly false for now: this block requires human_sme "
             "review (not ai_proxy), a recorded G3 negative-calibration artifact, holdout evidence with "
-            "both positive and negative (no-mutation control) injections, and all evidence from a single "
-            "post-fix world version. It never gates internal_readiness/run_readiness_gate's passed field."
+            "both positive and negative (no-mutation control) injections, all evidence from a single "
+            "post-fix world version, and every deferred_pressure_dependent holdout class (MASTER_DESIGN.md "
+            "section 17.16) to have completed its pre-registered phase-3 D1 validation. It never gates "
+            "internal_readiness/run_readiness_gate's passed field."
         ),
     }
 

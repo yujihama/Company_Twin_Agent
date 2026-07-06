@@ -79,6 +79,34 @@ all" clause, which was too strict once an endemic-at-baseline operator
 (e.g. `contradict_chat_approval_recorded` at K=5, everything else at K=1);
 the resolved per-injection K is sealed into `plan_hash` exactly as before.
 
+2026-07-06 approved holdout pressure-dependent deferral (MASTER_DESIGN.md
+section 17.16, approval #7 -- PRE-REGISTERED before era-6 was launched): a
+third arm, `deferred_pressure_dependent` (see `ARM_DEFERRED_PRESSURE_DEPENDENT`),
+is assigned to `contradict_chat_approval_recorded` in any plan built after
+this change. The project owner approved the conditional rule BEFORE era-6
+ran: if seat behavior remains unchanged even with full-text delivery of the
+enabling notice, the finding "notices alone do not change behavior without
+pressure" stands, and the contradict class defers to phase-3 D1
+(time-pressure) validation. Era-6 confirmed the condition:
+`contradict_chat_approval_recorded` had exposure (full-text circular
+delivered) in all 5 seeds but zero opportunity in any of them (activation
+0/5), while `clarify_elderly_understanding_sales_only` and
+`dangling_fill_search_key_stub` both activated and were strictly detected
+(1/1 each), and both benign controls passed. A `deferred_pressure_dependent`
+injection is EXCLUDED from the positive-control strict denominator (like
+`benign_control`) but is scored and reported in its own dedicated
+`deferred_injections` section (`score_deferred_injections`) -- activation
+evidence, the confirmed finding text, and the pre-registration reference are
+always present; deferral NEVER counts as detected and is never silently
+hidden. Backward compatibility: an EXISTING sealed plan (built before this
+change) that lists a mutation_id as `positive_control` continues to score
+under that ORIGINAL sealed arm unchanged -- `_injection_arm` reads the arm
+recorded in the plan JSON itself, never a live re-lookup of
+`_ARM_BY_MUTATION_ID`. Only rebuilding/re-sealing a plan with the current
+code applies the new default; `write_holdout_report`'s `scoring_note` field
+(`_deferred_rescore_scoring_note`) states explicitly which case the
+currently-scored plan is in.
+
 This module never calls an LLM or external API. Detection-rate measurement
 against live campaign data happens later, by pointing compute_holdout_detection_rate
 at real run bundles; this module only supplies the plan/measurement machinery
@@ -101,7 +129,22 @@ HOLDOUT_DETECTION_TARGET = 0.80
 
 ARM_POSITIVE_CONTROL = "positive_control"
 ARM_BENIGN_CONTROL = "benign_control"
-INJECTION_ARMS: tuple[str, ...] = (ARM_POSITIVE_CONTROL, ARM_BENIGN_CONTROL)
+# 2026-07-06 approved pre-registered contingency (MASTER_DESIGN.md section
+# 17.16, approval #7, approved BEFORE era-6 was launched): a third arm for an
+# injection whose positive-control question has been pre-registered as
+# CONDITIONALLY answered pending a specific holdout outcome. Unlike
+# `benign_control` (an operator not expected to produce a new anomaly at
+# all), a `deferred_pressure_dependent` injection IS expected to be capable of
+# producing its anomaly -- but the pre-registered conditional rule says that if
+# the condition confirms (full-text delivery, exposure achieved, yet zero
+# opportunity/no behavioral uptake), the class's validation is deferred to a
+# later phase-3 experimental condition (D1, time-pressure) rather than scored
+# as a plain miss against the current holdout's strict denominator. See
+# `score_deferred_injections`/`build_holdout_injection_plan`'s
+# `deferred_injections` report section for how this is surfaced -- ALWAYS
+# visible, NEVER counted as detected, and NEVER silently dropped.
+ARM_DEFERRED_PRESSURE_DEPENDENT = "deferred_pressure_dependent"
+INJECTION_ARMS: tuple[str, ...] = (ARM_POSITIVE_CONTROL, ARM_BENIGN_CONTROL, ARM_DEFERRED_PRESSURE_DEPENDENT)
 
 # Default arm assignment by operator family (MASTER_DESIGN.md section 17,
 # 2026-07-05 approved recalibration). role_table_fix is a corrective/
@@ -141,8 +184,27 @@ _ARM_BY_OPERATOR: dict[str, str] = {
 # has an explicit entry here. Any mutation_id not listed here falls back to
 # _default_arm_for_operator(operator) -- unchanged behavior for every
 # operator/mutation not explicitly reclassified.
+#
+# 2026-07-06 approved holdout pressure-dependent deferral (MASTER_DESIGN.md
+# section 17.16, approval #7, approved BEFORE era-6 was launched):
+# `contradict_chat_approval_recorded` moves from `positive_control` to
+# `deferred_pressure_dependent`. This is a PRE-REGISTERED conditional, not a
+# post-hoc reclassification -- the project owner approved the conditional
+# rule on 2026-07-06 (approval #7), before era-6 ran: "if seat behavior
+# remains unchanged even with full-text delivery of the enabling notice, the
+# finding 'notices alone do not change behavior without pressure' stands, and
+# the contradict class defers to phase-3 D1 (time-pressure) validation." Era-6
+# then confirmed the condition (see MASTER_DESIGN.md section 17.16 for the
+# full evidence): contradict_chat_approval_recorded had EXPOSURE (full-text
+# circular delivered) in all 5 seeds but ZERO opportunity in any of them
+# (activation 0/5), while clarify_elderly_understanding_sales_only and
+# dangling_fill_search_key_stub both activated and were strictly detected
+# (1/1 each), and both benign controls passed. See `score_deferred_injections`
+# for how a deferred injection is scored (excluded from the positive-control
+# strict denominator, never counted as detected, reported in its own
+# `deferred_injections` section).
 _ARM_BY_MUTATION_ID: dict[str, str] = {
-    "contradict_chat_approval_recorded": ARM_POSITIVE_CONTROL,
+    "contradict_chat_approval_recorded": ARM_DEFERRED_PRESSURE_DEPENDENT,
     "dangling_fill_search_key_stub": ARM_POSITIVE_CONTROL,
     "clarify_elderly_understanding_sales_only": ARM_POSITIVE_CONTROL,
     "clarify_elderly_understanding_all": ARM_BENIGN_CONTROL,
@@ -443,6 +505,16 @@ def compute_holdout_detection_rate(
     ``arm`` field existed has every injection default to ``positive_control``
     (old behavior, strictest -- see ``_injection_arm``).
 
+    A ``deferred_pressure_dependent``-arm injection (MASTER_DESIGN.md section
+    17.16, approval #7 pre-registered BEFORE era-6 launched --
+    ``contradict_chat_approval_recorded`` as of this PR) is likewise excluded
+    from the positive-control strict denominator here. It is still scored
+    through ``_score_injection`` for its raw activation/L0/L1 evidence (so
+    that evidence is available), but is reported separately by
+    ``score_deferred_injections``/``write_holdout_report``'s
+    ``deferred_injections`` section, and NEVER counts as ``detected`` --
+    deferral is a visible non-outcome, not a hidden pass.
+
     Every mutation's evidence is itemized so the readiness check can reject
     an unsupported claim.
 
@@ -466,6 +538,8 @@ def compute_holdout_detection_rate(
     strict_detected_count = 0
     positive_control_count = 0
     unactivated_positive_control_count = 0
+    benign_control_arm_count = 0
+    deferred_arm_count = 0
     for injection in injections:
         mutation_id = str(injection.get("mutation_id") or "")
         expected_finding_types = list(injection.get("expected_finding_types") or [])
@@ -488,6 +562,10 @@ def compute_holdout_detection_rate(
                 strict_detected_count += 1
             if not evidence["activation"]["any_activated"]:
                 unactivated_positive_control_count += 1
+        elif arm == ARM_BENIGN_CONTROL:
+            benign_control_arm_count += 1
+        elif arm == ARM_DEFERRED_PRESSURE_DEPENDENT:
+            deferred_arm_count += 1
         per_injection.append(
             {
                 "injection_id": injection.get("injection_id"),
@@ -523,11 +601,18 @@ def compute_holdout_detection_rate(
         "detection_target": target,
         "detection_rate_basis": "strict",
         # injection_count/detected_count/detection_rate are POSITIVE-CONTROL
-        # ONLY -- benign_control-arm injections are excluded from this
-        # denominator (see score_benign_controls for their own reporting).
+        # ONLY -- benign_control-arm and deferred_pressure_dependent-arm
+        # injections are excluded from this denominator (see
+        # score_benign_controls / deferred_injections for their own
+        # reporting). benign_control_count is computed from the actual
+        # benign_control-arm tally (not "everything non-positive"), so a plan
+        # that also carries deferred_pressure_dependent-arm injections (this
+        # PR, MASTER_DESIGN.md section 17.16) does not silently misreport
+        # deferred injections as benign_control ones.
         "injection_count": total,
         "total_injection_count": len(injections),
-        "benign_control_count": len(injections) - positive_control_count,
+        "benign_control_count": benign_control_arm_count,
+        "deferred_count": deferred_arm_count,
         # Official fields (strict basis) -- these are what gates acceptance.
         "detected_count": strict_detected_count,
         "detection_rate": strict_detection_rate,
@@ -1506,6 +1591,192 @@ def score_benign_controls(
     }
 
 
+# ---------------------------------------------------------------------------
+# Deferred-arm scoring (MASTER_DESIGN.md section 17.16, approved 2026-07-06,
+# approval #7 -- PRE-REGISTERED before era-6 launched)
+# ---------------------------------------------------------------------------
+#
+# A pre-registered conditional rule, approved BEFORE era-6 was run: "if seat
+# behavior remains unchanged even with full-text delivery of the enabling
+# notice, the finding 'notices alone do not change behavior without pressure'
+# stands, and the contradict class defers to phase-3 D1 (time-pressure)
+# validation." Era-6 then confirmed the condition:
+# contradict_chat_approval_recorded had EXPOSURE (full-text circular
+# delivered) in all 5 seeds but ZERO opportunity in any of them (activation
+# 0/5) -- no chat-approval behavior, no approval requests occurred at all,
+# i.e. there was nothing for a detector to have a fair chance to fire on --
+# while clarify_elderly_understanding_sales_only and
+# dangling_fill_search_key_stub both activated AND were strictly detected
+# (1/1 each), and both benign controls (clarify_elderly_understanding_all,
+# role_table_fix_quality_owner) passed. Because the deferral rule predates
+# the era-6 run (approval #7, 2026-07-06, before launch), applying it here is
+# a PRE-REGISTERED conditional, not a post-hoc reclassification chosen after
+# seeing an inconvenient result.
+#
+# score_deferred_injections() NEVER contributes to strict_detected_count/
+# detected_count (a deferred injection is not "detected" under any
+# circumstance -- deferral is not a pass), and is excluded from
+# compute_holdout_detection_rate's positive-control denominator entirely (see
+# `_ARM_BY_MUTATION_ID`/arm-count handling above). It IS fully visible: every
+# trial's raw activation/exposure/opportunity evidence is carried through
+# from `_score_injection`, plus the confirmed finding text and the
+# pre-registration reference, in its own `deferred_injections` report
+# section.
+DEFERRED_FINDING_TEXT = (
+    "notices alone do not change behavior without pressure conditions; validation deferred to phase-3 D1"
+)
+DEFERRED_PRE_REGISTRATION_REFERENCE = (
+    "approved 2026-07-06 (approval #7), BEFORE era-6 was launched -- MASTER_DESIGN.md section 17.15 forward "
+    "note; formalized as a holdout arm in MASTER_DESIGN.md section 17.16"
+)
+
+
+def score_deferred_injections(
+    campaign_root: Path,
+    injection_plan: dict[str, Any],
+    *,
+    run_lookup: dict[str, Path] | None = None,
+) -> dict[str, Any] | None:
+    """Score every `deferred_pressure_dependent`-arm injection and report its
+    activation evidence, WITHOUT ever counting it as detected and WITHOUT
+    folding it into the positive-control strict denominator
+    (`compute_holdout_detection_rate` already excludes it there; this
+    function is the dedicated, visible reporting path for it).
+
+    Returns ``None`` when the plan has no `deferred_pressure_dependent`-arm
+    injections (nothing to score), exactly like `score_benign_controls`'s
+    ``None`` convention for a plan with no benign_control-arm injections --
+    so a plan that predates this arm (or simply doesn't use it) gets an
+    unaffected report.
+
+    Each per-injection row carries: the raw activation/exposure/opportunity
+    evidence per trial (from `_score_injection`, itemized exactly like a
+    positive_control's evidence would be -- deferral does not hide anything),
+    the pre-registered `confirmed_finding` text, and the
+    `pre_registration_reference` pointing at the approval that predates
+    era-6. `deferred` is always ``True`` for every row (a deferred injection
+    is never scored as pass/fail the way positive_control/benign_control
+    rows are -- there is no `passed` field on a per-injection row here,
+    deliberately, so no caller can mistake "deferred" for "passed").
+    """
+    injections = [injection for injection in (injection_plan.get("injections") or []) if _injection_arm(injection) == ARM_DEFERRED_PRESSURE_DEPENDENT]
+    if not injections:
+        return None
+    control_run_roots = list(injection_plan.get("control_run_roots") or [])
+    per_injection: list[dict[str, Any]] = []
+    for injection in injections:
+        mutation_id = str(injection.get("mutation_id") or "")
+        expected_finding_types = list(injection.get("expected_finding_types") or [])
+        target_doc_id = str(injection.get("target_doc_id") or "")
+        run_roots = _resolve_run_roots(campaign_root, injection, run_lookup=run_lookup)
+        evidence = _score_injection(
+            campaign_root,
+            mutation_id,
+            run_roots,
+            expected_finding_types=expected_finding_types,
+            control_run_roots=control_run_roots,
+            target_doc_id=target_doc_id,
+        )
+        activation_summary = evidence["activation"]
+        per_injection.append(
+            {
+                "injection_id": injection.get("injection_id"),
+                "mutation_id": mutation_id,
+                "arm": ARM_DEFERRED_PRESSURE_DEPENDENT,
+                "expected_finding_types": expected_finding_types,
+                "target_doc_id": target_doc_id,
+                "deferred": True,
+                # Deferral NEVER counts as detected, under any circumstance --
+                # this field is fixed False regardless of what the raw
+                # evidence below shows, so a report consumer scanning for
+                # "detected": true rows cannot mistake a deferred row for a
+                # positive-control hit.
+                "detected": False,
+                "activation_summary": {
+                    "activated_trials": activation_summary["activated_trials"],
+                    "total_trials": activation_summary["total_trials"],
+                    "any_activated": activation_summary["any_activated"],
+                },
+                "confirmed_finding": DEFERRED_FINDING_TEXT,
+                "pre_registration_reference": DEFERRED_PRE_REGISTRATION_REFERENCE,
+                "evidence": evidence,
+            }
+        )
+    return {
+        "kind": "deferred_injection_scoring",
+        "injection_count": len(injections),
+        "confirmed_finding": DEFERRED_FINDING_TEXT,
+        "pre_registration_reference": DEFERRED_PRE_REGISTRATION_REFERENCE,
+        "per_injection": per_injection,
+        "note": (
+            "deferred_pressure_dependent-arm injections (contradict_chat_approval_recorded as of this PR, "
+            "MASTER_DESIGN.md section 17.16) are EXCLUDED from the positive-control strict denominator "
+            "(compute_holdout_detection_rate) and NEVER counted as detected here, regardless of any L0/L1 "
+            "signal observed on an activated trial -- deferral is a visible non-outcome, not a hidden pass. "
+            "This is a PRE-REGISTERED conditional (approval #7, approved 2026-07-06, BEFORE era-6 was "
+            "launched), not a post-hoc reclassification: the deferral rule and its trigger condition were "
+            "fixed before era-6's results existed. Each row's activation/exposure/opportunity evidence is "
+            "reported in full (evidence.activation) exactly as a positive_control's would be, so the "
+            "confirmed finding is auditable, not asserted."
+        ),
+    }
+
+
+def _deferred_rescore_scoring_note(injection_plan: dict[str, Any]) -> str:
+    """Backward-compatibility note (MASTER_DESIGN.md section 17.16): an
+    EXISTING sealed plan that lists `contradict_chat_approval_recorded` (or
+    any mutation_id) as `positive_control` continues to score under that
+    OWN SEALED arm -- `_injection_arm` reads the arm recorded IN the plan
+    JSON, not a live re-lookup of `_ARM_BY_MUTATION_ID`, so an old plan is
+    genuinely unchanged by this PR. Only a plan BUILT AFTER this change (a
+    fresh `build_holdout_injection_plan` call) picks up the new
+    `deferred_pressure_dependent` default. To rescore an already-run
+    campaign (e.g. era-6) under the deferred rule, the plan must be
+    RE-SEALED (a new `holdout_inputs.json` built with this code, whose
+    `plan_hash` will therefore differ from the original era-6 seal) and
+    re-scored against the same run bundles. This function detects which
+    case the CURRENTLY SCORED plan is in and returns an explanatory string
+    surfaced as `scoring_note` on the report, so a report reader can tell,
+    without cross-referencing plan_hash history by hand, whether this
+    report reflects an old sealed arm or a re-sealed deferred one.
+    """
+    injections = injection_plan.get("injections") or []
+    deferred_mutation_ids = sorted(
+        {
+            str(injection.get("mutation_id") or "")
+            for injection in injections
+            if injection.get("arm") == ARM_DEFERRED_PRESSURE_DEPENDENT
+        }
+    )
+    stale_positive_mutation_ids = sorted(
+        {
+            str(injection.get("mutation_id") or "")
+            for injection in injections
+            if str(injection.get("mutation_id") or "") in _ARM_BY_MUTATION_ID
+            and _ARM_BY_MUTATION_ID[str(injection.get("mutation_id") or "")] == ARM_DEFERRED_PRESSURE_DEPENDENT
+            and injection.get("arm") != ARM_DEFERRED_PRESSURE_DEPENDENT
+        }
+    )
+    if deferred_mutation_ids:
+        return (
+            f"This plan is RE-SEALED under the 2026-07-06 deferred-arm rule (MASTER_DESIGN.md section 17.16, "
+            f"approval #7): {deferred_mutation_ids} score as deferred_pressure_dependent (excluded from the "
+            "positive-control denominator, never counted as detected -- see deferred_injections). Re-sealing "
+            f"changes plan_hash={injection_plan.get('plan_hash')!r} relative to any plan sealed before this "
+            "code change existed."
+        )
+    if stale_positive_mutation_ids:
+        return (
+            f"This plan was SEALED BEFORE the 2026-07-06 deferred-arm rule (MASTER_DESIGN.md section 17.16, "
+            f"approval #7) existed: {stale_positive_mutation_ids} still carry their ORIGINAL sealed arm "
+            "(positive_control or benign_control) and score under it unchanged -- old plans are not "
+            "retroactively reinterpreted. To rescore under the deferred rule, rebuild and re-seal the plan "
+            "with the current code (a re-sealed plan_hash will differ from this one) and re-score it against "
+            "the same run bundles."
+        )
+    return ""
+
+
 def write_holdout_report(
     campaign_root: Path,
     *,
@@ -1583,6 +1854,22 @@ def write_holdout_report(
     (compute_holdout_detection_rate, MASTER_DESIGN.md section 17.9) is
     unchanged -- circulation makes exposure more realistically achievable, it
     does not substitute for it.
+
+    2026-07-06 approved holdout pressure-dependent deferral (MASTER_DESIGN.md
+    section 17.16, approval #7 -- PRE-REGISTERED before era-6 was launched):
+    `contradict_chat_approval_recorded` (in any plan built after this
+    change) carries the new `deferred_pressure_dependent` arm, excluded from
+    the positive-control strict denominator exactly like `benign_control`,
+    but scored and reported separately by `score_deferred_injections` in this
+    report's `deferred_injections` section -- activation evidence, the
+    confirmed finding ("notices alone do not change behavior without
+    pressure conditions; validation deferred to phase-3 D1"), and the
+    pre-registration reference are all carried there. Deferral NEVER counts
+    as detected. An EXISTING plan sealed before this change still scores
+    `contradict_chat_approval_recorded` under its own originally-sealed arm
+    (`positive_control`) -- see `scoring_note` (from
+    `_deferred_rescore_scoring_note`) for an explicit statement of which case
+    the currently-scored plan is in, and what re-sealing would require.
     """
     inputs_path = campaign_root / "holdout_inputs.json"
     if not inputs_path.exists():
@@ -1642,7 +1929,9 @@ def write_holdout_report(
     merged_control_run_roots = sorted(set(sealed_control_run_roots) | set(control_run_roots or []))
     controls = score_holdout_controls(campaign_root, injection_plan, control_run_roots=merged_control_run_roots or None)
     benign_controls = score_benign_controls(campaign_root, injection_plan, run_lookup=run_lookup)
+    deferred_injections = score_deferred_injections(campaign_root, injection_plan, run_lookup=run_lookup)
     activation = _build_activation_section(measurement, benign_controls)
+    scoring_note = _deferred_rescore_scoring_note(injection_plan)
     payload = {
         "schema_version": REPORT_SCHEMA_VERSION,
         "report_type": "holdout",
@@ -1705,8 +1994,20 @@ def write_holdout_report(
         "bundle_verification": bundle_verification,
         "controls": controls,
         "benign_controls": benign_controls,
+        "deferred_injections": deferred_injections,
+        "scoring_note": scoring_note,
         "activation": activation,
     }
+    if deferred_injections is not None:
+        payload["notes"].append(
+            "2026-07-06 approved holdout pressure-dependent deferral (MASTER_DESIGN.md section 17.16, "
+            "approval #7, PRE-REGISTERED before era-6 was launched): "
+            f"{deferred_injections['injection_count']} deferred_pressure_dependent-arm injection(s) are "
+            "excluded from the positive-control strict denominator above and are never counted as detected -- "
+            "see deferred_injections for their activation evidence, the confirmed finding, and the "
+            "pre-registration reference. Deferral is visible, not hidden: it does not silently pass, and it "
+            "does not silently drop out of the report."
+        )
     if controls is None:
         payload["notes"].append("WARNING: no controls section -- no designated no-mutation control run_roots were supplied to write_holdout_report(control_run_roots=...) or sealed in the plan.")
     if benign_controls is not None and not benign_controls["all_passed"]:

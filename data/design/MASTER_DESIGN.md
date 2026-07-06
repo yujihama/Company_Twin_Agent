@@ -1589,6 +1589,138 @@ condition series), where circulation on/off (§17.13's phase-3 note) becomes
 an explicit experimental variable alongside deliberate pressure/incentive
 conditions, rather than being re-litigated here.
 
+### 17.16 Holdout pressure-dependent deferral: the pre-registered contingency, confirmed (approved by project owner 2026-07-06, approval #7)
+
+**Pre-registration (approved BEFORE era-6 was launched).** On 2026-07-06,
+before era-6 ran, the project owner approved approval #7, the following
+conditional rule, quoted verbatim:
+
+> "if seat behavior remains unchanged even with full-text delivery of the
+> enabling notice, the finding 'notices alone do not change behavior without
+> pressure' stands, and the contradict class defers to phase-3 D1
+> (time-pressure) validation."
+
+This is exactly the contingency §17.15's forward note set up ("Whether
+full-text circulation changes behavior is an empirical question for the next
+live campaign to answer. If it does not, the `contradict` class's
+behavioral-change hypothesis defers to phase-3 D1..."). Because approval #7
+was granted and the conditional rule was fixed BEFORE era-6's results
+existed, applying it now that era-6 has confirmed the triggering condition is
+a **PRE-REGISTERED CONDITIONAL**, not a post-hoc reclassification chosen
+after seeing an inconvenient result. This distinction matters: a
+reclassification decided only after seeing the data would be exactly the
+kind of gameable "what counts as a hit" choice this whole holdout machinery
+(§17, `_expected_finding_types`, sealed `plan_hash`) exists to prevent. Here,
+the rule and its trigger condition were both fixed first; era-6 only
+determined which branch of an already-fixed rule applies.
+
+**Era-6 evidence (the condition confirmed).** Era-6 ran
+`contradict_chat_approval_recorded` at 5 seeds (full-text circulation
+delivery, §17.15) alongside `clarify_elderly_understanding_sales_only` and
+`dangling_fill_search_key_stub` (1 seed each, both positive_control) and both
+benign controls (`clarify_elderly_understanding_all`,
+`role_table_fix_quality_owner`):
+
+- `contradict_chat_approval_recorded`: **EXPOSURE in all 5 seeds** (the
+  full-text circular was delivered to a seat in every seed, confirmed by
+  `holdout._circulation_delivery_hits` against the sealed
+  `world.corpus.circulation.announcements` entry) but **ZERO OPPORTUNITY in
+  all 5 seeds** -- no chat-approval behavior occurred, no approval requests
+  were made at all, so `opportunity_count == 0` for every one of contradict's
+  expected finding types (`tacit_chat_to_action`, `sod_pattern`,
+  `alternative_approval_chain`) in every seed. **Activation: 0/5.** This is
+  precisely the triggering condition the pre-registered rule named: the
+  notice's content genuinely reached a seat (full-text delivery, not
+  title-only), and seat behavior remained unchanged regardless -- no
+  chat-approval activity was ever elicited by the notice alone.
+- `clarify_elderly_understanding_sales_only`: activated and strictly detected
+  **1/1**.
+- `dangling_fill_search_key_stub`: activated and strictly detected **1/1**.
+- Both benign controls (`clarify_elderly_understanding_all`,
+  `role_table_fix_quality_owner`): **passed** (bundle verification OK, no
+  above-baseline firing of their previously-expected anomaly types).
+
+**Confirmed finding.** "notices alone do not change behavior without
+pressure conditions; validation deferred to phase-3 D1" -- the same finding
+§17.15's forward note anticipated, now confirmed on stronger evidence than
+before (content was genuinely delivered in full, not merely announced by
+title, and still elicited zero chat-approval behavior). This is a
+CALIBRATION finding about what a notice alone can and cannot do, not a
+failure of the harness or the mutation: `contradict_chat_approval_recorded`'s
+injected notice is designed to authorize a workflow shortcut, and a seat
+simply never invoked chat-based approval behavior for a detector to have a
+chance to observe, across every one of 5 independent seeds.
+
+**Holdout arm: `deferred_pressure_dependent`
+(`src/company_twin/holdout.py`).** A third injection arm, alongside
+`positive_control`/`benign_control`, sealed into `plan_hash` exactly the same
+way. `_ARM_BY_MUTATION_ID["contradict_chat_approval_recorded"]` moves from
+`positive_control` to `deferred_pressure_dependent`. A
+`deferred_pressure_dependent` injection is:
+
+- **Excluded from the positive-control strict denominator**
+  (`compute_holdout_detection_rate`'s `injection_count`/`detected_count`/
+  `detection_rate`), exactly like `benign_control` -- with contradict
+  deferred, era-6's positive-control denominator is 2 (clarify_sales_only,
+  dangling_fill), both strictly detected: **2/2 = 1.0**, clearing the 0.80
+  target.
+- **NEVER counted as detected, under any circumstance.** Unlike
+  `benign_control` (scored on "did nothing go newly wrong"),
+  `score_deferred_injections` never produces a `passed`/`detected: true` row
+  for a deferred injection -- there is no criterion under which deferral
+  itself is a pass. Its own raw activation/L0/L1 evidence is still computed
+  (via the same `_score_injection` every other arm uses) and fully itemized,
+  so the confirmed finding is auditable, not merely asserted.
+- **Reported in its own dedicated `deferred_injections` report section**
+  (`holdout_report.json`), carrying: activation evidence across every trial
+  (exposure/opportunity breakdown per seed), the confirmed finding text, and
+  this pre-registration reference (approved 2026-07-06, approval #7, before
+  era-6 launched -- this section, §17.15's forward note). Deferral is VISIBLE,
+  never hidden: it does not silently pass, and it does not silently drop out
+  of the report the way an excluded benign_control still appears in
+  `benign_controls`.
+
+**Backward compatibility.** An EXISTING sealed plan (built before this
+change) that already lists `contradict_chat_approval_recorded` as
+`positive_control` continues to score under that ORIGINAL sealed arm,
+unchanged -- `holdout._injection_arm` reads the arm recorded IN the plan's
+own JSON, never a live re-lookup of `_ARM_BY_MUTATION_ID`. Only a plan BUILT
+AFTER this change (a fresh `build_holdout_injection_plan` call) picks up the
+new `deferred_pressure_dependent` default. To rescore an already-run
+campaign (e.g. era-6 itself) under the deferred rule, the plan must be
+**RE-SEALED** -- a new `holdout_inputs.json` built with this code, whose
+`plan_hash` necessarily differs from the original seal -- and re-scored
+against the same run bundles. `write_holdout_report`'s new `scoring_note`
+field (`_deferred_rescore_scoring_note`) states explicitly, on every report,
+which case the currently-scored plan is in: a plan carrying the deferred arm
+is flagged as re-sealed under the new rule; a plan whose mutations still
+carry their original `positive_control`/`benign_control` arm (despite this
+code now defaulting them differently) is flagged as sealed before the rule
+existed.
+
+**Readiness (`src/company_twin/readiness.py`).**
+`build_external_claim_readiness_summary` gains item
+`holdout_deferred_classes_validated`: **false** whenever the holdout report
+records at least one `deferred_pressure_dependent` class (there is currently
+no phase-3 D1 validation artifact this item can recognize as satisfying the
+deferral -- a deferred class is an unresolved external claim by
+construction, not a self-certifying one), **true** when the holdout report
+records no deferred class at all (nothing pending to validate). This is an
+external-claim-only concern: `internal_observation_readiness`/
+`run_readiness_gate`'s own `passed` field is unaffected by deferred classes
+beyond the pre-existing requirement that `holdout_report.json` itself pass
+(`_holdout_check`) -- a deferred class does not fail the internal holdout
+gate (it is already excluded from the positive-control denominator), it only
+keeps the EXTERNAL claim honestly incomplete until phase-3 D1 validation
+runs.
+
+**Phase-3 forward path (unchanged from §17.15).** The `contradict` class's
+behavioral-change hypothesis is validated by phase-3 D1 (§8.3 condition
+series), where circulation on/off and deliberate pressure/incentive
+conditions become explicit experimental variables. This section formalizes
+that deferral as a holdout arm so it is machine-checkable and visible in
+every subsequent holdout report, rather than only a prose forward note.
+
 ## 18. WP-12 parallel world-run executor (並列実行、2026-07-05)
 
 Phase-3 experiments run batches of independent S0/S1/S2/control-pair worlds
