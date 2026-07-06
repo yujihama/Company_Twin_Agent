@@ -1789,6 +1789,74 @@ id-map(`dropped_items`の理由内訳を持たない)は後方互換のため全
 
 ラウンド10(プール77件)で機械的生成痕4/77=5.19%と僅差の不合格となったが、うち2〜3件は生成不良ではなく、同一凍結デッキの2稼働をプールしたことによる決定論的テキスト部品(状況設定文・固定通知)の逐語一致対を、盲検評価者が「コピペ痕」と読んだものだった(検証: 該当記録の内部に反復なし、対応する対の末尾が逐語一致)。§17.18のプール横断重複除去(完全一致)の意図を完成させる修正として、正規化後に25文字以上の逐語一致runを共有する対の2件目をパケットから抑制し、id map に `deduped_cross_run_near` として記録する(判定には一切影響しない構築時の帳簿)。しきい値・判定式は不変。
 
+### 17.20 SME盲検ゲート最終改定: ルーティン/プローブ分離判定 (2026-07-07、プロジェクトオーナー承認 #9)
+
+**論点.** ラウンド7(§17.14)で「乗換保険」(P-03の凍結コーパス商品名)が
+`mechanical_generation`として誤指摘された一件は再分類ルールで解決したが、
+根本にはより一般的な論点が残っていた: probe(P-01〜P-10)は意図的に設計された
+非典型のテストケースであり、それ自体が「いかにも設計されている」と気づかれ得る
+ことは設計上織り込み済みである。probeが気づかれないなら、それはprobeとして
+何も検証していないことになる。一方でゲートが問うているのは「現場として
+あり得る度」、すなわち通常業務記録としてのリアリズムであって、probeという
+非典型ケースのリアリズムではない。したがって、ゲート判定(あり得る度
+plausibility_rate >= 0.80、機械的生成痕率 mechanical_generation <= 5%、両方
+不変)は本来ルーティンケースの記録のみを母集団とすべきであり、probe由来の
+記録は判定対象から除外しつつ、隠さず全件を別セクションで報告するのが正しい
+設計である(承認済み: プロジェクトオーナー、2026-07-07、承認 #9)。
+
+**実装(1): 構築時タグ付け (`sample_run_bundle_excerpts`/`build_blind_review_packet`).**
+各サンプル抜粋について、由来する world_ledger.jsonl 行自身のペイロードから
+probe連携を判定する: `event_id` が `"EVT-P-"` で始まる、または
+`application_id` が `"APP-P-"` で始まる場合を probe由来と判定する
+(`deck.build_customer_deck` が probe イベントに `event_id=f"EVT-{probe_id}"`
+/`application_id=f"APP-{probe_id}"` を、ルーティンイベントには
+`"EVT-R.."`/`"APP-R.."` を割り当てているため、このプレフィックス一致は
+コーパス設計と一対一に対応する既存の命名規則そのものである)。判定できる
+event_type は `customer_utterance` と、その `customer_utterance` を
+ネストする `inbox_delivered` の2種類のみ(いずれも既存の
+`_linked_customer_event_id` が読む2種類と同じ)。`chat_message` や
+`month_end_close` など、そもそも event_id/application_id を一切持たない
+行は判定不能であり、`probe_derived: null` (`unclassified`)として記録する
+-- **falseへのデフォルトは誤り**であり、判定できない場合を"probe由来では
+ない"と断定することになってしまうため、これは行わない。unclassified は
+ルーティン側の母数に算入する(最も厳格な選択: ルーティンパネルの合格率を
+下げる方向にしか作用せず、合格を助けることはできない)。
+
+この `probe_derived` フラグは実験者側の分類情報であり、id map
+(`sme_blind_review_id_map.json`)の各エントリにのみ記録する。
+reviewer向けパケット(`sme_blind_review_inputs.json`)のitemには一切追加
+しない -- 盲検性の根幹(reviewerがどの記録がprobe由来かを知らないこと)を
+壊すため。
+
+**実装(2): 判定 (`score_sme_blind_review`/`write_sme_blind_review_report`).**
+ゲート指標は、id mapの該当エントリが `probe_derived != true` (ルーティン +
+unclassified)であるitemのみを対象に計算する。scoreの返り値に新セクション
+`routine_panel` (件数、plausibility_rate、mechanical_generation_rate --
+これが判定対象そのもの) と `probe_panel` (件数、およびprobe由来item全件の
+個票 -- スコア・カテゴリ・note を含む完全な行)を追加した。
+`write_sme_blind_review_report`のトップレベルcheckの`detail`は判定根拠が
+routine_panelであることを明記する(`basis: "routine_panel"`)。scorerは
+drop bookkeeping用に既にid mapを読んでいたため、この読み出しを拡張する
+形で実装した(id_map引数を新設、省略時は全itemをルーティン扱いとする
+後方互換動作)。
+
+**しきい値・判定式は不変.** plausibility_target=0.80、
+SME_MECHANICAL_RATE_TOLERANCE=0.05 のいずれも変更しない -- 変更したのは
+「何を母集団として計算するか」のみである。probe側の低スコアは、合格して
+いるルーティンパネルを不合格にはしない。逆に、probe側が全件満点でも、
+ルーティン側の1件の不合格(率超過)はゲート全体を不合格にする。
+
+**本規則はround 11より後付けであり、判定はround 12から前向きに適用する.**
+本規則はround 11(§17.19までに実施済み)より後に承認・導入されたものであり、
+round 6〜11 はいずれも本規則(ルーティン/プローブ分離)を前提とせず実施
+された。したがって過去ラウンドの遡及的な再判定は行わない。次回の新規
+プールパネル(round 12、まだ実施していない、§17.19の直近計画どおり対照2本
+によるプール)から本規則の判定を適用し、その結果を持って本規則下での最初の
+判定(prospective verdict)とする。参考値として、round 11時点でのルーティン
+のみ参照値(本規則を後付けで機械的に適用した場合の相当値)は
+plausibility_rate=0.840 / mechanical_generation_rate=2.0% であり、round 12
+の前向き判定の基準として記録しておく。関連: `tests/test_sme_routine_panel.py`。
+
 ## 18. WP-12 parallel world-run executor (並列実行、2026-07-05)
 
 Phase-3 experiments run batches of independent S0/S1/S2/control-pair worlds
