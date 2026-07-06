@@ -86,6 +86,7 @@ def _meta_timing(run_root: Path) -> dict[str, Any]:
 def _config_hashes(run_root: Path) -> dict[str, Any]:
     config = _read_json(run_root / "config.json")
     corpus = ((config.get("world") or {}).get("corpus") or {})
+    circulation = corpus.get("circulation") or {}
     return {
         "raw_corpus_hash": corpus.get("raw_corpus_hash"),
         "effective_corpus_hash": corpus.get("effective_corpus_hash"),
@@ -98,6 +99,14 @@ def _config_hashes(run_root: Path) -> dict[str, Any]:
         # seat_model_bindings below -- carries an honest record of what
         # generated the customer's utterances in that run.
         "customer_model": (config.get("model") or {}).get("customer"),
+        # Diegetic notice circulation (MASTER_DESIGN.md section 17.13/17.x):
+        # recording enabled/mode here (not just inside world.corpus.circulation
+        # on the raw config.json) makes the two circulation eras -- era-5's
+        # legacy "title_only" and the current "full_text" -- directly
+        # distinguishable from the evidence manifest, without having to open
+        # every individual run's config.json.
+        "circulation_enabled": bool(circulation.get("enabled")),
+        "circulation_mode": circulation.get("mode"),
     }
 
 

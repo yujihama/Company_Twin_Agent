@@ -610,38 +610,123 @@ def _run_finding_type_rates(run_root: Path) -> dict[str, dict[str, Any]]:
 
 # ---------------------------------------------------------------------------
 # 2026-07-06 approved activation-aware holdout protocol (MASTER_DESIGN.md
-# section 17.9)
+# section 17.9), redefined for full-text circulation (MASTER_DESIGN.md
+# section 17.x, approved 2026-07-06)
 # ---------------------------------------------------------------------------
 #
 # A positive-control trial can only demonstrate detection if the injected
-# stimulus was actually ACTIVATED: EXPOSURE (the injected/patched document was
-# actually read by at least one seat) AND OPPORTUNITY (at least one of the
-# injection's expected finding types had a genuine opportunity_count > 0 in
-# the run's triage rule_hit_rate metrics -- the denominators already recorded
-# on every scored bundle). Without both, an "undetected" run is not evidence
-# of a detection miss: the stimulus never reached the world surface, or there
-# was nothing for a detector to have a chance to fire on, by construction
-# (see MASTER_DESIGN.md section 17.6's role_table_fix_quality_owner finding,
-# and section 17.7's probe-stimulus-delivery gap, both cases where an
-# "undetected" run in fact had zero opportunity/exposure).
+# stimulus was actually ACTIVATED: EXPOSURE AND OPPORTUNITY (at least one of
+# the injection's expected finding types had a genuine opportunity_count > 0
+# in the run's triage rule_hit_rate metrics -- the denominators already
+# recorded on every scored bundle). Without both, an "undetected" run is not
+# evidence of a detection miss: the stimulus never reached the world surface,
+# or there was nothing for a detector to have a chance to fire on, by
+# construction (see MASTER_DESIGN.md section 17.6's
+# role_table_fix_quality_owner finding, and section 17.7's
+# probe-stimulus-delivery gap, both cases where an "undetected" run in fact
+# had zero opportunity/exposure).
+#
+# EXPOSURE was originally read-based only: target_doc_id actually read by a
+# seat (read_document attempt or basis citation). Section 17.13's era-5
+# raw-data audit found title-only circulation never drew a single seat to
+# read the underlying document -- across 5 contradict seeds plus
+# clarify/dangling runs, read_document/basis-citation hits for
+# DFH-SAL-901/902/903 were zero. With full-text circulation (this PR), the
+# circulated inbox message carries the notice's own body, so DELIVERY of that
+# circular to at least one seat now counts as exposure directly: a seat that
+# received the notice's full text in its inbox was exposed to its content,
+# whether or not it later issued a read_document call for the same doc_id (a
+# search-log hit measures a corpus-navigation HABIT, not exposure, once the
+# content itself was already delivered). The prior read/citation evidence is
+# kept as a secondary recorded field (`content_read`) for visibility -- it is
+# reported but no longer required for exposure.
+#
+# Backward compatibility: a bundle whose config.json records a circulation
+# mode other than "full_text" (e.g. era-5's "title_only", or circulation
+# disabled entirely) falls back to the original read-based exposure
+# definition -- title-only delivery never carried the document's content, so
+# delivery alone cannot stand in for exposure there.
 
 
-def _run_exposure(run_root: Path, target_doc_id: str) -> dict[str, Any]:
+def _circulation_mode(run_root: Path) -> str:
+    """The circulation mode this run's config.json actually recorded
+    (world.corpus.circulation.mode), defaulting to "" (circulation not
+    recorded at all -- pre-circulation bundles, or a fixture that doesn't
+    stamp the field) rather than guessing."""
+    config = _read_json(run_root / "config.json")
+    corpus = (config.get("world") or {}).get("corpus") or {}
+    circulation = corpus.get("circulation") or {}
+    return str(circulation.get("mode") or "")
+
+
+def _circulation_delivery_hits(run_root: Path, *, mutation_id: str, target_doc_id: str) -> list[dict[str, Any]]:
+    """Ledger evidence that THIS injection's circular was delivered to at
+    least one seat: an `inbox_delivered` row whose message is a
+    `document_circulation` timed_notice, correlated back to the sealed
+    `world.corpus.circulation.announcements` entry for this mutation_id/
+    target_doc_id (matched by doc_id/tick, then confirmed by exact notice
+    content match against that announcement's recorded message/digest --
+    guards against coincidentally matching some other mutation's circular in
+    the same run).
+    """
+    if not mutation_id and not target_doc_id:
+        return []
+    config = _read_json(run_root / "config.json")
+    corpus = (config.get("world") or {}).get("corpus") or {}
+    announcements = (corpus.get("circulation") or {}).get("announcements") or []
+    matching_texts: set[str] = set()
+    matching_ticks: set[int] = set()
+    for announcement in announcements:
+        if not isinstance(announcement, dict):
+            continue
+        same_mutation = mutation_id and str(announcement.get("mutation_id") or "") == mutation_id
+        same_doc = target_doc_id and str(announcement.get("doc_id") or "") == target_doc_id
+        if not (same_mutation or same_doc):
+            continue
+        matching_ticks.add(int(announcement.get("tick") or 0))
+        for key in ("message", "digest"):
+            text = str(announcement.get(key) or "")
+            if text:
+                matching_texts.add(text)
+    if not matching_texts:
+        return []
+    hits: list[dict[str, Any]] = []
+    for row in read_jsonl(run_root / "world_ledger.jsonl"):
+        if row.get("event_type") != "inbox_delivered":
+            continue
+        payload = row.get("payload") or {}
+        message = payload.get("message") or {}
+        if message.get("kind") != "timed_notice" or message.get("notice") != "document_circulation":
+            continue
+        detail = str(message.get("detail") or "")
+        if detail not in matching_texts:
+            continue
+        if matching_ticks and int(message.get("tick") or row.get("tick") or -1) not in matching_ticks:
+            continue
+        hits.append({"to_seat": payload.get("to_seat"), "tick": message.get("tick")})
+    return hits
+
+
+def _run_content_read(run_root: Path, target_doc_id: str) -> dict[str, Any]:
     """Was `target_doc_id` (the injected/patched document) actually read by
-    at least one seat in this run bundle?
+    at least one seat in this run bundle, via the search/read surface
+    (independent of whether it was also circulated)?
 
-    Checked two ways, either of which is sufficient evidence of exposure:
+    Checked two ways, either of which is sufficient evidence:
     - a successful `read_document` attempt in attempts.jsonl whose
       `args.doc_id` equals target_doc_id;
     - a basis_records.jsonl row whose `retrieved` list cites a `doc_id`
       equal to target_doc_id (a recorded interpretation basis that actually
       cites the document, independent of the raw attempt log).
 
-    Returns exposed (bool) plus the concrete evidence refs found, so the
-    activation record is itself auditable rather than a bare boolean.
+    This is recorded as the secondary `content_read` field on the exposure
+    record (MASTER_DESIGN.md section 17.x): with full-text circulation,
+    delivery already establishes exposure, so this field is reported for
+    visibility (did the seat ALSO go find the document itself?) but is no
+    longer required for exposure to be true.
     """
     if not target_doc_id:
-        return {"exposed": False, "target_doc_id": target_doc_id, "read_document_hits": [], "basis_citation_hits": [], "detail": "injection has no target_doc_id to check exposure against"}
+        return {"read": False, "target_doc_id": target_doc_id, "read_document_hits": [], "basis_citation_hits": [], "detail": "injection has no target_doc_id to check content_read against"}
     read_document_hits: list[dict[str, Any]] = []
     for row in read_jsonl(run_root / "attempts.jsonl"):
         if row.get("tool") != "read_document" or not row.get("success"):
@@ -657,13 +742,81 @@ def _run_exposure(run_root: Path, target_doc_id: str) -> dict[str, Any]:
         for item in retrieved:
             if isinstance(item, dict) and str(item.get("doc_id") or "") == target_doc_id:
                 basis_citation_hits.append({"basis_id": row.get("basis_id"), "seat_id": row.get("seat_id"), "tick": row.get("tick")})
-    exposed = bool(read_document_hits or basis_citation_hits)
+    read = bool(read_document_hits or basis_citation_hits)
     return {
-        "exposed": exposed,
+        "read": read,
         "target_doc_id": target_doc_id,
         "read_document_hits": read_document_hits,
         "basis_citation_hits": basis_citation_hits,
-        "detail": "" if exposed else f"no successful read_document attempt or basis citation for target_doc_id={target_doc_id!r} in this run",
+        "detail": "" if read else f"no successful read_document attempt or basis citation for target_doc_id={target_doc_id!r} in this run",
+    }
+
+
+def _run_exposure(run_root: Path, target_doc_id: str, *, mutation_id: str = "") -> dict[str, Any]:
+    """Was this injection's stimulus actually delivered to the world in a way
+    that exposed a seat to its content?
+
+    Full-text circulation mode (world.corpus.circulation.mode == "full_text",
+    MASTER_DESIGN.md section 17.x): EXPOSURE = the run's ledger records
+    delivery of this injection's circular (its `document_circulation`
+    timed_notice) to at least one seat -- see _circulation_delivery_hits.
+    With full-text delivery, delivery IS content exposure (the delivered
+    message carries the notice's own body); a seat's read_document/basis
+    citation on the same doc_id is recorded separately as the secondary
+    `content_read` field (reported, not required).
+
+    Backward compatible fallback (mode is not "full_text" -- e.g. era-5's
+    legacy "title_only" bundles, or circulation not recorded/enabled at all):
+    EXPOSURE reverts to the original read-based definition -- a successful
+    read_document attempt or a basis-citation hit for target_doc_id. Title-
+    only delivery never carried the document's content, so delivery alone
+    cannot stand in for exposure under that mode.
+
+    Returns exposed (bool) plus the concrete evidence refs found (including
+    `content_read`, always computed and recorded regardless of mode), so the
+    activation record is itself auditable rather than a bare boolean.
+    """
+    content_read = _run_content_read(run_root, target_doc_id)
+    mode = _circulation_mode(run_root)
+    if mode == "full_text":
+        delivery_hits = _circulation_delivery_hits(run_root, mutation_id=mutation_id, target_doc_id=target_doc_id)
+        exposed = bool(delivery_hits)
+        detail = (
+            ""
+            if exposed
+            else f"no document_circulation delivery recorded for mutation_id={mutation_id!r}/target_doc_id={target_doc_id!r} in this run (mode=full_text)"
+        )
+        return {
+            "exposed": exposed,
+            "target_doc_id": target_doc_id,
+            "mode": mode,
+            "basis": "circulation_delivery",
+            "circulation_delivery_hits": delivery_hits,
+            "content_read": content_read["read"],
+            "content_read_detail": content_read,
+            "detail": detail,
+        }
+    if not target_doc_id:
+        return {
+            "exposed": False,
+            "target_doc_id": target_doc_id,
+            "mode": mode,
+            "basis": "content_read",
+            "circulation_delivery_hits": [],
+            "content_read": False,
+            "content_read_detail": content_read,
+            "detail": "injection has no target_doc_id to check exposure against",
+        }
+    exposed = content_read["read"]
+    return {
+        "exposed": exposed,
+        "target_doc_id": target_doc_id,
+        "mode": mode,
+        "basis": "content_read",
+        "circulation_delivery_hits": [],
+        "content_read": content_read["read"],
+        "content_read_detail": content_read,
+        "detail": "" if exposed else content_read["detail"],
     }
 
 
@@ -701,9 +854,9 @@ def _run_opportunity(run_root: Path, expected_finding_types: list[str]) -> dict[
     }
 
 
-def _run_activation(run_root: Path, *, target_doc_id: str, expected_finding_types: list[str]) -> dict[str, Any]:
+def _run_activation(run_root: Path, *, target_doc_id: str, expected_finding_types: list[str], mutation_id: str = "") -> dict[str, Any]:
     """Per-run activation record: activation = EXPOSURE AND OPPORTUNITY."""
-    exposure = _run_exposure(run_root, target_doc_id)
+    exposure = _run_exposure(run_root, target_doc_id, mutation_id=mutation_id)
     opportunity = _run_opportunity(run_root, expected_finding_types)
     activated = bool(exposure["exposed"] and opportunity["has_opportunity"])
     reasons = []
@@ -833,7 +986,7 @@ def _score_injection(
         l1_finding_types |= set(run_l1_finding_types)
         l0_finding_count += run_l0_count
         run_rates = _run_finding_type_rates(run_root)
-        activation = _run_activation(run_root, target_doc_id=target_doc_id, expected_finding_types=expected_finding_types)
+        activation = _run_activation(run_root, target_doc_id=target_doc_id, expected_finding_types=expected_finding_types, mutation_id=mutation_id)
         activation_rows.append(activation)
         if activation["activated"]:
             for finding_type in expected:
@@ -1259,7 +1412,8 @@ def score_benign_controls(
         # patch was "activated" the way a positive_control's anomaly probe
         # would be.
         activation_rows = [
-            _run_activation(run_root, target_doc_id=target_doc_id, expected_finding_types=expected_finding_types) for run_root in run_roots
+            _run_activation(run_root, target_doc_id=target_doc_id, expected_finding_types=expected_finding_types, mutation_id=mutation_id)
+            for run_root in run_roots
         ]
         activated_trials = sum(1 for row in activation_rows if row["activated"])
 
@@ -1518,11 +1672,19 @@ def write_holdout_report(
             "from its bundle-verification gate; they are scored separately in benign_controls and reported "
             "there, never folded into measurement/bundle_verification.",
             "2026-07-06 approved activation-aware holdout protocol (MASTER_DESIGN.md section 17.9): activation "
-            "= exposure (target_doc_id actually read by a seat, per attempts.jsonl/basis_records.jsonl) AND "
-            "opportunity (an expected finding_type had opportunity_count > 0 in the run's rule_hit_rate "
-            "metrics). Detection is evaluated only over activated trials; a positive_control injection with "
-            "ZERO activated trials among its planned runs fails outright, never excluded from the denominator "
-            "-- see the activation section and measurement.per_injection[*].activation_summary/activation.",
+            "= exposure AND opportunity (an expected finding_type had opportunity_count > 0 in the run's "
+            "rule_hit_rate metrics). Detection is evaluated only over activated trials; a positive_control "
+            "injection with ZERO activated trials among its planned runs fails outright, never excluded from "
+            "the denominator -- see the activation section and measurement.per_injection[*].activation_summary/activation.",
+            "2026-07-06 approved full-text circulation exposure redefinition (MASTER_DESIGN.md section 17.x): "
+            "for a bundle whose config.json records world.corpus.circulation.mode=='full_text', EXPOSURE = the "
+            "run's ledger records delivery of this injection's circular (document_circulation timed_notice) to "
+            "at least one seat -- delivery IS content exposure once the circular carries the notice's own body. "
+            "The prior read-based evidence (target_doc_id actually read by a seat, per attempts.jsonl/"
+            "basis_records.jsonl) is retained as the secondary content_read field (reported, not required) -- see "
+            "exposure.content_read/content_read_detail. Bundles whose recorded mode is not full_text (era-5's "
+            "legacy title_only, or circulation disabled) fall back to the original read-based exposure "
+            "definition unchanged.",
             "2026-07-06 approved holdout arm re-classification (MASTER_DESIGN.md section 17.11): arm assignment "
             "is now per-mutation_id (see holdout._ARM_BY_MUTATION_ID), not just per-operator -- "
             "clarify_elderly_understanding_all is now benign_control (its expected types are endemic in "
@@ -1613,10 +1775,14 @@ def _build_activation_section(measurement: dict[str, Any], benign_controls: dict
         "unactivated_injection_ids": unactivated_injection_ids,
         "per_injection": per_injection,
         "note": (
-            "activated = exposure (target_doc_id read by a seat) AND opportunity (an expected finding_type had "
-            "opportunity_count > 0). positive_control detection is evaluated only over activated trials, and an "
-            "injection with zero activated trials fails outright (unactivated_injection_ids). benign_control "
-            "activation is recorded here for visibility only and never affects its own pass criterion."
+            "activated = exposure AND opportunity (an expected finding_type had opportunity_count > 0). Under "
+            "full-text circulation (world.corpus.circulation.mode=='full_text'), exposure = the injection's "
+            "circular was delivered to at least one seat (delivery IS content exposure); read-based evidence is "
+            "reported separately as the secondary content_read field. Bundles recording a non-full_text mode "
+            "(legacy title_only, or circulation disabled) fall back to exposure = target_doc_id read by a seat. "
+            "positive_control detection is evaluated only over activated trials, and an injection with zero "
+            "activated trials fails outright (unactivated_injection_ids). benign_control activation is recorded "
+            "here for visibility only and never affects its own pass criterion."
         ),
     }
 
