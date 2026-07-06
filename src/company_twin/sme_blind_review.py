@@ -575,9 +575,13 @@ def build_blind_review_packet(
         "note": (
             "Reviewer-facing packet. Fill in each item's `response` as "
             '{"plausible_workplace_scene": 1-5, "internally_consistent": 1-5, "no_artificial_markers": "yes"|"no", '
-            '"artificial_marker_category": "mechanical_generation"|"design_content"|"statistical_structure"}. '
+            '"artificial_marker_category": "mechanical_generation"|"design_content"|"statistical_structure", '
+            '"note": "optional free text explaining the flag"}. '
             "artificial_marker_category is required only when no_artificial_markers is \"yes\" (see the "
             "artificial_marker_category question prompt for the three category definitions). "
+            "note is optional free text; when a mechanical_generation flag's note references a frozen-corpus "
+            "term also present in the item's own text, and cites no other basis, it is recategorized to "
+            "design_content for counting purposes (see score_sme_blind_review's docstring). "
             "Null responses count as unreviewed, never as passing."
         ),
     }
@@ -636,17 +640,96 @@ def _normalize_marker_category(response: dict[str, Any], *, flagged_artificial: 
     return _DEFAULT_UNCATEGORIZED_MARKER_CATEGORY
 
 
+# ---------------------------------------------------------------------------
+# Round-7 blind SME review follow-up (data/design/MASTER_DESIGN.md §17.14):
+# frozen-corpus-term recategorization.
+#
+# Round 7 flagged R-008 as `mechanical_generation` on account of the product
+# name "乗換保険". That name is not a generation artifact at all -- it is the
+# frozen-corpus product name for probe P-03 (deck.py's PROBE_ROUTES["P-03"],
+# data/compiled_data/world_config_v2.yaml's "P-03 乗換保険(期限W2金)", and
+# data/compiled_data/deck_v2.json), already documented as such in
+# MASTER_DESIGN.md §17.6 ("frozen-corpus naming (e.g. 乗換保険)") -- the
+# corpus document set is frozen for comparability across calibration rounds,
+# so this term cannot be renamed away. A reviewer flagging it as
+# "mechanical_generation" is a gate-semantics miscategorization, not a real
+# defect: this is the (b) `design_content` kind (recognizability of
+# deliberately-designed, frozen corpus content) §17.6 already carves out, not
+# genuine machine-generation noise (system vocabulary/non-Japanese tokens/
+# broken text/template ids).
+#
+# APPROVED gate-semantics fix (project owner, 2026-07-06): when a flagged
+# response's ONLY basis for the mechanical_generation flag is a listed
+# frozen-corpus term appearing in both the item's own text and the reviewer's
+# note, recategorize the flag to design_content for counting purposes. The
+# zero-mechanical-flags requirement is otherwise UNCHANGED -- this is strictly
+# a categorization correctness fix, never a threshold relaxation: if the
+# note ALSO cites anything else (duplication, broken text, system
+# vocabulary), the item is NOT recategorized and the mechanical_generation
+# flag stands, because the other basis is a genuine mechanical-generation
+# concern this fix must not paper over.
+#
+# The list is structured as a tuple of Japanese terms for future additions
+# (the mechanism generalizes to any frozen-corpus term, not just 乗換保険).
+# ---------------------------------------------------------------------------
+
+FROZEN_CORPUS_TERMS: tuple[str, ...] = ("乗換保険",)
+
+# Substring signals that indicate a reviewer's note cites a basis OTHER than
+# the frozen-corpus term itself -- duplication, broken/garbled text, or
+# system/experimenter vocabulary. Any of these present in the note means the
+# other basis stands and the flag must NOT be recategorized, even if the note
+# also happens to mention a frozen-corpus term.
+_OTHER_MECHANICAL_BASIS_SIGNALS: tuple[str, ...] = (
+    "重複",
+    "繰り返し",
+    "反復",
+    "壊れ",
+    "破損",
+    "文字化け",
+    "途切れ",
+    "切れて",
+    "システム語彙",
+    "システム用語",
+    "不自然なトークン",
+    "テンプレートID",
+    "テンプレート ID",
+)
+
+
+def _note_cites_only_frozen_corpus_term(note: str, *, item_text: str) -> str | None:
+    """Return the specific frozen-corpus term the recategorization applies
+    for, or ``None`` if recategorization does not apply.
+
+    Applies only when: (1) the item's own text actually contains a listed
+    term (never recategorize on the reviewer's say-so alone -- the term must
+    really be there), (2) the reviewer's note references that same term, and
+    (3) the note cites no other mechanical-generation basis (duplication,
+    broken text, system vocabulary) -- if it does, that other basis stands
+    and this function returns None so the flag is left as-is.
+    """
+    if not note:
+        return None
+    if any(signal in note for signal in _OTHER_MECHANICAL_BASIS_SIGNALS):
+        return None
+    for term in FROZEN_CORPUS_TERMS:
+        if term in item_text and term in note:
+            return term
+    return None
+
+
 def score_sme_blind_review(packet: dict[str, Any]) -> dict[str, Any]:
     """Score a blind-review packet from filled-in reviewer responses.
 
     A response shape is ``{"plausible_workplace_scene": 1-5,
     "internally_consistent": 1-5, "no_artificial_markers": "yes"|"no",
     "artificial_marker_category": "mechanical_generation"|"design_content"|
-    "statistical_structure"}`` (category required only when
-    no_artificial_markers is "yes"). Items whose `response` is still null
-    count as unreviewed and are excluded from the plausibility rate's
-    numerator/denominator but are always reported, so a packet that was never
-    sent to a reviewer cannot silently read as "no problems found".
+    "statistical_structure", "note": "<optional free text>"}`` (category
+    required only when no_artificial_markers is "yes"; note is always
+    optional). Items whose `response` is still null count as unreviewed and
+    are excluded from the plausibility rate's numerator/denominator but are
+    always reported, so a packet that was never sent to a reviewer cannot
+    silently read as "no problems found".
 
     MASTER_DESIGN.md section 17 (2026-07-05 approved recalibration): rounds
     1->3 of blind review took flags from 25/39 to 40/40 to 11/40; the
@@ -660,11 +743,25 @@ def score_sme_blind_review(packet: dict[str, Any]) -> dict[str, Any]:
     zero-flags. Only a ``mechanical_generation`` flag on an item fails that
     item; ``design_content``/``statistical_structure`` flags are counted and
     reported per category but do not fail the item on their own.
+
+    Round-7 follow-up (§17.14, approved gate-semantics fix): a response may
+    also carry a free-form ``note`` string. When a ``mechanical_generation``
+    flag's sole basis is a listed ``FROZEN_CORPUS_TERMS`` entry -- the term
+    actually appears in the item's own text AND the note references that same
+    term AND the note cites no other basis (duplication/broken text/system
+    vocabulary) -- the flag is recategorized to ``design_content`` for
+    counting purposes (never dropped: it still moves into the
+    ``design_content`` bucket, it is just no longer counted as
+    ``mechanical_generation``). Each such recategorization is recorded on its
+    row (``recategorized_from``/``recategorization_basis``) so the
+    transparency is machine-visible; see ``recategorized_count`` in the
+    returned dict for the aggregate.
     """
     items = packet.get("items") or []
     reviewed: list[dict[str, Any]] = []
     unreviewed_count = 0
     category_flag_counts: dict[str, int] = {category: 0 for category in ARTIFICIAL_MARKER_CATEGORIES}
+    recategorized_rows: list[dict[str, Any]] = []
     for item in items:
         response = item.get("response")
         if not response:
@@ -674,6 +771,16 @@ def score_sme_blind_review(packet: dict[str, Any]) -> dict[str, Any]:
         consistent = _coerce_scale(response.get("internally_consistent"))
         flagged_artificial = str(response.get("no_artificial_markers") or "").strip().lower() == "yes"
         marker_category = _normalize_marker_category(response, flagged_artificial=flagged_artificial)
+        recategorized_from: str | None = None
+        recategorization_basis: str | None = None
+        if marker_category == "mechanical_generation":
+            note = str(response.get("note") or "").strip()
+            item_text = str(item.get("text") or "")
+            matched_term = _note_cites_only_frozen_corpus_term(note, item_text=item_text)
+            if matched_term is not None:
+                recategorized_from = marker_category
+                recategorization_basis = f"frozen_corpus_term:{matched_term}"
+                marker_category = "design_content"
         if marker_category is not None:
             category_flag_counts[marker_category] += 1
         fails_for_mechanical = marker_category == "mechanical_generation"
@@ -684,16 +791,19 @@ def score_sme_blind_review(packet: dict[str, Any]) -> dict[str, Any]:
             and consistent >= 4
             and not fails_for_mechanical
         )
-        reviewed.append(
-            {
-                "item_id": item.get("item_id"),
-                "plausible_workplace_scene": plausible,
-                "internally_consistent": consistent,
-                "flagged_artificial_markers": flagged_artificial,
-                "artificial_marker_category": marker_category,
-                "passes_item": passes_item,
-            }
-        )
+        row: dict[str, Any] = {
+            "item_id": item.get("item_id"),
+            "plausible_workplace_scene": plausible,
+            "internally_consistent": consistent,
+            "flagged_artificial_markers": flagged_artificial,
+            "artificial_marker_category": marker_category,
+            "passes_item": passes_item,
+        }
+        if recategorized_from is not None:
+            row["recategorized_from"] = recategorized_from
+            row["recategorization_basis"] = recategorization_basis
+            recategorized_rows.append(row)
+        reviewed.append(row)
     reviewed_count = len(reviewed)
     passing_count = sum(1 for row in reviewed if row["passes_item"])
     plausibility_rate = (passing_count / reviewed_count) if reviewed_count else 0.0
@@ -714,6 +824,12 @@ def score_sme_blind_review(packet: dict[str, Any]) -> dict[str, Any]:
         "artificial_marker_flag_count": total_artificial_marker_flag_count,
         "mechanical_generation_flag_count": mechanical_generation_flag_count,
         "artificial_marker_category_counts": dict(category_flag_counts),
+        # Round-7 follow-up (§17.14): count and rows of items whose flag was
+        # recategorized away from mechanical_generation (frozen-corpus-term
+        # basis only) -- surfaced so the recategorization is machine-visible,
+        # never silent.
+        "recategorized_count": len(recategorized_rows),
+        "recategorized_rows": recategorized_rows,
         "plausibility_rate": plausibility_rate,
         "rows": reviewed,
     }
@@ -850,6 +966,8 @@ def write_sme_blind_review_report(campaign_root: Path) -> dict[str, Any]:
             "artificial_marker_flag_count": scoring["artificial_marker_flag_count"],
             "mechanical_generation_flag_count": scoring["mechanical_generation_flag_count"],
             "artificial_marker_category_counts": scoring["artificial_marker_category_counts"],
+            "recategorized_count": scoring["recategorized_count"],
+            "recategorized_rows": scoring["recategorized_rows"],
             "dropped_count": dropped_count,
             "plausibility_rate": scoring["plausibility_rate"],
             "rows": scoring["rows"],
@@ -873,6 +991,13 @@ def write_sme_blind_review_report(campaign_root: Path) -> dict[str, Any]:
             "flags are counted per category and reported but do not fail on their own. A 'yes' response "
             "without a recognized category is treated as mechanical_generation (strictest) for backward "
             "compatibility with old/unmigrated response packets.",
+            "2026-07-06 approved gate-semantics fix (MASTER_DESIGN.md §17.14): a mechanical_generation flag "
+            "whose sole basis is a listed FROZEN_CORPUS_TERMS entry (the term appears in the item's own text "
+            "AND the reviewer's note references it, with no other basis cited) is recategorized to "
+            "design_content for counting purposes -- see recategorized_count/recategorized_rows above. This "
+            "is a categorization-correctness fix only: the zero-mechanical-flags gate requirement is "
+            "unchanged, and any note citing an additional basis (duplication/broken text/system vocabulary) "
+            "is never recategorized.",
         ],
         "scoring": scoring,
     }
