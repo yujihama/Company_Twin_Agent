@@ -1639,7 +1639,7 @@ def _classify_answer_class_id(answer: str, candidates: dict[str, str]) -> str:
         return best_key
     if "隨ｬ莠檎ｷ・" in answer:
         return "second_line_route"
-    if "邂｡逅・・" in answer:
+    if "邂｡逅・・" in answer:
         return "manager_route"
     if "蜷梧э" in answer or "骭ｲ髻ｳ" in answer or "險ｼ霍｡" in answer:
         return "evidence_first"
