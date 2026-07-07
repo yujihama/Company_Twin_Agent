@@ -7,6 +7,7 @@ from company_twin.readiness import _semantic_grounding_check
 from company_twin.semantic_grounding import (
     NEGATIVE_CALIBRATION_CATEGORIES,
     LocalSemanticJudge,
+    _judge_prompt,
     evaluate_semantic_grounding_run,
     export_g3_calibration_samples,
     load_g3_calibration_cases,
@@ -21,6 +22,20 @@ class _FakeOpenRouterJudge:
 
     def judge(self, *, cited_text: str, construal: str, decision: str, evidence_plan: str) -> dict:
         return LocalSemanticJudge().judge(cited_text=cited_text, construal=construal, decision=decision, evidence_plan=evidence_plan)
+
+
+class _FailingAfterFirstJudge:
+    backend = "openrouter"
+    model = "openrouter:test-flaky-g3"
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def judge(self, *, cited_text: str, construal: str, decision: str, evidence_plan: str) -> dict:
+        self.calls += 1
+        if self.calls > 1:
+            raise RuntimeError("transient connection failure")
+        return {"label": "supported", "confidence": 0.9, "rationale": "first row ok"}
 
 
 def _write_jsonl(path: Path, rows: list[dict]) -> None:
@@ -118,6 +133,100 @@ def test_readiness_accepts_allowlisted_openrouter_semantic_grounding(tmp_path: P
     assert triage["metrics"]["grounding_semantic_all3_rate_proxy"] is None
     result = _semantic_grounding_check(tmp_path, semantic_threshold=0.8)
     assert result["passed"]
+
+
+def test_g3_flushes_cache_between_live_judge_rows(tmp_path: Path) -> None:
+    run_root = tmp_path / "s2_seed0"
+    _write_g3_supported_run(run_root)
+    _write_jsonl(
+        run_root / "attempts.jsonl",
+        [
+            {
+                "tick": 1,
+                "seat_id": "emp-A",
+                "tool": "read_document",
+                "args": {"doc_id": "DFH-SAL-021"},
+                "success": True,
+                "result": {
+                    "version": "1.1",
+                    "citation_handle": "read:DFH-SAL-021:v1.1:first",
+                    "text": "本人確認ではeKYCと制裁リスト非該当を確認する。",
+                },
+                "origin": "agent",
+            },
+            {
+                "tick": 2,
+                "seat_id": "emp-A",
+                "tool": "read_document",
+                "args": {"doc_id": "DFH-SAL-022"},
+                "success": True,
+                "result": {
+                    "version": "1.1",
+                    "citation_handle": "read:DFH-SAL-022:v1.1:second",
+                    "text": "高齢者への販売では理解度確認を記録する。",
+                },
+                "origin": "agent",
+            },
+        ],
+    )
+    _write_jsonl(
+        run_root / "basis_records.jsonl",
+        [
+            {
+                "basis_id": "BASIS-1",
+                "tick": 3,
+                "seat_id": "emp-A",
+                "action_id": "CONTACT-1",
+                "trigger_event": "record_customer_contact",
+                "retrieved": [{"doc_id": "DFH-SAL-021", "version": "1.1", "citation_handle": "read:DFH-SAL-021:v1.1:first"}],
+                "construal": "eKYCと制裁リスト確認が必要",
+                "decision": "本人確認を進める",
+                "evidence_plan": "確認結果を残す",
+                "g1_citation_handle_exists": True,
+                "g2_prior_read": True,
+            },
+            {
+                "basis_id": "BASIS-2",
+                "tick": 4,
+                "seat_id": "emp-A",
+                "action_id": "CONTACT-2",
+                "trigger_event": "record_customer_contact",
+                "retrieved": [{"doc_id": "DFH-SAL-022", "version": "1.1", "citation_handle": "read:DFH-SAL-022:v1.1:second"}],
+                "construal": "理解度確認を記録する",
+                "decision": "高齢顧客の説明記録を残す",
+                "evidence_plan": "理解度確認欄を更新する",
+                "g1_citation_handle_exists": True,
+                "g2_prior_read": True,
+            },
+        ],
+    )
+
+    try:
+        evaluate_semantic_grounding_run(run_root, judge=_FailingAfterFirstJudge())
+        assert False, "expected judge failure on second row"
+    except RuntimeError as exc:
+        assert "transient connection failure" in str(exc)
+
+    cache = json.loads((run_root / "g3_entailment_cache.json").read_text(encoding="utf-8"))
+    assert len(cache) == 1
+    assert next(iter(cache.values()))["label"] == "supported"
+
+
+def test_g3_prompt_truncates_long_cited_text(monkeypatch) -> None:
+    monkeypatch.setenv("COMPANY_TWIN_G3_CITED_TEXT_MAX_CHARS", "120")
+
+    prompt = _judge_prompt(
+        cited_text="A" * 300 + "MIDDLE" + "Z" * 300,
+        construal="read policy",
+        decision="do action",
+        evidence_plan="save evidence",
+    )
+
+    assert "[... cited text truncated for G3 prompt ...]" in prompt
+    assert "MIDDLE" not in prompt
+    assert "read policy" in prompt
+    assert "do action" in prompt
+    assert "save evidence" in prompt
 
 
 def test_g3_calibration_export_writes_human_label_skeleton(tmp_path: Path) -> None:

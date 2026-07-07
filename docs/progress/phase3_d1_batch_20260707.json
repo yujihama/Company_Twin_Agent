@@ -1,0 +1,247 @@
+{
+  "description": "Phase 3 D1 time-pressure validation: 2x2 {ordinary,D1} x {no chat-approval notice, circulated chat-approval notice}, K=5 shared seeds.",
+  "concurrency": 4,
+  "stagger_seconds": 8,
+  "runs": [
+    {
+      "run_id": "d1_control_no_notice_seed610",
+      "stage": "s2",
+      "run_root": "runs/phase3_d1_20260707/control_no_notice_seed610",
+      "seed": 610,
+      "ticks": 40,
+      "prompt_mode": "measurement"
+    },
+    {
+      "run_id": "d1_control_no_notice_seed611",
+      "stage": "s2",
+      "run_root": "runs/phase3_d1_20260707/control_no_notice_seed611",
+      "seed": 611,
+      "ticks": 40,
+      "prompt_mode": "measurement"
+    },
+    {
+      "run_id": "d1_control_no_notice_seed612",
+      "stage": "s2",
+      "run_root": "runs/phase3_d1_20260707/control_no_notice_seed612",
+      "seed": 612,
+      "ticks": 40,
+      "prompt_mode": "measurement"
+    },
+    {
+      "run_id": "d1_control_no_notice_seed613",
+      "stage": "s2",
+      "run_root": "runs/phase3_d1_20260707/control_no_notice_seed613",
+      "seed": 613,
+      "ticks": 40,
+      "prompt_mode": "measurement"
+    },
+    {
+      "run_id": "d1_control_no_notice_seed614",
+      "stage": "s2",
+      "run_root": "runs/phase3_d1_20260707/control_no_notice_seed614",
+      "seed": 614,
+      "ticks": 40,
+      "prompt_mode": "measurement"
+    },
+    {
+      "run_id": "d1_pressure_no_notice_seed610",
+      "stage": "s2",
+      "run_root": "runs/phase3_d1_20260707/pressure_no_notice_seed610",
+      "seed": 610,
+      "ticks": 40,
+      "prompt_mode": "measurement",
+      "extra_args": [
+        "--time-pressure"
+      ]
+    },
+    {
+      "run_id": "d1_pressure_no_notice_seed611",
+      "stage": "s2",
+      "run_root": "runs/phase3_d1_20260707/pressure_no_notice_seed611",
+      "seed": 611,
+      "ticks": 40,
+      "prompt_mode": "measurement",
+      "extra_args": [
+        "--time-pressure"
+      ]
+    },
+    {
+      "run_id": "d1_pressure_no_notice_seed612",
+      "stage": "s2",
+      "run_root": "runs/phase3_d1_20260707/pressure_no_notice_seed612",
+      "seed": 612,
+      "ticks": 40,
+      "prompt_mode": "measurement",
+      "extra_args": [
+        "--time-pressure"
+      ]
+    },
+    {
+      "run_id": "d1_pressure_no_notice_seed613",
+      "stage": "s2",
+      "run_root": "runs/phase3_d1_20260707/pressure_no_notice_seed613",
+      "seed": 613,
+      "ticks": 40,
+      "prompt_mode": "measurement",
+      "extra_args": [
+        "--time-pressure"
+      ]
+    },
+    {
+      "run_id": "d1_pressure_no_notice_seed614",
+      "stage": "s2",
+      "run_root": "runs/phase3_d1_20260707/pressure_no_notice_seed614",
+      "seed": 614,
+      "ticks": 40,
+      "prompt_mode": "measurement",
+      "extra_args": [
+        "--time-pressure"
+      ]
+    },
+    {
+      "run_id": "d1_control_notice_seed610",
+      "stage": "s2",
+      "run_root": "runs/phase3_d1_20260707/control_notice_seed610",
+      "seed": 610,
+      "ticks": 40,
+      "prompt_mode": "measurement",
+      "mutations": [
+        "contradict_chat_approval_recorded"
+      ],
+      "extra_args": [
+        "--circulate-notices"
+      ]
+    },
+    {
+      "run_id": "d1_control_notice_seed611",
+      "stage": "s2",
+      "run_root": "runs/phase3_d1_20260707/control_notice_seed611",
+      "seed": 611,
+      "ticks": 40,
+      "prompt_mode": "measurement",
+      "mutations": [
+        "contradict_chat_approval_recorded"
+      ],
+      "extra_args": [
+        "--circulate-notices"
+      ]
+    },
+    {
+      "run_id": "d1_control_notice_seed612",
+      "stage": "s2",
+      "run_root": "runs/phase3_d1_20260707/control_notice_seed612",
+      "seed": 612,
+      "ticks": 40,
+      "prompt_mode": "measurement",
+      "mutations": [
+        "contradict_chat_approval_recorded"
+      ],
+      "extra_args": [
+        "--circulate-notices"
+      ]
+    },
+    {
+      "run_id": "d1_control_notice_seed613",
+      "stage": "s2",
+      "run_root": "runs/phase3_d1_20260707/control_notice_seed613",
+      "seed": 613,
+      "ticks": 40,
+      "prompt_mode": "measurement",
+      "mutations": [
+        "contradict_chat_approval_recorded"
+      ],
+      "extra_args": [
+        "--circulate-notices"
+      ]
+    },
+    {
+      "run_id": "d1_control_notice_seed614",
+      "stage": "s2",
+      "run_root": "runs/phase3_d1_20260707/control_notice_seed614",
+      "seed": 614,
+      "ticks": 40,
+      "prompt_mode": "measurement",
+      "mutations": [
+        "contradict_chat_approval_recorded"
+      ],
+      "extra_args": [
+        "--circulate-notices"
+      ]
+    },
+    {
+      "run_id": "d1_pressure_notice_seed610",
+      "stage": "s2",
+      "run_root": "runs/phase3_d1_20260707/pressure_notice_seed610",
+      "seed": 610,
+      "ticks": 40,
+      "prompt_mode": "measurement",
+      "mutations": [
+        "contradict_chat_approval_recorded"
+      ],
+      "extra_args": [
+        "--circulate-notices",
+        "--time-pressure"
+      ]
+    },
+    {
+      "run_id": "d1_pressure_notice_seed611",
+      "stage": "s2",
+      "run_root": "runs/phase3_d1_20260707/pressure_notice_seed611",
+      "seed": 611,
+      "ticks": 40,
+      "prompt_mode": "measurement",
+      "mutations": [
+        "contradict_chat_approval_recorded"
+      ],
+      "extra_args": [
+        "--circulate-notices",
+        "--time-pressure"
+      ]
+    },
+    {
+      "run_id": "d1_pressure_notice_seed612",
+      "stage": "s2",
+      "run_root": "runs/phase3_d1_20260707/pressure_notice_seed612",
+      "seed": 612,
+      "ticks": 40,
+      "prompt_mode": "measurement",
+      "mutations": [
+        "contradict_chat_approval_recorded"
+      ],
+      "extra_args": [
+        "--circulate-notices",
+        "--time-pressure"
+      ]
+    },
+    {
+      "run_id": "d1_pressure_notice_seed613",
+      "stage": "s2",
+      "run_root": "runs/phase3_d1_20260707/pressure_notice_seed613",
+      "seed": 613,
+      "ticks": 40,
+      "prompt_mode": "measurement",
+      "mutations": [
+        "contradict_chat_approval_recorded"
+      ],
+      "extra_args": [
+        "--circulate-notices",
+        "--time-pressure"
+      ]
+    },
+    {
+      "run_id": "d1_pressure_notice_seed614",
+      "stage": "s2",
+      "run_root": "runs/phase3_d1_20260707/pressure_notice_seed614",
+      "seed": 614,
+      "ticks": 40,
+      "prompt_mode": "measurement",
+      "mutations": [
+        "contradict_chat_approval_recorded"
+      ],
+      "extra_args": [
+        "--circulate-notices",
+        "--time-pressure"
+      ]
+    }
+  ]
+}

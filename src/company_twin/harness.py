@@ -19,7 +19,7 @@ from .kernel import KernelProfile, WorldKernel
 from .recorder import RunRecorder
 from .tools import build_role_tools
 from .world_calendar import render_tick_as_date
-from .world_config import build_world_config
+from .world_config import apply_time_pressure_to_events, build_world_config
 
 CONTROLLED_ACTION_TOOLS = {
     "record_customer_contact",
@@ -201,6 +201,7 @@ def run_s1_episode(
     timed_notice_recipients: list[str] | None = None,
     seats_subset: list[str] | None = None,
     circulate_notices: bool = False,
+    time_pressure: bool = False,
 ) -> dict[str, Any]:
     event = _retime_event(event_for_probe(design, probe_id), trigger_tick=1, deadline_tick=ticks)
     return _run_world(
@@ -226,6 +227,7 @@ def run_s1_episode(
         timed_notice_recipients=timed_notice_recipients,
         seats_subset=seats_subset,
         circulate_notices=circulate_notices,
+        time_pressure=time_pressure,
     )
 
 
@@ -251,6 +253,7 @@ def run_s2_world(
     timed_notice_recipients: list[str] | None = None,
     seats_subset: list[str] | None = None,
     circulate_notices: bool = False,
+    time_pressure: bool = False,
 ) -> dict[str, Any]:
     events = deck if deck is not None else build_customer_deck(design, include_routine=True)
     return _run_world(
@@ -276,6 +279,7 @@ def run_s2_world(
         timed_notice_recipients=timed_notice_recipients,
         seats_subset=seats_subset,
         circulate_notices=circulate_notices,
+        time_pressure=time_pressure,
     )
 
 
@@ -303,11 +307,14 @@ def _run_world(
     timed_notice_recipients: list[str] | None = None,
     seats_subset: list[str] | None = None,
     circulate_notices: bool = False,
+    time_pressure: bool = False,
 ) -> dict[str, Any]:
     model_name = normalize_openrouter_model(model)
     if prompt_mode not in {"scaffold", "measurement"}:
         raise ValueError(f"unknown prompt_mode: {prompt_mode}")
-    recorder = RunRecorder(run_root, run_id=run_root.name, meta={"stage": stage, "probe": probe_id, "model": model_name, "knobs": knobs, "seed": seed, "anchor": anchor, "prompt_mode": prompt_mode, "seats_subset": seats_subset})
+    if time_pressure:
+        events = apply_time_pressure_to_events(events, ticks=ticks)
+    recorder = RunRecorder(run_root, run_id=run_root.name, meta={"stage": stage, "probe": probe_id, "model": model_name, "knobs": knobs, "seed": seed, "anchor": anchor, "prompt_mode": prompt_mode, "seats_subset": seats_subset, "time_pressure": time_pressure})
     config = build_world_config(
         design,
         stage=stage,
@@ -325,6 +332,7 @@ def _run_world(
         seats_subset=seats_subset,
         customer_model=customer_model,
         circulate_notices=circulate_notices,
+        time_pressure=time_pressure,
     )
     write_config_snapshot(run_root, config)
     budgets = config["world"]["population"]["tick_budget"]
@@ -344,9 +352,11 @@ def _run_world(
             seat = design.seats[seat_id]
             tools = build_role_tools(corpus=corpus, kernel=kernel, recorder=recorder, seat_id=seat_id, seat_role=seat.role, include_workflow=True, d4_enabled=d4_enabled)
             budget = int(budgets.get(seat_id, 12))
+            seat_config = (config["world"]["population"].get("seats") or {}).get(seat_id) or {}
+            recursion_budget = int(seat_config.get("ordinary_tick_budget") or budget)
             bound_model = normalize_openrouter_model(bindings.get(seat_id) or model_name)
             factory = seat_factory or default_seat_factory(root=design.root, model=bound_model)
-            seats_cache[seat_id] = _instantiate_seat(factory, seat_id=seat_id, role=seat.role, tools=tools, recorder=recorder, recursion_limit=recursion_for_budget(budget), model=bound_model)
+            seats_cache[seat_id] = _instantiate_seat(factory, seat_id=seat_id, role=seat.role, tools=tools, recorder=recorder, recursion_limit=recursion_for_budget(max(budget, recursion_budget)), model=bound_model)
         return seats_cache[seat_id]
 
     events_by_tick: dict[int, list[CustomerEvent]] = {}
@@ -452,6 +462,7 @@ def _run_world(
             "mutation_ids": mutation_ids,
             "mutation_hash": corpus_meta.get("mutation_hash"),
             "effective_corpus_hash": corpus_meta.get("effective_corpus_hash"),
+            "time_pressure": time_pressure,
         },
     )
     return summary
@@ -613,6 +624,7 @@ def kernel_profile(
         timed_notice_recipients=tuple(str(seat_id) for seat_id in (schedule.get("timed_notice_recipients") or [])),
         approval_due_ticks=int(schedule.get("approval_due_ticks") or 2),
         approval_notice_recipients=tuple(str(seat_id) for seat_id in (schedule.get("approval_notice_recipients") or [])),
+        time_pressure_notices=tuple(dict(item) for item in ((schedule.get("time_pressure") or {}).get("notices") or [])),
         seat_qualifications={
             "emp-A": {"投資", "ロボアド"},
             "emp-B": {"保険"},
