@@ -14,8 +14,9 @@ from .recorder import read_jsonl
 
 
 G3_SCHEMA_VERSION = "company_twin.g3_semantic_grounding.v1"
-G3_JUDGE_PROMPT_VERSION = "operational-support-v2"
+G3_JUDGE_PROMPT_VERSION = "operational-support-v3"
 DEFAULT_G3_CITED_TEXT_MAX_CHARS = 2200
+G3_PROMPT_TRANSFORM = "head70_tail30_truncation_v1"
 SUPPORTED = "supported"
 UNSUPPORTED = "unsupported"
 CONTRADICTED = "contradicted"
@@ -120,6 +121,25 @@ class OpenRouterSemanticJudge:
         return self._llm
 
 
+def _g3_cited_text_max_chars() -> int:
+    try:
+        return int(os.getenv("COMPANY_TWIN_G3_CITED_TEXT_MAX_CHARS", str(DEFAULT_G3_CITED_TEXT_MAX_CHARS)))
+    except ValueError:
+        return DEFAULT_G3_CITED_TEXT_MAX_CHARS
+
+
+def _judge_metadata(judge: SemanticJudge) -> dict[str, Any]:
+    readiness_eligible = judge.backend in READINESS_ALLOWED_JUDGE_BACKENDS
+    return {
+        "backend": judge.backend,
+        "model": judge.model,
+        "prompt_version": G3_JUDGE_PROMPT_VERSION,
+        "prompt_transform": G3_PROMPT_TRANSFORM,
+        "cited_text_max_chars": _g3_cited_text_max_chars(),
+        "readiness_eligible": readiness_eligible,
+    }
+
+
 def evaluate_semantic_grounding_run(
     run_root: Path,
     *,
@@ -148,13 +168,14 @@ def evaluate_semantic_grounding_run(
     evaluated = [row for row in rows if row["label"] != NOT_EVALUATED]
     supported = [row for row in rows if row["label"] == SUPPORTED]
     all3 = [row for row in rows if row["g1"] is True and row["g2"] is True and row["label"] == SUPPORTED]
-    readiness_eligible = judge.backend in READINESS_ALLOWED_JUDGE_BACKENDS
+    judge_meta = _judge_metadata(judge)
+    readiness_eligible = bool(judge_meta["readiness_eligible"])
     g3_rate = (len(supported) / action_bound) if action_bound else None
     all3_rate = (len(all3) / action_bound) if action_bound else None
     payload = {
         "schema_version": G3_SCHEMA_VERSION,
         "run_root": str(run_root),
-        "judge": {"backend": judge.backend, "model": judge.model, "prompt_version": G3_JUDGE_PROMPT_VERSION, "readiness_eligible": readiness_eligible},
+        "judge": judge_meta,
         "basis_action_bound": action_bound,
         "evaluated_count": len(evaluated),
         "supported_count": len(supported),
@@ -210,13 +231,14 @@ def evaluate_semantic_grounding_campaign(
     action_bound = sum(int(report.get("basis_action_bound") or 0) for report in run_reports)
     supported = sum(int(report.get("supported_count") or 0) for report in run_reports)
     all3 = sum(int(report.get("semantic_all3_count") or 0) for report in run_reports)
-    readiness_eligible = judge.backend in READINESS_ALLOWED_JUDGE_BACKENDS
+    judge_meta = _judge_metadata(judge)
+    readiness_eligible = bool(judge_meta["readiness_eligible"])
     g3_rate = (supported / action_bound) if action_bound else None
     all3_rate = (all3 / action_bound) if action_bound else None
     payload = {
         "schema_version": G3_SCHEMA_VERSION,
         "campaign_root": str(campaign_root),
-        "judge": {"backend": judge.backend, "model": judge.model, "prompt_version": G3_JUDGE_PROMPT_VERSION, "readiness_eligible": readiness_eligible},
+        "judge": judge_meta,
         "run_count": len(run_reports),
         "basis_action_bound": action_bound,
         "supported_count": supported,
@@ -419,16 +441,11 @@ def summarize_g3_calibration_scores(rows: list[dict[str, Any]], *, judge: Semant
     total = len(rows)
     correct_total = sum(1 for row in rows if row.get("correct"))
     rejected_total = sum(1 for row in rows if str(row.get("judge_label") or "") != SUPPORTED)
-    readiness_eligible = judge.backend in READINESS_ALLOWED_JUDGE_BACKENDS
+    judge_meta = _judge_metadata(judge)
     return {
         "schema_version": G3_NEGATIVE_CALIBRATION_SCHEMA_VERSION,
         "source_path": str(source_path) if source_path is not None else None,
-        "judge": {
-            "backend": judge.backend,
-            "model": judge.model,
-            "prompt_version": G3_JUDGE_PROMPT_VERSION,
-            "readiness_eligible": readiness_eligible,
-        },
+        "judge": judge_meta,
         "case_count": total,
         "correct_count": correct_total,
         "incorrect_count": total - correct_total,
@@ -458,6 +475,7 @@ def _evaluate_basis_row(basis: dict[str, Any], *, reads: dict[tuple[str, str], d
     decision = str(basis.get("decision") or "")
     evidence_plan = str(basis.get("evidence_plan") or "")
     key = _cache_key(cited_text=cited_text, construal=construal, decision=decision, evidence_plan=evidence_plan, model=judge.model, backend=judge.backend)
+    prompt_cited_text = _prompt_cited_text(cited_text)
     if not cited_text or missing_handles:
         result = {"label": NOT_EVALUATED, "confidence": 0.0, "rationale": f"missing read text for handles={missing_handles}"}
     elif key in cache:
@@ -477,6 +495,8 @@ def _evaluate_basis_row(basis: dict[str, Any], *, reads: dict[tuple[str, str], d
         "rationale": result.get("rationale", ""),
         "retrieved_count": len(basis.get("retrieved") or []),
         "missing_handles": missing_handles,
+        "cited_text_chars": len(cited_text),
+        "prompt_cited_text_chars": len(prompt_cited_text),
         "cache_key": key,
     }
 
@@ -526,12 +546,16 @@ def _iter_run_roots(source_root: Path) -> list[Path]:
 
 
 def _cache_key(*, cited_text: str, construal: str, decision: str, evidence_plan: str, model: str, backend: str) -> str:
+    prompt_cited_text = _prompt_cited_text(cited_text)
     payload = {
         "schema_version": G3_SCHEMA_VERSION,
         "prompt_version": G3_JUDGE_PROMPT_VERSION,
+        "prompt_transform": G3_PROMPT_TRANSFORM,
+        "cited_text_max_chars": _g3_cited_text_max_chars(),
         "backend": backend,
         "model": model,
-        "cited_text": cited_text,
+        "prompt_cited_text": prompt_cited_text,
+        "raw_cited_text_sha256": hashlib.sha256(cited_text.encode("utf-8")).hexdigest(),
         "construal": construal,
         "decision": decision,
         "evidence_plan": evidence_plan,
@@ -540,10 +564,7 @@ def _cache_key(*, cited_text: str, construal: str, decision: str, evidence_plan:
 
 
 def _prompt_cited_text(cited_text: str) -> str:
-    try:
-        max_chars = int(os.getenv("COMPANY_TWIN_G3_CITED_TEXT_MAX_CHARS", str(DEFAULT_G3_CITED_TEXT_MAX_CHARS)))
-    except ValueError:
-        max_chars = DEFAULT_G3_CITED_TEXT_MAX_CHARS
+    max_chars = _g3_cited_text_max_chars()
     if max_chars <= 0 or len(cited_text) <= max_chars:
         return cited_text
     marker = "\n\n[... cited text truncated for G3 prompt ...]\n\n"

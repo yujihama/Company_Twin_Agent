@@ -5,9 +5,13 @@ from company_twin.ab_testing import write_prompt_mode_ab_report
 from company_twin.oracles import write_triage
 from company_twin.readiness import _semantic_grounding_check
 from company_twin.semantic_grounding import (
+    G3_JUDGE_PROMPT_VERSION,
+    G3_PROMPT_TRANSFORM,
     NEGATIVE_CALIBRATION_CATEGORIES,
     LocalSemanticJudge,
+    _cache_key,
     _judge_prompt,
+    evaluate_semantic_grounding_campaign,
     evaluate_semantic_grounding_run,
     export_g3_calibration_samples,
     load_g3_calibration_cases,
@@ -227,6 +231,55 @@ def test_g3_prompt_truncates_long_cited_text(monkeypatch) -> None:
     assert "read policy" in prompt
     assert "do action" in prompt
     assert "save evidence" in prompt
+
+
+def test_g3_cache_key_and_metadata_include_prompt_transform(monkeypatch, tmp_path: Path) -> None:
+    run_root = tmp_path / "s2_seed0"
+    _write_g3_supported_run(run_root)
+    monkeypatch.setenv("COMPANY_TWIN_G3_CITED_TEXT_MAX_CHARS", "120")
+
+    report = evaluate_semantic_grounding_run(run_root, judge=_FakeOpenRouterJudge())
+
+    assert report["judge"]["prompt_version"] == G3_JUDGE_PROMPT_VERSION
+    assert report["judge"]["prompt_transform"] == G3_PROMPT_TRANSFORM
+    assert report["judge"]["cited_text_max_chars"] == 120
+    assert report["rows"][0]["prompt_cited_text_chars"] <= report["rows"][0]["cited_text_chars"]
+
+    long_cited_text = "A" * 300 + "MIDDLE" + "Z" * 300
+    key_120 = _cache_key(
+        cited_text=long_cited_text,
+        construal="read policy",
+        decision="do action",
+        evidence_plan="save evidence",
+        model="openrouter:test-g3",
+        backend="openrouter",
+    )
+    monkeypatch.setenv("COMPANY_TWIN_G3_CITED_TEXT_MAX_CHARS", "220")
+    key_220 = _cache_key(
+        cited_text=long_cited_text,
+        construal="read policy",
+        decision="do action",
+        evidence_plan="save evidence",
+        model="openrouter:test-g3",
+        backend="openrouter",
+    )
+
+    assert key_120 != key_220
+
+
+def test_g3_campaign_metadata_includes_prompt_transform(monkeypatch, tmp_path: Path) -> None:
+    campaign_root = tmp_path / "campaign"
+    run_root = campaign_root / "s2_seed0"
+    _write_g3_supported_run(run_root)
+    monkeypatch.setenv("COMPANY_TWIN_G3_CITED_TEXT_MAX_CHARS", "120")
+
+    report = evaluate_semantic_grounding_campaign(campaign_root, judge=_FakeOpenRouterJudge())
+
+    assert report["judge"]["prompt_version"] == G3_JUDGE_PROMPT_VERSION
+    assert report["judge"]["prompt_transform"] == G3_PROMPT_TRANSFORM
+    assert report["judge"]["cited_text_max_chars"] == 120
+    assert report["run_reports"][0]["judge"]["prompt_transform"] == G3_PROMPT_TRANSFORM
+    assert report["run_reports"][0]["judge"]["cited_text_max_chars"] == 120
 
 
 def test_g3_calibration_export_writes_human_label_skeleton(tmp_path: Path) -> None:

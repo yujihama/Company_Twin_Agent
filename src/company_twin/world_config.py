@@ -284,8 +284,8 @@ def _time_pressure_schedule(ticks: int, *, enabled: bool) -> dict[str, Any]:
             "budget_multiplier": TIME_PRESSURE_BUDGET_MULTIPLIER,
             "notices": [],
         }
-    midpoint = max(1, math.ceil(horizon / 2))
     deadline = _compress_time_pressure_tick(20, ticks)
+    midpoint = max(1, math.ceil(deadline / 2))
     notice_specs = [
         (
             1,

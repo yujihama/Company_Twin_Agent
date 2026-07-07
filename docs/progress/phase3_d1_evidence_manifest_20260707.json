@@ -1,0 +1,254 @@
+{
+  "schema_version": "company_twin.phase3_d1_evidence_manifest.v1",
+  "created_at": "2026-07-07",
+  "purpose": "Sanitised manifest for the Phase 3 D1 2x2 K=5 run bundle and retry replacement set.",
+  "status": "pre_fix_exploratory_evidence_not_final_sealed_d1",
+  "status_reason": "Review found that the D1 workload_pressure_midpoint notice could be delivered after workload_pressure_deadline in the standard 40 tick S2 schedule. The run artifacts listed here were produced before that fix and should not be treated as the final sealed D1 evidence set.",
+  "plan_hash": "c64b76efbdd61ebc2f301dde753f54dc9bd5f00cde4a151baed7bc6ca9bc147d",
+  "plan_hash_basis": {
+    "kind": "reconstructed_from_batch_and_retry_manifest_hashes",
+    "note": "This hash records the committed batch plus retry replacement manifests; it is not an independent pre-execution seal artifact.",
+    "logical_design": "phase3_d1_2x2_k5_retry_replacement"
+  },
+  "git_sha": "e7deba703822e6777e6d2868539e5835f6d62848",
+  "git_sha_meaning": "PR head used for the original D1 implementation/results commit before this review correction.",
+  "batch_manifest": "docs/progress/phase3_d1_batch_20260707.json",
+  "batch_manifest_sha256": "5a088b5d341d86d604f478564afe911523b21aa98ca05ecc5caa6f7e3e24fbd5",
+  "retry_manifest": "docs/progress/phase3_d1_retry_20260707.json",
+  "retry_manifest_sha256": "c2c29f9911d3f5a97475c042f91b3046599851d466c326194c16b82be78799c7",
+  "run_roots": [
+    "runs/phase3_d1_20260707/control_no_notice_seed610",
+    "runs/phase3_d1_20260707/control_no_notice_seed611",
+    "runs/phase3_d1_20260707/control_no_notice_seed612",
+    "runs/phase3_d1_20260707/control_no_notice_seed613",
+    "runs/phase3_d1_20260707/control_no_notice_seed614",
+    "runs/phase3_d1_20260707/control_notice_seed610",
+    "runs/phase3_d1_20260707/control_notice_seed611",
+    "runs/phase3_d1_20260707/pressure_no_notice_seed610",
+    "runs/phase3_d1_20260707/pressure_no_notice_seed611",
+    "runs/phase3_d1_20260707/pressure_no_notice_seed613",
+    "runs/phase3_d1_20260707/pressure_no_notice_seed614",
+    "runs/phase3_d1_20260707_retry1/control_notice_seed612",
+    "runs/phase3_d1_20260707_retry1/control_notice_seed613",
+    "runs/phase3_d1_20260707_retry1/control_notice_seed614",
+    "runs/phase3_d1_20260707_retry1/pressure_no_notice_seed612",
+    "runs/phase3_d1_20260707_retry1/pressure_notice_seed610",
+    "runs/phase3_d1_20260707_retry1/pressure_notice_seed611",
+    "runs/phase3_d1_20260707_retry1/pressure_notice_seed612",
+    "runs/phase3_d1_20260707_retry1/pressure_notice_seed613",
+    "runs/phase3_d1_20260707_retry1/pressure_notice_seed614"
+  ],
+  "excluded_run_roots": [
+    "runs/phase3_d1_20260707/control_notice_seed612",
+    "runs/phase3_d1_20260707/control_notice_seed613",
+    "runs/phase3_d1_20260707/control_notice_seed614",
+    "runs/phase3_d1_20260707/pressure_no_notice_seed612",
+    "runs/phase3_d1_20260707/pressure_notice_seed610",
+    "runs/phase3_d1_20260707/pressure_notice_seed611",
+    "runs/phase3_d1_20260707/pressure_notice_seed612",
+    "runs/phase3_d1_20260707/pressure_notice_seed613",
+    "runs/phase3_d1_20260707/pressure_notice_seed614"
+  ],
+  "exclusion_policy": "Initial batch roots listed in excluded_run_roots were superseded by retry1 roots after the initial batch stopped on OpenRouter insufficient credits or left partial/empty command logs.",
+  "judge": {
+    "backend": "openrouter",
+    "model": "openrouter:qwen/qwen3.6-plus",
+    "prompt_version": "operational-support-v2",
+    "prompt_transform": "head70_tail30_truncation_v1",
+    "cited_text_max_chars": 1200,
+    "metadata_limitation": "The pre-fix g3_semantic_grounding.json artifacts record backend/model/prompt_version/readiness_eligible only. prompt_transform and cited_text_max_chars were not emitted into the run artifacts before the review fix; 1200 is the resume setting used after prompt-limit failures, not a value independently recoverable from every pre-fix artifact row."
+  },
+  "post_review_g3_contract": {
+    "prompt_version": "operational-support-v3",
+    "prompt_transform": "head70_tail30_truncation_v1",
+    "cache_key_includes": [
+      "schema_version",
+      "prompt_version",
+      "prompt_transform",
+      "cited_text_max_chars",
+      "backend",
+      "model",
+      "prompt_cited_text",
+      "raw_cited_text_sha256",
+      "construal",
+      "decision",
+      "evidence_plan"
+    ],
+    "run_and_campaign_metadata_include": [
+      "backend",
+      "model",
+      "prompt_version",
+      "prompt_transform",
+      "cited_text_max_chars",
+      "readiness_eligible"
+    ]
+  },
+  "post_review_d1_schedule_contract": {
+    "standard_s2_ticks": 40,
+    "compressed_horizon_tick": 27,
+    "campaign_deadline_tick": 13,
+    "workload_pressure_start_tick": 1,
+    "workload_pressure_midpoint_tick": 7,
+    "workload_pressure_deadline_tick": 13,
+    "ordering_invariant": "start <= midpoint <= deadline == campaign_deadline_tick"
+  },
+  "scoring_commands": [
+    {
+      "purpose": "initial batch",
+      "command": "python -m company_twin.cli run-batch --batch-spec docs/progress/phase3_d1_batch_20260707.json",
+      "log_dir": "runs/batch_20260707_103616/logs"
+    },
+    {
+      "purpose": "retry replacement batch",
+      "command": "python -m company_twin.cli run-batch --batch-spec docs/progress/phase3_d1_retry_20260707.json",
+      "log_dir": "runs/batch_20260707_125125/logs"
+    },
+    {
+      "purpose": "formal G3 scoring, pre-fix artifact metadata",
+      "command_pattern": "$env:COMPANY_TWIN_G3_CITED_TEXT_MAX_CHARS='1200'; python -m company_twin.cli g3 --run-root <run_root> --judge-model openrouter:qwen/qwen3.6-plus",
+      "run_roots": "see run_roots",
+      "cache_policy_note": "Pre-fix cache keys did not include cited_text_max_chars or prompt_transform. Post-review code fixes this and bumps the prompt version to operational-support-v3."
+    }
+  ],
+  "command_log_hashes": {
+    "batch_logs_aggregate_sha256": "0986e9830165385b466fa7379f926d930092bb2d55b465e12a6a88ef6dbddc30",
+    "hash_definition": "sha256 over the JSON array of batch/retry log paths, file sha256 values, and byte lengths",
+    "log_dirs": [
+      "runs/batch_20260707_103616/logs",
+      "runs/batch_20260707_125125/logs"
+    ]
+  },
+  "analysis_stdout": {
+    "path": "runs/phase3_d1_20260707_analysis_stdout.txt",
+    "sha256": "0d09eaed64aba8eb0251554cbd085722b9568ffa193b35b8370a2993b933d802"
+  },
+  "aggregate_artifact_hashes": {
+    "g3_semantic_grounding": "403e693c3439210570de437baf8971b3e6aec1692447f07c12a939fd9d47b3c7",
+    "oracle_l0": "5a55187c65c81d2e1349113a39abc8fb9b92dd859b979895c679f7cd1a318293",
+    "triage_buckets": "9e158cacd9a7eb0e0954fc47f56d78a5f922147d4daaa1ac64f6dac4e69f91a1",
+    "g3_entailment_cache": "4822dc7e21417428b55f9ffd9ca351b6038e9eee5c30cfec37b897eeaebdb976"
+  },
+  "aggregate_artifact_hash_definition": "sha256 over JSON arrays of selected run roots and their per-file sha256 values.",
+  "per_run_artifact_hashes": [
+    {
+      "run_root": "runs/phase3_d1_20260707/control_no_notice_seed610",
+      "g3_semantic_grounding_sha256": "5c258abfd6a3d4e46124e9f06b5742eaaa8162df81b07af44e2f3478e418b30e",
+      "oracle_l0_sha256": "bba3266470170e5dcbcbcefe969eb1bdc3335b809e25f4264f6aa2a282ba1d9a",
+      "triage_buckets_sha256": "d536150c7cd8ccd115ebc7908c38c0d80d6a9b6f45924d373f0e762cc0288795"
+    },
+    {
+      "run_root": "runs/phase3_d1_20260707/control_no_notice_seed611",
+      "g3_semantic_grounding_sha256": "17c715d0398793657f2937ed30a3e2bbd51d5dc4dd79084d9875edc43b197dcf",
+      "oracle_l0_sha256": "0a6fadfa132cb6be0d8ac848983b7001e9f638ce311312d0f947ddba89d9a97f",
+      "triage_buckets_sha256": "fb3d4d394355edc29a3dceb38b28230778c109c0abb22fdf519e364e4b4b062c"
+    },
+    {
+      "run_root": "runs/phase3_d1_20260707/control_no_notice_seed612",
+      "g3_semantic_grounding_sha256": "84ea8f21a1e9c48af7f0229f77d8fd714d532cadec6d4bfbc08b403f1211cba3",
+      "oracle_l0_sha256": "a1cf0178cdcf3ae4575a5e918bfa7cdc88533870acf56aea9390d39f9c43d172",
+      "triage_buckets_sha256": "701ae9de1ffebc763339523ee2c8191479de12b6715009f1a284042c666446d8"
+    },
+    {
+      "run_root": "runs/phase3_d1_20260707/control_no_notice_seed613",
+      "g3_semantic_grounding_sha256": "94714ba87d30ed1a5354da0aad06d02812b7898e0c2876a54b3c87e426714678",
+      "oracle_l0_sha256": "b0cede422001b56376728e9e146f8cf0a1ad582cbc62bb691c3d24d768571fca",
+      "triage_buckets_sha256": "df37a5c591ef90c7110877dfbdd2930802d5a74e9f21d6fd22040f64a8151fe7"
+    },
+    {
+      "run_root": "runs/phase3_d1_20260707/control_no_notice_seed614",
+      "g3_semantic_grounding_sha256": "190baa088331196960c0eaa4e9397b1bcc0daf7efc967976b0a264f60fd312dc",
+      "oracle_l0_sha256": "065613ff1369d82c37c57b0204fd0ab4a0304a6920f7824a46d80dfeff1cff3f",
+      "triage_buckets_sha256": "b05732261ac97cbfe5fe19d94f3342923029f211b6d4522a1bcd6e2a568a8b8f"
+    },
+    {
+      "run_root": "runs/phase3_d1_20260707/control_notice_seed610",
+      "g3_semantic_grounding_sha256": "38531be9978ea6f7be9ba7750890a1afa6cb12082a0b71f32f6b00dd783698db",
+      "oracle_l0_sha256": "04cd10b6099b00cee1bb6d3300fab628210aaed1923327d34cd57eb6b79d3c7c",
+      "triage_buckets_sha256": "e101a7c3926dda606fef8604e0f6f65739a8842f424b38a2cc29b07822f2e86b"
+    },
+    {
+      "run_root": "runs/phase3_d1_20260707/control_notice_seed611",
+      "g3_semantic_grounding_sha256": "72d7d2b3e50f86515d4d0e8ea5ca4639c861352835e19fb65364688ab6d8d996",
+      "oracle_l0_sha256": "4e14a4e67977fc6bd61a5c0875658ea40764324b277971933a1df395b4b07cc0",
+      "triage_buckets_sha256": "88c241c028e02896e34a76042577013257a5d7819c81cfad87afac01245ef3f3"
+    },
+    {
+      "run_root": "runs/phase3_d1_20260707/pressure_no_notice_seed610",
+      "g3_semantic_grounding_sha256": "749ed55ffa7d84de9edcc638a109e7e5066baa6fa5b6b68282cede051962dfd2",
+      "oracle_l0_sha256": "ceb74adf887870412c4c8355d9bfa8f761bb4f380c15c7495436fd0d570f9328",
+      "triage_buckets_sha256": "e907e8a65fce22f67eca08c573a1a766252b76e5ac1618fc1c3058f4092dd004"
+    },
+    {
+      "run_root": "runs/phase3_d1_20260707/pressure_no_notice_seed611",
+      "g3_semantic_grounding_sha256": "c7f95d8faba742c8ce47a820c5fa49384dde1b5faa0a91c679bfcc05279a79f0",
+      "oracle_l0_sha256": "86d05c27332f075685502a6026b1e9a29f6ded1746b517d10ebc258d10f0fdc5",
+      "triage_buckets_sha256": "119d2cd394488b8fd2a5a4edc7d94672d48871603d7dce61dcccebd15e6d6884"
+    },
+    {
+      "run_root": "runs/phase3_d1_20260707/pressure_no_notice_seed613",
+      "g3_semantic_grounding_sha256": "593339e271aacffaa62a647b3a1fe5c020314a5f6e62dcd58629920376452a13",
+      "oracle_l0_sha256": "42f67c0c45759bf4c943e2d0a3ac931d7a80f7e721522f37bf49167a1b56fc37",
+      "triage_buckets_sha256": "81bf48b0c6cd1ee70d699d585d87b0242b63243ff88d66d6c7e3860809d23567"
+    },
+    {
+      "run_root": "runs/phase3_d1_20260707/pressure_no_notice_seed614",
+      "g3_semantic_grounding_sha256": "7c8bfc9548473703809800834116d325426e81dbca55c49d09c4c268027c319e",
+      "oracle_l0_sha256": "6914e440859b1bf92d099bf2a0e774593a247c064b9397d439791896e17dbfa2",
+      "triage_buckets_sha256": "49bbec4802d2834edc4734039050ad93b8f14a61657315615e2a1f8e75c6d421"
+    },
+    {
+      "run_root": "runs/phase3_d1_20260707_retry1/control_notice_seed612",
+      "g3_semantic_grounding_sha256": "dfd1fff6e233a31b2c0bd15c43c8a6e46876b2930a416f17d0963d3a301be401",
+      "oracle_l0_sha256": "438d1c8cbf0702dffda880c6fc757a25c56a41d914824a1f4bd4dc7d5e0ca8aa",
+      "triage_buckets_sha256": "fffeef0f0b304cfabf2edad07b30dd8f82a10b5c073c7b8550fa4efae81dc921"
+    },
+    {
+      "run_root": "runs/phase3_d1_20260707_retry1/control_notice_seed613",
+      "g3_semantic_grounding_sha256": "628e25ce56fb5022a61190671f506f9838074d93549a5ce6612fb200046dab77",
+      "oracle_l0_sha256": "b472679fef7cd69cf3ef0cd1d35733df67e270900c4856cee63efd125d6ca422",
+      "triage_buckets_sha256": "ae7ac7c7ae6b356e29bfb6d5e509fd1534747b4f246e7ca302a19ae785c892d5"
+    },
+    {
+      "run_root": "runs/phase3_d1_20260707_retry1/control_notice_seed614",
+      "g3_semantic_grounding_sha256": "61f010fd42b90469dfa430c99090f5fa5cd2b3fa92f0a003ccfdfcd74e1719bc",
+      "oracle_l0_sha256": "f98ab231b37ded1fc59bbbb0f138eb294144f0ff0675bb7ef7dc679e77d6449e",
+      "triage_buckets_sha256": "ad74789c1d73518e15ea0d7fa879d57b3bdbce8116f35f424beb65027c0ae803"
+    },
+    {
+      "run_root": "runs/phase3_d1_20260707_retry1/pressure_no_notice_seed612",
+      "g3_semantic_grounding_sha256": "9148b64cf5d3b91731a078fd6fa8e7d9ef1d5ad10ea10a6b130f724e427008be",
+      "oracle_l0_sha256": "fff33d749a514ba811ce38584bc0ffba9661fbf5a04908018560ce50b9b90795",
+      "triage_buckets_sha256": "fefb651d7ac5a54905b5c73dd1015e841356b68c3791392ef03267ab716a03f3"
+    },
+    {
+      "run_root": "runs/phase3_d1_20260707_retry1/pressure_notice_seed610",
+      "g3_semantic_grounding_sha256": "92b8f73d642d333820e8ad4744d63c27eef906ce027f054c2396ec6367750cb4",
+      "oracle_l0_sha256": "7a396075c0616a19de94f80c2824a7d65375bcc7e02cc46e31f6539acdde7962",
+      "triage_buckets_sha256": "51f075d9ef66fb5c075323eaf56f27b4ab1fa6b594eaafa4f1bbaec5c3084a5b"
+    },
+    {
+      "run_root": "runs/phase3_d1_20260707_retry1/pressure_notice_seed611",
+      "g3_semantic_grounding_sha256": "d741e037c7c0f05433ee58430dafbe6217e6b31e1bcd5d36d5d736377ce3cdf3",
+      "oracle_l0_sha256": "539267b5533858df7b4294633d27a3b4ba1a1284f539d1680fbe4b6de00e68b1",
+      "triage_buckets_sha256": "495c5b863ee01ce8ac04d181373503f058faadff47809a5f2bcc2bf4914610a5"
+    },
+    {
+      "run_root": "runs/phase3_d1_20260707_retry1/pressure_notice_seed612",
+      "g3_semantic_grounding_sha256": "f2129e51cf7e1ef8527964196b34bf6dc64592352497b398d7e65cfd6bce8b91",
+      "oracle_l0_sha256": "68009f377cfd01a7e1fd8da0013cda89d17c98781d1c7adcb043e97056b6e788",
+      "triage_buckets_sha256": "6416a3b299338341d29eeb627605764b87b15047ef1b18bdbf2ae90c51a57ae0"
+    },
+    {
+      "run_root": "runs/phase3_d1_20260707_retry1/pressure_notice_seed613",
+      "g3_semantic_grounding_sha256": "7f35c047a67fe307bdb25536709d1ca95e9113a4cf8c7b8df9e820a2e6cfa713",
+      "oracle_l0_sha256": "d1b38f655618c9536e51cd6c89445bb4fad2ad52d34e82ee910adcf739948166",
+      "triage_buckets_sha256": "d2ed61d478620c86a933e0f285939acac4a597044c2969aa6d85fee27d04aa95"
+    },
+    {
+      "run_root": "runs/phase3_d1_20260707_retry1/pressure_notice_seed614",
+      "g3_semantic_grounding_sha256": "11cad50ad63fbc4ac9926dddc0d1214643d5fbe662f29073bcfa90ebdc2ade57",
+      "oracle_l0_sha256": "97e5805861bd20bf9731b3682abf866b91a9aba21e2e12ca60915ceee948c11d",
+      "triage_buckets_sha256": "b94dadc95e9cd1ef9f247016320551abc7fb5a89aacf03ce05e2ced29de01844"
+    }
+  ]
+}

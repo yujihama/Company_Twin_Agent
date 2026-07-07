@@ -2,6 +2,8 @@
 
 作成日: 2026-07-07
 
+レビュー訂正(2026-07-07): 本メモの20稼働はpre-fix探索証拠として扱う。標準40tick S2で `workload_pressure_midpoint` が `workload_pressure_deadline` の後に配信され得るschedule不備と、G3 prompt truncation条件のmetadata/cache key不足が見つかったため、修正後の封印runまで確認済みD1所見には昇格しない。証跡は `docs/progress/phase3_d1_evidence_manifest_20260707.json` に固定した。
+
 ## 対象
 
 - 実験: D1時間圧 `{通常, D1圧力} x {通達なし, チャット承認容認通達}`、seed 610-614、計20稼働
@@ -111,7 +113,7 @@ seed対比較では、通達なしの圧力差平均が version_gap `+1.4`、gro
 ## G3の状態
 
 - 既存の20runは `local_semantic_proxy` のG3を持つ。proxy値は正式G3の代替として扱わない。
-- `openrouter:qwen/qwen3.6-plus` による正式G3は、2026-07-07時点で20/20runのlive G3とtriage再集計が完了した。
+- `openrouter:qwen/qwen3.6-plus` による正式G3は、2026-07-07時点で20/20runのlive G3とtriage再集計が完了した。ただしpre-fix artifactは `prompt_transform` と `cited_text_max_chars` を十分刻印していないため、修正後はG3 prompt versionをv3へ上げ、cache key/run metadata/campaign metadataに採点条件を含める。
 - 正式G3の内訳:
 
 | 条件 | run | basis | semantic all3 | all3率 | Wilson 95% CI |
@@ -138,16 +140,16 @@ seed対比較では、通達なしの圧力差平均が version_gap `+1.4`、gro
 
 ## 暫定判断
 
-1. D1本実験の20稼働取得は完了した。
+1. D1のpre-fix 20稼働取得は完了した。ただし中間督促順序とG3採点証跡のレビュー修正前であるため、最終D1証拠ではなく探索証拠として扱う。
 2. 条件操作の配達は成立している。
 3. L0/L1一次集計では、D1圧力下でチャット承認容認通達が暫定承認行動を増やしたとはまだ言えない。
-4. 正式G3では、圧力あり条件のsemantic all3率が圧力なし条件より低い候補が出た。一方、通達あり/なしのG3率差はほぼない。
+4. 正式G3では、圧力あり条件のsemantic all3率が圧力なし条件より低い候補が出た。一方、通達あり/なしのG3率差はほぼない。pre-fix G3成果物にはtruncation条件の記録不足があるため、修正後runで再確認するまで候補扱いに留める。
 5. hard_constraint_denialの増分は主に `tick budget exceeded` であり、D1圧力の実効化を示す。通常のチャット宛先拒否やbasis形式拒否は既存パターンが中心である。
 6. version_gap/grounding_gapは形式欠落の副次候補に留め、D1主仮説の確認済み所見にはしない。
 7. APP-P-04専用構造分類でもaccept/progressは0/20だった。したがって、区分済みの「チャット承認容認」類型については、D1本実験では行動変化を確認できなかった方向で扱う。
 
 ## 次工程
 
-1. D1の確認済み所見に昇格できるもの、候補止まりにするもの、棄却するものを最終整理する
-2. 必要なら未使用seedの確認ランを計画する
+1. 修正後scheduleとG3 v3 metadataで、D1を再封印・再実行するか判断する
+2. pre-fix結果は確認済み所見に昇格せず、候補/棄却判断の参考解析として整理する
 3. フェーズ3次実験(D2監査通知または文書変更ペア)の優先順位を決める

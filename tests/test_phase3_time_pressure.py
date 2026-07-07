@@ -50,6 +50,11 @@ def test_time_pressure_compresses_deck_schedule_and_budgets_without_dropping_eve
     assert pressure["mode"] == "compressed_horizon_v1"
     assert pressure["compressed_horizon_tick"] == 27
     assert schedule["campaign_deadline_tick"] == 13
+    notices = pressure["notices"]
+    ticks_by_notice = {row["notice"]: row["tick"] for row in notices}
+    assert ticks_by_notice["workload_pressure_start"] <= ticks_by_notice["workload_pressure_midpoint"]
+    assert ticks_by_notice["workload_pressure_midpoint"] <= ticks_by_notice["workload_pressure_deadline"]
+    assert ticks_by_notice["workload_pressure_deadline"] == schedule["campaign_deadline_tick"]
     assert schedule["approval_due_ticks"] == 1
     assert schedule["month_end_tick"] == 27
     assert schedule["scc_switch_tick"] == 20

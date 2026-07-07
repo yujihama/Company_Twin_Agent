@@ -1,10 +1,11 @@
 # 統制環境ツイン 作業状況メモ
 
-最終更新: 2026-07-07 — **フェーズ3 D1本実験: 20稼働・G3・P-04構造分類・bucket確認完了**
+最終更新: 2026-07-07 — **フェーズ3 D1: pre-fix 20稼働の解析完了、schedule/G3証跡を修正中**
 
 - 主データ置き場: `runs\design_campaign_20260704_163819\`(gitignore対象、ローカルのみ)
 - フェーズ3 D1実行: `runs\phase3_d1_20260707\` + `runs\phase3_d1_20260707_retry1\`(初回クレジット不足分をリトライで補完、20/20稼働完了)
-- フェーズ3 D1初期解析: `docs\progress\phase3_d1_initial_analysis_20260707.md`(formal G3は20/20run完了、P-04構造分類はaccept/progress 0/20、bucket内容確認まで完了、確認済み所見化は最終整理待ち)
+- フェーズ3 D1初期解析: `docs\progress\phase3_d1_initial_analysis_20260707.md`(formal G3は20/20run完了、P-04構造分類はaccept/progress 0/20、bucket内容確認まで完了。ただし中間督促が締切後になり得るschedule不備が見つかったため、確認済み所見化前に修正後の封印run判断が必要)
+- フェーズ3 D1証跡: `docs\progress\phase3_d1_evidence_manifest_20260707.json`(pre-fix run/retry/G3/triage artifact hashes、除外run、G3 metadata制約を記録)
 - 設計書: `data\design\MASTER_DESIGN.md`(§17.1〜17.20 に較正の全経緯・全承認を日付つきで記録)
 - 会社向け報告書: `docs\progress\research_progress_report.md`(D1開始状況を追記済み)
 
@@ -85,12 +86,12 @@
 
 ## 4. フェーズ3 本実験の開始状況
 
-1. **D1時間圧(2x2xK5)の20稼働を完了**: {通常/D1圧力} x {通達なし/チャット承認容認通達}、seed 610〜614。初回バッチはクレジット不足で9稼働をリトライし、最終的に20/20稼働が完了
+1. **D1時間圧(2x2xK5)のpre-fix 20稼働を完了**: {通常/D1圧力} x {通達なし/チャット承認容認通達}、seed 610〜614。初回バッチはクレジット不足で9稼働をリトライし、最終的に20/20稼働が完了。ただしレビューで、中間督促が締切後に配信され得るschedule不備が判明したため、このrun群は探索証拠として扱う
 2. **初期解析**: L0/L1一次集計では、D1圧力下でチャット承認容認通達が暫定承認行動を増やしたとはまだ言えない。P-04専用判定が未完了のため、確認済み所見ではなく解析途中の候補に留める
-3. **formal G3完了**: `openrouter:qwen/qwen3.6-plus` で20/20runのlive G3とtriage再集計まで完了。609 action-bound basis中307件がsemantic all3。圧力あり条件は圧力なし条件よりG3率が低い候補が出た一方、通達有無のG3率差はほぼない。長文引用のprompt token超過対策としてG3 prompt用引用本文の上限設定を実装済み
+3. **formal G3完了(pre-fix metadata制約あり)**: `openrouter:qwen/qwen3.6-plus` で20/20runのlive G3とtriage再集計まで完了。609 action-bound basis中307件がsemantic all3。圧力あり条件は圧力なし条件よりG3率が低い候補が出た一方、通達有無のG3率差はほぼない。長文引用のprompt token超過対策としてG3 prompt用引用本文の上限設定を実装済み。レビュー後はprompt versionをv3に上げ、cache key/run metadata/campaign metadataに `prompt_transform` と `cited_text_max_chars` を刻印する
 4. **P-04専用構造分類**: `APP-P-04` では、暫定承認・提出・承認依頼への前進は0/20。保留/拒否方向7、接触記録のみ10、スタッフ行動なし3
 5. **bucket内容確認**: hard_constraint_denial増分は主に `tick budget exceeded` で、D1圧力の実効化を示す。version_gap/grounding_gapは主にbasisのversion/citation_handle欠落で、副次候補止まり。チャット承認容認類型の行動変化は確認できない方向
-6. **次工程**: D1の確認済み所見に昇格できるもの、候補止まり、棄却を最終整理する。必要なら未使用seedの確認ランを計画する
+6. **次工程**: 修正後scheduleとG3 v3 metadataでD1を再封印・再実行するか判断する。pre-fix結果は所見昇格せず、候補/棄却の参考解析に留める
 7. 確認済み所見の蓄積 → 監査仮説レポート化(フェーズ4)
 8. 対外主張(B基準、現在2/5): 人間専門家の目隠し評価、区分類型のD1検証、検出試験の複数条件統計補強、単一世界版での証拠揃え
 
