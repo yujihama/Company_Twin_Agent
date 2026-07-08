@@ -63,6 +63,24 @@ def _root(path: Path | None = None) -> Path:
     return root
 
 
+def _provenance_banner() -> None:
+    """One-line package-origin banner (stderr, so stdout stays parseable
+    JSON) for evidence-producing commands: which company_twin package is
+    actually executing, at which commit, and whether it belongs to the repo
+    checkout this command was run from. Guards against the 2026-07-06
+    stale-editable-install incident being invisible at run time."""
+    from .evidence_manifest import resolve_package_provenance
+
+    provenance = resolve_package_provenance()
+    commit = provenance["package_git_commit"]
+    typer.echo(
+        f"[provenance] package={provenance['package_dir']} "
+        f"commit={commit[:12] if commit != 'unknown' else commit} "
+        f"package_origin_matches_cwd_repo={provenance['package_origin_matches_cwd_repo']}",
+        err=True,
+    )
+
+
 def _require_live(base: Path) -> None:
     ready, detail = openrouter_ready(base)
     if not ready:
@@ -463,6 +481,7 @@ def readiness(
     semantic_threshold: Annotated[float, typer.Option("--semantic-threshold")] = 0.8,
 ) -> None:
     """Run Stage 9 experiment-readiness checks; stricter than harness acceptance."""
+    _provenance_banner()
     payload = run_readiness_gate(campaign_root.resolve(), semantic_threshold=semantic_threshold)
     _echo_json(payload)
     if not payload["passed"]:
@@ -624,6 +643,7 @@ def holdout_score(
     control_run_root: Annotated[list[str] | None, typer.Option("--control-run-root", help="Designated no-mutation control run-root name (e.g. an anchor/plain S2 bundle) to score with the same detectors; repeat for multiple")] = None,
 ) -> None:
     """WP-14: score holdout_inputs.json against existing run bundles under --campaign-root and write holdout_report.json."""
+    _provenance_banner()
     payload = write_holdout_report(campaign_root.resolve(), control_run_roots=control_run_root)
     _echo_json(payload)
     if not payload["passed"]:
@@ -652,6 +672,7 @@ def sme_score(
     campaign_root: Annotated[Path, typer.Option("--campaign-root")],
 ) -> None:
     """WP-14: score sme_blind_review_inputs.json against filled-in reviewer responses and write sme_blind_review.json."""
+    _provenance_banner()
     payload = write_sme_blind_review_report(campaign_root.resolve())
     _echo_json(payload)
     if not payload["passed"]:
