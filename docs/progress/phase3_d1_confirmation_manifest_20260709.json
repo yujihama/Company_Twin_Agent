@@ -1,0 +1,168 @@
+{
+ "schema_version": "company_twin.phase3_d1_evidence_manifest.v2",
+ "created_at": "2026-07-09",
+ "purpose": "Sealed post-fix D1 confirmation run bundle (2x2 K=5, seeds 900-904).",
+ "status": "sealed_confirmation_evidence",
+ "sealed_plan": "docs/progress/phase3_d1_plan_20260708.json",
+ "sealed_plan_sha256": "dd3da97df2ef8a4c6b266128c674679f43f529d40667a8aaa78f7bc16a6227bc",
+ "seal_commit": "fb42d47 (merge of PR #61, before any run launched)",
+ "batch_spec_sha256": "9a4ca7b09444c0ad56cb6179766ddc66ec7916708f236098e3e2e60b32fedb60",
+ "batch_manifest_sha256": "04f99e5bf5fbb2e0b93dae4aed7c4500b7f3f3b41198f9a4840d69fa81198a8b",
+ "retry_manifest_sha256": "8e2c892a31af0c29e4cf37d1e0895a89e19615d40326277aaf72697fd91466b6",
+ "retry_reason": "10 runs (both no-notice conditions) failed on a provider-side 429 outage of qwen/qwen3.6-flash at 2026-07-08 22:36-22:37; retried with identical seeds per the sealed no-reseeding rule after partial-root deletion.",
+ "judge": {
+  "backend": "openrouter",
+  "model": "openrouter:qwen/qwen3.6-plus",
+  "prompt_version": "operational-support-v3",
+  "prompt_transform": "head70_tail30_truncation_v1",
+  "cited_text_max_chars": 2200
+ },
+ "g3_calibration_anchor": {
+  "file": "docs/g3_negative_calibration_result_v3_20260708.json",
+  "sha256": "48bb7f53288e2de4dacf22abea0f270b4f149ed808768c5abeb37a248071e7a8"
+ },
+ "analysis_script_sha256": "33e80de13e7a91815872831746756612692f4d567cd60d5b05b2a02a7afe543d",
+ "analysis_report_sha256": "3bbf193f931c55a41ca75a808c7d9bf90744e7a0f7ab8c197e28dddaf836e1f5",
+ "per_run_artifact_hashes": [
+  {
+   "run_root": "runs/phase3_d1_20260708/control_no_notice_seed900",
+   "config_sha256": "cee82521488d3ae676b39eed13f0d0e5df89ba37ec70fd35d93c17c9d81613d5",
+   "world_ledger_sha256": "14a30d44e6019e4e823fab35ec32fb131f8eb5a582563fb5434d947e37b0db39",
+   "g3_sha256": "ae21dc91afe286514f660bc9c296a6b807bcc1ce7ac2f2fceaf4d59a9e7e5577",
+   "buckets_sha256": "7e99f82a221029bbce31b4300f846c08be507fd4d34c68275671585b6435a94c"
+  },
+  {
+   "run_root": "runs/phase3_d1_20260708/control_no_notice_seed901",
+   "config_sha256": "a20a5d0d375c79d16c117e6ad4a80f44571c7ca68e9d1b5d405da7611f5df9f6",
+   "world_ledger_sha256": "08a89e1962a3dbed5be39c468df2f873c3b667f078b69e26bae0862cf9a70ae9",
+   "g3_sha256": "eec4f3edb89507b99d7f18f65b0f455c19cbfee35884778666cf1a9282a7edb2",
+   "buckets_sha256": "8460f7d4eec69aef9d4b768e07558396be1c0696ab352779b6f6d9032f1bdbf8"
+  },
+  {
+   "run_root": "runs/phase3_d1_20260708/control_no_notice_seed902",
+   "config_sha256": "e043534260546e118f1ff895bb8d20e4f487921d8c38c6d6d45d1284e6e3e0ed",
+   "world_ledger_sha256": "d83ca42ed9af7cbf0ff708ab47e59a4e291c448a64ad45cccba3fded868dda99",
+   "g3_sha256": "24652920dc22c5523c301b71398769c1bfb4081e084cd274b12b7ba690e97974",
+   "buckets_sha256": "2014e57a914cc427d538372b2c52975479852d759c28429dada1d6168e3f2466"
+  },
+  {
+   "run_root": "runs/phase3_d1_20260708/control_no_notice_seed903",
+   "config_sha256": "7291fa935a3993f1dbc4f5c7afa421d8b74301fd2b7484dc6e5b48be6906a7c1",
+   "world_ledger_sha256": "a5f71581f0c454b30bbe5af2d8f36bc55463e82500885294a8b788d0d502524c",
+   "g3_sha256": "c2e614b0912dbea4e1c246a6a608473c64fb4ee532f7a20841ebd19b613f189f",
+   "buckets_sha256": "b3d4bd187b801f49081b1b49d8591c735f00a4b3e54823ffc16a1ac500f56974"
+  },
+  {
+   "run_root": "runs/phase3_d1_20260708/control_no_notice_seed904",
+   "config_sha256": "a4c87ae3f3f2d19795a3796339b2db33f1b2b6c966c2afcf67d82ed2bff62767",
+   "world_ledger_sha256": "2c4a2038e33e295c9136fdacfb4cce624c28a421703ed68a7f1762ab44cb74d1",
+   "g3_sha256": "2168af034a13edc63409aa9d89d78f66c0ffca2822f8671495767c9f6c044b15",
+   "buckets_sha256": "9e0313afb3f46ba1d244d775e541540bc32eeb984a2bd1a1fb561e368a31c6e4"
+  },
+  {
+   "run_root": "runs/phase3_d1_20260708/pressure_no_notice_seed900",
+   "config_sha256": "0d71445e87e0ebc2ecfa8ba936e57e5d41971a936d7f998b673b4ac2bba8f6eb",
+   "world_ledger_sha256": "73bf110b14f0a59e2dc2c7ec48708df366b07691b39eec3e8d892bf8e30cd718",
+   "g3_sha256": "143b2989a51b6e499bfdcdde5b8c4202e9a1574433842f21b7c1c450c9ce6ccd",
+   "buckets_sha256": "02d59221f4235e29a103ade520c86fce3a1f81188e411101e1e5bd58e7c50fc7"
+  },
+  {
+   "run_root": "runs/phase3_d1_20260708/pressure_no_notice_seed901",
+   "config_sha256": "41e88b539881eddc477892f48877c155c26717e762c6c5798198d89c417be4af",
+   "world_ledger_sha256": "036abda23a268a15fd0e9b4750233e07b8798f4f2f0838fda56eb4235f67b249",
+   "g3_sha256": "c10af8a848e6d78532d67c97830acb350a5eb6299cec4bb8cf9240015c4b9b64",
+   "buckets_sha256": "80f21a8822c231c245e4dfe4e47d2e4131f6a4fec1502858d2e8cce9c394d782"
+  },
+  {
+   "run_root": "runs/phase3_d1_20260708/pressure_no_notice_seed902",
+   "config_sha256": "03c3649a3e0c8b11543cc16f0cf863981a7791dd4b7e5f23b310eebc6de212f6",
+   "world_ledger_sha256": "e08106c803ebd4683bc192939b385041938931a99ac3f333acbec4a574f8bc8d",
+   "g3_sha256": "ccf65411daae488f058dca8b9227e2eddc3431794bad47dc0b1aea14108fc69d",
+   "buckets_sha256": "475ca86a010bfabb7f39948bdd379f1e00d52f96b458a5397b9363652b7fba18"
+  },
+  {
+   "run_root": "runs/phase3_d1_20260708/pressure_no_notice_seed903",
+   "config_sha256": "76d2a6fd2a344407a6014bb21c9b0d875f84a4b7a7275d92779b27179e30383a",
+   "world_ledger_sha256": "e5aead320fdfa0a8a13abc1a36c1bb717b59fdcabb39e30a7c4dc803d86bcac6",
+   "g3_sha256": "d2c2a58179c2e048cfd760f3970e5b6ddea1a5dc4c9e9b69a70da81adab67eee",
+   "buckets_sha256": "b2ca355f947f57073deca7296e4d87848f626a8ed08617afbfa75c368fdd8960"
+  },
+  {
+   "run_root": "runs/phase3_d1_20260708/pressure_no_notice_seed904",
+   "config_sha256": "68dbc8171d8413a250601cc04bb616a96e3078e2e7be664d4772a845766f8619",
+   "world_ledger_sha256": "75856a79e4cddde8650f6a5f235ee1481297a64714a0ee1d89e7159795c6cce5",
+   "g3_sha256": "319b51e2cbefa3bf57b17b68b81610db47b11418ed6cf655183f09f47bf05d7d",
+   "buckets_sha256": "8442cd8873d63c6dbc790b1182d56bbd3ab011eb9e8a85e7c727d132ca3e8533"
+  },
+  {
+   "run_root": "runs/phase3_d1_20260708/control_notice_seed900",
+   "config_sha256": "e51b9d2765ce85eb2a6a795df9af22c6f4dd44842d1644f6cfc0bca0e9346f8b",
+   "world_ledger_sha256": "5a54227f2a8cf3bbddb94309804e64c049afc88d1189869422faace8540f3e19",
+   "g3_sha256": "a53070dee3d2c3f4df650b6e1f66516498c5152880a8983e6cb8b82c9373763f",
+   "buckets_sha256": "c96fb5ad1730e4c86935dd9a0f0cab0bf6d85a13ec5c80690216e939204a5900"
+  },
+  {
+   "run_root": "runs/phase3_d1_20260708/control_notice_seed901",
+   "config_sha256": "ea716f5d1ce2e7be671d7d160b032498d909119cef67ac1de1c718ea0f0324f6",
+   "world_ledger_sha256": "69b53237928c07cf2cd78728aa02b109794ef952b090b36f90d96bf66525256a",
+   "g3_sha256": "d67efaaf60ff13ab1b01f0a3bba02f455a07e57894cb0968e41204aae0cd4916",
+   "buckets_sha256": "635078615a8d28d9037865d768b0c36f4b14847fbc7eb00474dd209f4840fe79"
+  },
+  {
+   "run_root": "runs/phase3_d1_20260708/control_notice_seed902",
+   "config_sha256": "80d9772e30f98287eedf4916e3b91606ee85b02bbc820e7066f3673f34524e3f",
+   "world_ledger_sha256": "002617ec3e829a365aad0d9c8f40dee6d8f13e6373c945a3e5f9fca95d000174",
+   "g3_sha256": "f864771a4b147a37c1d65bfafc3854f33efe81d60caa8c248385b89de26dd155",
+   "buckets_sha256": "b66de8d29b95071c28fc116cb4d735c767be8f07d3febb3c6a24382c444f1f91"
+  },
+  {
+   "run_root": "runs/phase3_d1_20260708/control_notice_seed903",
+   "config_sha256": "afe98f4ab28f2117e0a1c10988e0ee1729d409b2ed0df78d9c0a381e95a286d9",
+   "world_ledger_sha256": "b1f6a02f68e7c6286b06d40fa0f2d44b7823d5005a0e5c3a7e268da18380366f",
+   "g3_sha256": "ed03347ee8f30b27f55596a6a266efd82a458d911f9c4be750e3f9832081ad3b",
+   "buckets_sha256": "9d2d01598788a219f14f68d5f08ed4dd7b8b25cc69253fb0a66a04870932cf7b"
+  },
+  {
+   "run_root": "runs/phase3_d1_20260708/control_notice_seed904",
+   "config_sha256": "ad4a2102c60da07bba156dca73e49e01fb49cd84a9f09c2574c354fbfb07243b",
+   "world_ledger_sha256": "cbf95305785cfddaaff09d4306b03bbc83a14d4361fd2cfe34e38f17c2edcece",
+   "g3_sha256": "2b684530f2607e63d434bd0eac87c6f91de52c2b5cb2791a5ebe85cd998edbc1",
+   "buckets_sha256": "824008337d071332fba59d585ef4805b09c60ced0c3944f956c7583b9dc86679"
+  },
+  {
+   "run_root": "runs/phase3_d1_20260708/pressure_notice_seed900",
+   "config_sha256": "563c5e0b35e0d489d114379078a1d33a2b8f3fcfa75c085c65a6ea4e56eca25e",
+   "world_ledger_sha256": "76e4e2d67e29a5973e90991ae093bc24b50c009188ba8e96d003c16657c77709",
+   "g3_sha256": "57c201733e8eadea6bcdde4057a41a5678001844eb48f0b395ea174f3a8b87b4",
+   "buckets_sha256": "6c051f3ecb5b1bd517abdb18d00ba74d7fa2334fe44ad18b195246aa2f4831d8"
+  },
+  {
+   "run_root": "runs/phase3_d1_20260708/pressure_notice_seed901",
+   "config_sha256": "e62feb9bd83c1ddefc62ac3e6acf3e0e9f061b45fb16fe8470ebbab83c84e235",
+   "world_ledger_sha256": "4c5666c88dab4466076fd1c5ddf574c11e5c38bf132f453c491786b8cd8e1f2a",
+   "g3_sha256": "fc20def632856b7f7b09350f3b898782f313d622ab6a276641d4aae0476c6a21",
+   "buckets_sha256": "e9b05f160626e998731de756d4426985931301b679f736069a4ec941bfbe3090"
+  },
+  {
+   "run_root": "runs/phase3_d1_20260708/pressure_notice_seed902",
+   "config_sha256": "5719e24682cbf805771aef7aeaf734e32c38df25d4b64a406dd5ae4e0f447846",
+   "world_ledger_sha256": "8a7c75f8e5e22a5e8f28f480b2c8927beced3e12f01dc62e9b38d514c3b8fffc",
+   "g3_sha256": "9de49bc11e958849c576cfe2e2c810fd627f28a4ea8630a6f83c6c0a6db56319",
+   "buckets_sha256": "772b1a223a6287a5177704f9bd625babf34655e22fa33a083034699334470d59"
+  },
+  {
+   "run_root": "runs/phase3_d1_20260708/pressure_notice_seed903",
+   "config_sha256": "9a7749669df9e950b3d7f0a43b16a018e9ebf6f38220e80bbffd2f1080a232bd",
+   "world_ledger_sha256": "4270ee7641f3c69a46d52a0d229f4855a2746d2b2ed8753ae53a9d8e00f02b78",
+   "g3_sha256": "a33119b6616a97314e24253b6390f4e33c3500382aae976a7d353dd59650fe3a",
+   "buckets_sha256": "dd971f8e51aa14d7825d178bdc800b61862193518344ccff077552c54543a50e"
+  },
+  {
+   "run_root": "runs/phase3_d1_20260708/pressure_notice_seed904",
+   "config_sha256": "160499c96fd152289c560202a018e1d08686e2b9fd1924978c3b643a25120acc",
+   "world_ledger_sha256": "86af1458763536f2fbaa8fb43a85f0c5bc03ab3a9fee18c5b3a896987a6834df",
+   "g3_sha256": "795cf3950cd2bd23b45355f391cb883490d4aa0c3108271f17d9c14a918a0eac",
+   "buckets_sha256": "785bdcc8540b156eda79bc841c6dd9eb01a620db34699f091f685015c84ef10b"
+  }
+ ]
+}
