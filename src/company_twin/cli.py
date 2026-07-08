@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Annotated
@@ -29,8 +30,10 @@ from .oracles import execute_fresh_min_repro_confirmation, execute_min_repro_job
 from .parallel_runner import (
     BatchSpec,
     BatchSpecError,
+    DEFAULT_MIN_CREDITS,
     RATE_LIMIT_WARN_THRESHOLD,
     build_retry_spec,
+    check_openrouter_credits,
     delete_partial_roots,
     load_batch_manifest,
     run_batch,
@@ -674,6 +677,8 @@ def run_batch_cmd(
     batch_dir: Annotated[Path | None, typer.Option("--batch-dir", help="Directory for per-run logs and batch_manifest.json; defaults to --root/runs/batch_<timestamp>")] = None,
     retry_failed: Annotated[Path | None, typer.Option("--retry-failed", help="Path to a prior batch_manifest.json; re-run only its failed entries into the SAME run_roots")] = None,
     delete_partial_roots_flag: Annotated[bool, typer.Option("--delete-partial-roots", help="With --retry-failed, delete each failed run's (partial) run_root before re-launching it. Never happens by default -- required explicitly, once, per retry")] = False,
+    min_credits: Annotated[float, typer.Option("--min-credits", help="OpenRouter credit floor for the pre-launch balance check. Sizing rule of thumb: one S2 40-tick run costs ~0.85-1.2 credits (more with a plus-tier customer model), so budget ~1.2 x the number of runs in the batch. Below the floor this command warns by default; add --abort-on-low-credits to stop before any run launches")] = DEFAULT_MIN_CREDITS,
+    abort_on_low_credits: Annotated[bool, typer.Option("--abort-on-low-credits/--warn-on-low-credits", help="Abort (instead of just warning) when remaining credits are below --min-credits. An unavailable credits endpoint only ever warns -- it never blocks the batch")] = False,
     root: Annotated[Path | None, typer.Option("--root")] = None,
 ) -> None:
     """WP-12: orchestrate independent S0/S1/S2/control-pair-campaign runs in parallel subprocesses.
@@ -700,8 +705,40 @@ def run_batch_cmd(
     concurrent S2 worlds slowed each run ~20-30% while ~2.5x-ing aggregate
     throughput -- the binding constraint is the provider's rate limit, not
     local CPU/RAM. This command warns (does not block) above concurrency 4.
+
+    Credits preflight (incident 2026-07-06: an 11-run batch exhausted the
+    OpenRouter balance mid-flight and 402s failed 8/11 runs): before
+    launching anything this command queries the OpenRouter credits endpoint,
+    prints the remaining balance, warns (or aborts, with
+    --abort-on-low-credits) below --min-credits, and records the pre-launch
+    balance in batch_manifest.json. An unreachable credits endpoint warns
+    and continues -- it never blocks the batch.
     """
     base = _root(root)
+
+    credits_preflight = check_openrouter_credits(api_key=os.getenv("OPENROUTER_API_KEY"))
+    if credits_preflight["status"] == "ok":
+        remaining = credits_preflight["remaining_credits"]
+        typer.echo(
+            f"OpenRouter credits remaining: {remaining:.2f} "
+            f"(total {credits_preflight['total_credits']:.2f} - usage {credits_preflight['total_usage']:.2f})"
+        )
+        if remaining < min_credits:
+            low_msg = (
+                f"remaining OpenRouter credits ({remaining:.2f}) are below --min-credits ({min_credits:.2f}); "
+                "an S2 40-tick run costs ~0.85-1.2 credits (more with a plus-tier customer model), so a "
+                "mid-batch 402 Insufficient credits failure is likely (this is exactly the 2026-07-06 incident)."
+            )
+            if abort_on_low_credits:
+                typer.echo(f"error: {low_msg} Aborting before any run launches (--abort-on-low-credits).", err=True)
+                raise typer.Exit(code=1)
+            typer.echo(f"warning: {low_msg} Continuing anyway (warn-only default; pass --abort-on-low-credits to block).", err=True)
+    else:
+        typer.echo(
+            f"warning: OpenRouter credits preflight {credits_preflight['status']}: "
+            f"{credits_preflight['detail']} -- continuing without a balance check.",
+            err=True,
+        )
 
     if retry_failed is not None:
         if batch_spec is None:
@@ -745,7 +782,7 @@ def run_batch_cmd(
         typer.echo(f"error: {exc}", err=True)
         raise typer.Exit(code=1) from exc
 
-    manifest = run_batch(spec, base_dir=base, batch_dir=target_batch_dir)
+    manifest = run_batch(spec, base_dir=base, batch_dir=target_batch_dir, credits_preflight=credits_preflight)
     _echo_json(manifest)
     if not manifest["passed"]:
         raise typer.Exit(code=1)
