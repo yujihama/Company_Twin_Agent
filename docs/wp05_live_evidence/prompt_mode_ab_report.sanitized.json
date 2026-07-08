@@ -1,4 +1,4 @@
-﻿{
+{
     "schema_version":  "company_twin.prompt_mode_ab_report.v1",
     "campaign_root":  "runs/prompt_ab_k5_tick1_20260704_120201",
     "groups":  [

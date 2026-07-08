@@ -120,7 +120,13 @@ The prompt adjustment keeps the live OpenRouter path strict, but tells the judge
 to evaluate substantive policy/procedure support rather than exact internal tool
 names, local field names, action IDs, or v1.0/v1.1 label wording. Cache keys now
 include the prompt version so prior OpenRouter labels are not reused after a
-prompt change.
+prompt change. After the 2026-07-07 D1 review, the operational contract was
+bumped to `operational-support-v3` without changing the substantive judging
+rubric: v3 records the cited-text truncation transform (`head70_tail30_truncation_v1`)
+and `COMPANY_TWIN_G3_CITED_TEXT_MAX_CHARS` in run/campaign/calibration metadata
+and includes those fields, plus the transformed prompt cited text, in cache
+keys. New formal G3 evidence should use v3 metadata; v2 D1 artifacts remain
+pre-fix evidence unless rerun or otherwise re-scored under the v3 contract.
 
 Anchor bundle live G3 summary after adjustment:
 
@@ -178,8 +184,8 @@ Case counts in the committed fixture: `fabricated_basis=5`, `version_mismatch=4`
 used by `evaluate_semantic_grounding_run` over any labeled calibration JSONL
 file -- positive or negative -- and writes a machine-readable summary with
 per-category correct/incorrect counts, an overall specificity/agreement rate,
-and judge metadata (`backend`, `model`, `prompt_version`,
-`readiness_eligible`). For the `missing_handle`/`not_evaluated` category, a
+and judge metadata (`backend`, `model`, `prompt_version`, `prompt_transform`,
+`cited_text_max_chars`, `readiness_eligible`). For the `missing_handle`/`not_evaluated` category, a
 case is scored correct only if the judge abstains (`not_evaluated`); asserting
 any entailment label from absent evidence is a specificity failure.
 

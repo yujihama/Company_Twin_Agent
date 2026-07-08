@@ -96,6 +96,7 @@ class KernelProfile:
     timed_notice_recipients: tuple[str, ...] = ()
     approval_due_ticks: int = 2
     approval_notice_recipients: tuple[str, ...] = ()
+    time_pressure_notices: tuple[dict[str, Any], ...] = ()
 
     def enabled(self, knob: str) -> bool:
         return bool(self.knobs.get(knob, False))
@@ -140,6 +141,13 @@ class WorldKernel:
                 notice="campaign_deadline",
                 detail="本日はキャンペーンの締切日です。処理中の案件について、証跡の確認、未了の承認、保留中の案件の状況をご確認のうえ対応を進めてください。",
             )
+        for notice in self.profile.time_pressure_notices:
+            if int(notice.get("tick") or 0) != tick:
+                continue
+            notice_id = str(notice.get("notice") or "workload_pressure")
+            detail = str(notice.get("detail") or "")
+            self.recorder.append_ledger("time_pressure_notice", {"tick": tick, "notice": notice_id})
+            self._deliver_timed_notice(tick, notice=notice_id, detail=detail)
         if tick in set(self.profile.manager_absence_ticks):
             self.recorder.append_ledger("seat_absence", {"tick": tick, "seat_id": "emp-M", "reason": "manager absence"})
         if self.profile.scc_switch_enabled and self.profile.scc_switch_tick is not None and tick == self.profile.scc_switch_tick:

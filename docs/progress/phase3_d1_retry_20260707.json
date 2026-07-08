@@ -1,0 +1,135 @@
+{
+  "description": "Phase 3 D1 retry set for runs that failed or were interrupted during docs/progress/phase3_d1_batch_20260707.json on 2026-07-07. Original batch stopped after OpenRouter 402 insufficient credits; retry roots avoid overwriting partial runs.",
+  "concurrency": 2,
+  "stagger_seconds": 10,
+  "runs": [
+    {
+      "run_id": "d1_pressure_no_notice_seed612_retry1",
+      "stage": "s2",
+      "run_root": "runs/phase3_d1_20260707_retry1/pressure_no_notice_seed612",
+      "seed": 612,
+      "ticks": 40,
+      "prompt_mode": "measurement",
+      "extra_args": [
+        "--time-pressure"
+      ]
+    },
+    {
+      "run_id": "d1_control_notice_seed612_retry1",
+      "stage": "s2",
+      "run_root": "runs/phase3_d1_20260707_retry1/control_notice_seed612",
+      "seed": 612,
+      "ticks": 40,
+      "prompt_mode": "measurement",
+      "mutations": [
+        "contradict_chat_approval_recorded"
+      ],
+      "extra_args": [
+        "--circulate-notices"
+      ]
+    },
+    {
+      "run_id": "d1_control_notice_seed613_retry1",
+      "stage": "s2",
+      "run_root": "runs/phase3_d1_20260707_retry1/control_notice_seed613",
+      "seed": 613,
+      "ticks": 40,
+      "prompt_mode": "measurement",
+      "mutations": [
+        "contradict_chat_approval_recorded"
+      ],
+      "extra_args": [
+        "--circulate-notices"
+      ]
+    },
+    {
+      "run_id": "d1_control_notice_seed614_retry1",
+      "stage": "s2",
+      "run_root": "runs/phase3_d1_20260707_retry1/control_notice_seed614",
+      "seed": 614,
+      "ticks": 40,
+      "prompt_mode": "measurement",
+      "mutations": [
+        "contradict_chat_approval_recorded"
+      ],
+      "extra_args": [
+        "--circulate-notices"
+      ]
+    },
+    {
+      "run_id": "d1_pressure_notice_seed610_retry1",
+      "stage": "s2",
+      "run_root": "runs/phase3_d1_20260707_retry1/pressure_notice_seed610",
+      "seed": 610,
+      "ticks": 40,
+      "prompt_mode": "measurement",
+      "mutations": [
+        "contradict_chat_approval_recorded"
+      ],
+      "extra_args": [
+        "--circulate-notices",
+        "--time-pressure"
+      ]
+    },
+    {
+      "run_id": "d1_pressure_notice_seed611_retry1",
+      "stage": "s2",
+      "run_root": "runs/phase3_d1_20260707_retry1/pressure_notice_seed611",
+      "seed": 611,
+      "ticks": 40,
+      "prompt_mode": "measurement",
+      "mutations": [
+        "contradict_chat_approval_recorded"
+      ],
+      "extra_args": [
+        "--circulate-notices",
+        "--time-pressure"
+      ]
+    },
+    {
+      "run_id": "d1_pressure_notice_seed612_retry1",
+      "stage": "s2",
+      "run_root": "runs/phase3_d1_20260707_retry1/pressure_notice_seed612",
+      "seed": 612,
+      "ticks": 40,
+      "prompt_mode": "measurement",
+      "mutations": [
+        "contradict_chat_approval_recorded"
+      ],
+      "extra_args": [
+        "--circulate-notices",
+        "--time-pressure"
+      ]
+    },
+    {
+      "run_id": "d1_pressure_notice_seed613_retry1",
+      "stage": "s2",
+      "run_root": "runs/phase3_d1_20260707_retry1/pressure_notice_seed613",
+      "seed": 613,
+      "ticks": 40,
+      "prompt_mode": "measurement",
+      "mutations": [
+        "contradict_chat_approval_recorded"
+      ],
+      "extra_args": [
+        "--circulate-notices",
+        "--time-pressure"
+      ]
+    },
+    {
+      "run_id": "d1_pressure_notice_seed614_retry1",
+      "stage": "s2",
+      "run_root": "runs/phase3_d1_20260707_retry1/pressure_notice_seed614",
+      "seed": 614,
+      "ticks": 40,
+      "prompt_mode": "measurement",
+      "mutations": [
+        "contradict_chat_approval_recorded"
+      ],
+      "extra_args": [
+        "--circulate-notices",
+        "--time-pressure"
+      ]
+    }
+  ]
+}

@@ -1,4 +1,4 @@
-﻿{
+{
     "schema_version":  "company_twin.g3_semantic_grounding.v1",
     "campaign_root":  "runs/prompt_ab_k5_tick1_20260704_120201",
     "judge":  {

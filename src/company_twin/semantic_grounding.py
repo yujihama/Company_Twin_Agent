@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import re
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
@@ -13,7 +14,9 @@ from .recorder import read_jsonl
 
 
 G3_SCHEMA_VERSION = "company_twin.g3_semantic_grounding.v1"
-G3_JUDGE_PROMPT_VERSION = "operational-support-v2"
+G3_JUDGE_PROMPT_VERSION = "operational-support-v3"
+DEFAULT_G3_CITED_TEXT_MAX_CHARS = 2200
+G3_PROMPT_TRANSFORM = "head70_tail30_truncation_v1"
 SUPPORTED = "supported"
 UNSUPPORTED = "unsupported"
 CONTRADICTED = "contradicted"
@@ -68,20 +71,25 @@ class OpenRouterSemanticJudge:
 
     def __init__(self, model: str | None = None):
         self.model = normalize_openrouter_model(model or os.getenv("COMPANY_TWIN_G3_MODEL"))
+        self.max_retries = int(os.getenv("COMPANY_TWIN_G3_MAX_RETRIES", "3"))
+        self.retry_sleep_seconds = float(os.getenv("COMPANY_TWIN_G3_RETRY_SLEEP_SECONDS", "2"))
+        self._llm: Any | None = None
 
     def judge(self, *, cited_text: str, construal: str, decision: str, evidence_plan: str) -> dict[str, Any]:
-        from langchain_openai import ChatOpenAI
+        last_exc: Exception | None = None
+        for attempt in range(self.max_retries + 1):
+            try:
+                return self._judge_once(cited_text=cited_text, construal=construal, decision=decision, evidence_plan=evidence_plan)
+            except Exception as exc:
+                last_exc = exc
+                if attempt >= self.max_retries or not _is_retryable_openrouter_error(exc):
+                    raise
+                time.sleep(self.retry_sleep_seconds * (attempt + 1))
+        raise last_exc or RuntimeError("OpenRouter semantic judge failed")
 
-        llm = ChatOpenAI(
-            api_key=os.environ["OPENROUTER_API_KEY"],
-            model=openrouter_slug(self.model),
-            base_url="https://openrouter.ai/api/v1",
-            timeout=int(os.getenv("OPENROUTER_TIMEOUT_SECONDS", "45")),
-            max_retries=0,
-            max_completion_tokens=int(os.getenv("COMPANY_TWIN_G3_MAX_TOKENS", "500")),
-        )
+    def _judge_once(self, *, cited_text: str, construal: str, decision: str, evidence_plan: str) -> dict[str, Any]:
         prompt = _judge_prompt(cited_text=cited_text, construal=construal, decision=decision, evidence_plan=evidence_plan)
-        response = llm.invoke([{"role": "user", "content": prompt}])
+        response = self._client().invoke([{"role": "user", "content": prompt}])
         content = getattr(response, "content", response)
         payload = _parse_json_object(str(content))
         label = str(payload.get("label") or "").strip().lower()
@@ -97,6 +105,39 @@ class OpenRouterSemanticJudge:
             "confidence": max(0.0, min(confidence, 1.0)),
             "rationale": str(payload.get("rationale") or "")[:500],
         }
+
+    def _client(self) -> Any:
+        if self._llm is None:
+            from langchain_openai import ChatOpenAI
+
+            self._llm = ChatOpenAI(
+                api_key=os.environ["OPENROUTER_API_KEY"],
+                model=openrouter_slug(self.model),
+                base_url="https://openrouter.ai/api/v1",
+                timeout=int(os.getenv("OPENROUTER_TIMEOUT_SECONDS", "45")),
+                max_retries=int(os.getenv("COMPANY_TWIN_G3_HTTP_MAX_RETRIES", "1")),
+                max_completion_tokens=int(os.getenv("COMPANY_TWIN_G3_MAX_TOKENS", "500")),
+            )
+        return self._llm
+
+
+def _g3_cited_text_max_chars() -> int:
+    try:
+        return int(os.getenv("COMPANY_TWIN_G3_CITED_TEXT_MAX_CHARS", str(DEFAULT_G3_CITED_TEXT_MAX_CHARS)))
+    except ValueError:
+        return DEFAULT_G3_CITED_TEXT_MAX_CHARS
+
+
+def _judge_metadata(judge: SemanticJudge) -> dict[str, Any]:
+    readiness_eligible = judge.backend in READINESS_ALLOWED_JUDGE_BACKENDS
+    return {
+        "backend": judge.backend,
+        "model": judge.model,
+        "prompt_version": G3_JUDGE_PROMPT_VERSION,
+        "prompt_transform": G3_PROMPT_TRANSFORM,
+        "cited_text_max_chars": _g3_cited_text_max_chars(),
+        "readiness_eligible": readiness_eligible,
+    }
 
 
 def evaluate_semantic_grounding_run(
@@ -120,18 +161,21 @@ def evaluate_semantic_grounding_run(
             continue
         row = _evaluate_basis_row(basis, reads=reads, judge=judge, cache=cache)
         rows.append(row)
+        if write:
+            cache_path.write_text(json.dumps(cache, ensure_ascii=False, indent=2), encoding="utf-8")
 
     action_bound = len(rows)
     evaluated = [row for row in rows if row["label"] != NOT_EVALUATED]
     supported = [row for row in rows if row["label"] == SUPPORTED]
     all3 = [row for row in rows if row["g1"] is True and row["g2"] is True and row["label"] == SUPPORTED]
-    readiness_eligible = judge.backend in READINESS_ALLOWED_JUDGE_BACKENDS
+    judge_meta = _judge_metadata(judge)
+    readiness_eligible = bool(judge_meta["readiness_eligible"])
     g3_rate = (len(supported) / action_bound) if action_bound else None
     all3_rate = (len(all3) / action_bound) if action_bound else None
     payload = {
         "schema_version": G3_SCHEMA_VERSION,
         "run_root": str(run_root),
-        "judge": {"backend": judge.backend, "model": judge.model, "prompt_version": G3_JUDGE_PROMPT_VERSION, "readiness_eligible": readiness_eligible},
+        "judge": judge_meta,
         "basis_action_bound": action_bound,
         "evaluated_count": len(evaluated),
         "supported_count": len(supported),
@@ -147,6 +191,24 @@ def evaluate_semantic_grounding_run(
         cache_path.write_text(json.dumps(cache, ensure_ascii=False, indent=2), encoding="utf-8")
         (run_root / "g3_semantic_grounding.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     return payload
+
+
+def _is_retryable_openrouter_error(exc: Exception) -> bool:
+    text = f"{type(exc).__name__}: {exc}".lower()
+    non_retryable_markers = (
+        "insufficient credits",
+        "authentication",
+        "api key",
+        "unauthorized",
+        "badrequest",
+        "bad request",
+        "invalid_request",
+        "permission",
+        "401",
+        "402",
+        "403",
+    )
+    return not any(marker in text for marker in non_retryable_markers)
 
 
 def evaluate_semantic_grounding_campaign(
@@ -169,13 +231,14 @@ def evaluate_semantic_grounding_campaign(
     action_bound = sum(int(report.get("basis_action_bound") or 0) for report in run_reports)
     supported = sum(int(report.get("supported_count") or 0) for report in run_reports)
     all3 = sum(int(report.get("semantic_all3_count") or 0) for report in run_reports)
-    readiness_eligible = judge.backend in READINESS_ALLOWED_JUDGE_BACKENDS
+    judge_meta = _judge_metadata(judge)
+    readiness_eligible = bool(judge_meta["readiness_eligible"])
     g3_rate = (supported / action_bound) if action_bound else None
     all3_rate = (all3 / action_bound) if action_bound else None
     payload = {
         "schema_version": G3_SCHEMA_VERSION,
         "campaign_root": str(campaign_root),
-        "judge": {"backend": judge.backend, "model": judge.model, "prompt_version": G3_JUDGE_PROMPT_VERSION, "readiness_eligible": readiness_eligible},
+        "judge": judge_meta,
         "run_count": len(run_reports),
         "basis_action_bound": action_bound,
         "supported_count": supported,
@@ -378,16 +441,11 @@ def summarize_g3_calibration_scores(rows: list[dict[str, Any]], *, judge: Semant
     total = len(rows)
     correct_total = sum(1 for row in rows if row.get("correct"))
     rejected_total = sum(1 for row in rows if str(row.get("judge_label") or "") != SUPPORTED)
-    readiness_eligible = judge.backend in READINESS_ALLOWED_JUDGE_BACKENDS
+    judge_meta = _judge_metadata(judge)
     return {
         "schema_version": G3_NEGATIVE_CALIBRATION_SCHEMA_VERSION,
         "source_path": str(source_path) if source_path is not None else None,
-        "judge": {
-            "backend": judge.backend,
-            "model": judge.model,
-            "prompt_version": G3_JUDGE_PROMPT_VERSION,
-            "readiness_eligible": readiness_eligible,
-        },
+        "judge": judge_meta,
         "case_count": total,
         "correct_count": correct_total,
         "incorrect_count": total - correct_total,
@@ -417,6 +475,7 @@ def _evaluate_basis_row(basis: dict[str, Any], *, reads: dict[tuple[str, str], d
     decision = str(basis.get("decision") or "")
     evidence_plan = str(basis.get("evidence_plan") or "")
     key = _cache_key(cited_text=cited_text, construal=construal, decision=decision, evidence_plan=evidence_plan, model=judge.model, backend=judge.backend)
+    prompt_cited_text = _prompt_cited_text(cited_text)
     if not cited_text or missing_handles:
         result = {"label": NOT_EVALUATED, "confidence": 0.0, "rationale": f"missing read text for handles={missing_handles}"}
     elif key in cache:
@@ -436,6 +495,8 @@ def _evaluate_basis_row(basis: dict[str, Any], *, reads: dict[tuple[str, str], d
         "rationale": result.get("rationale", ""),
         "retrieved_count": len(basis.get("retrieved") or []),
         "missing_handles": missing_handles,
+        "cited_text_chars": len(cited_text),
+        "prompt_cited_text_chars": len(prompt_cited_text),
         "cache_key": key,
     }
 
@@ -485,17 +546,35 @@ def _iter_run_roots(source_root: Path) -> list[Path]:
 
 
 def _cache_key(*, cited_text: str, construal: str, decision: str, evidence_plan: str, model: str, backend: str) -> str:
+    prompt_cited_text = _prompt_cited_text(cited_text)
     payload = {
         "schema_version": G3_SCHEMA_VERSION,
         "prompt_version": G3_JUDGE_PROMPT_VERSION,
+        "prompt_transform": G3_PROMPT_TRANSFORM,
+        "cited_text_max_chars": _g3_cited_text_max_chars(),
         "backend": backend,
         "model": model,
-        "cited_text": cited_text,
+        "prompt_cited_text": prompt_cited_text,
+        "raw_cited_text_sha256": hashlib.sha256(cited_text.encode("utf-8")).hexdigest(),
         "construal": construal,
         "decision": decision,
         "evidence_plan": evidence_plan,
     }
     return hashlib.sha256(json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
+
+
+def _prompt_cited_text(cited_text: str) -> str:
+    max_chars = _g3_cited_text_max_chars()
+    if max_chars <= 0 or len(cited_text) <= max_chars:
+        return cited_text
+    marker = "\n\n[... cited text truncated for G3 prompt ...]\n\n"
+    if max_chars <= len(marker):
+        return cited_text[:max_chars]
+    budget = max_chars - len(marker)
+    head_chars = max(1, int(budget * 0.7))
+    tail_chars = max(0, budget - head_chars)
+    tail = cited_text[-tail_chars:] if tail_chars else ""
+    return f"{cited_text[:head_chars]}{marker}{tail}"
 
 
 def _g1_value(row: dict[str, Any]) -> bool | None:
@@ -529,6 +608,7 @@ def _has_polarity_conflict(cited_text: str, hypothesis: str) -> bool:
 
 
 def _judge_prompt(*, cited_text: str, construal: str, decision: str, evidence_plan: str) -> str:
+    cited_excerpt = _prompt_cited_text(cited_text)
     return f"""You are judging semantic grounding for a control-process audit trace.
 
 Return only JSON with keys: label, confidence, rationale.
@@ -552,7 +632,7 @@ Decision rules:
 - Mark not_evaluated only when the cited text or staff reading is unusable.
 
 CITED_TEXT:
-{cited_text[:3500]}
+{cited_excerpt}
 
 CONSTRUAL:
 {construal}
