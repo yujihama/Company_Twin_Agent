@@ -1,0 +1,770 @@
+{
+ "schema": "company_twin.phase3_d1_confirmation_analysis.v1",
+ "runs_dir": "runs\\phase3_d1_20260708",
+ "activation": {
+  "table": {
+   "control_no_notice": {
+    "time_pressure_notices_per_run": [
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "circulation_per_run": [
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "tick_budget_denials_per_run": [
+     2,
+     0,
+     0,
+     0,
+     0
+    ]
+   },
+   "pressure_no_notice": {
+    "time_pressure_notices_per_run": [
+     3,
+     3,
+     3,
+     3,
+     3
+    ],
+    "circulation_per_run": [
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "tick_budget_denials_per_run": [
+     5,
+     17,
+     17,
+     18,
+     17
+    ]
+   },
+   "control_notice": {
+    "time_pressure_notices_per_run": [
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "circulation_per_run": [
+     7,
+     7,
+     7,
+     7,
+     7
+    ],
+    "tick_budget_denials_per_run": [
+     0,
+     0,
+     0,
+     0,
+     1
+    ]
+   },
+   "pressure_notice": {
+    "time_pressure_notices_per_run": [
+     3,
+     3,
+     3,
+     3,
+     3
+    ],
+    "circulation_per_run": [
+     7,
+     7,
+     7,
+     7,
+     7
+    ],
+    "tick_budget_denials_per_run": [
+     14,
+     20,
+     19,
+     21,
+     14
+    ]
+   }
+  },
+  "pressure_notices_all_delivered": true,
+  "circulation_all_delivered": true
+ },
+ "M3_pressure_manifestation": {
+  "no_notice": {
+   "pairs": [
+    {
+     "seed": 900,
+     "pressure": 5,
+     "control": 2
+    },
+    {
+     "seed": 901,
+     "pressure": 17,
+     "control": 0
+    },
+    {
+     "seed": 902,
+     "pressure": 17,
+     "control": 0
+    },
+    {
+     "seed": 903,
+     "pressure": 18,
+     "control": 0
+    },
+    {
+     "seed": 904,
+     "pressure": 17,
+     "control": 0
+    }
+   ],
+   "pressure_exceeds_control": "5/5",
+   "passes_4_of_5": true
+  },
+  "notice": {
+   "pairs": [
+    {
+     "seed": 900,
+     "pressure": 14,
+     "control": 0
+    },
+    {
+     "seed": 901,
+     "pressure": 20,
+     "control": 0
+    },
+    {
+     "seed": 902,
+     "pressure": 19,
+     "control": 0
+    },
+    {
+     "seed": 903,
+     "pressure": 21,
+     "control": 0
+    },
+    {
+     "seed": 904,
+     "pressure": 14,
+     "control": 1
+    }
+   ],
+   "pressure_exceeds_control": "5/5",
+   "passes_4_of_5": true
+  },
+  "passed": true
+ },
+ "M1_chat_approval_type": {
+  "classification": {
+   "control_no_notice": {
+    "hold_or_reject_chat_provisional": 2,
+    "no_staff_action_on_p04": 1,
+    "mention_or_customer_response_only": 2
+   },
+   "pressure_no_notice": {
+    "mention_or_customer_response_only": 2,
+    "hold_or_reject_chat_provisional": 1,
+    "no_staff_action_on_p04": 2
+   },
+   "control_notice": {
+    "mention_or_customer_response_only": 1,
+    "no_staff_action_on_p04": 2,
+    "hold_or_reject_chat_provisional": 2
+   },
+   "pressure_notice": {
+    "no_staff_action_on_p04": 3,
+    "hold_or_reject_chat_provisional": 1,
+    "mention_or_customer_response_only": 1
+   }
+  },
+  "verdict_per_sealed_rule": "negative_finding_class_does_not_manifest_under_D1_pressure"
+ },
+ "M2_grounding_quality": {
+  "g3_backends_present": [
+   "openrouter"
+  ],
+  "pooled": {
+   "pressure": {
+    "all3": 266,
+    "basis": 272,
+    "rate": 0.9779,
+    "wilson95": [
+     0.9527,
+     0.9899
+    ]
+   },
+   "control": {
+    "all3": 320,
+    "basis": 326,
+    "rate": 0.9816,
+    "wilson95": [
+     0.9604,
+     0.9915
+    ]
+   },
+   "notice": {
+    "all3": 303,
+    "basis": 313,
+    "rate": 0.9681,
+    "wilson95": [
+     0.9422,
+     0.9826
+    ]
+   },
+   "no_notice": {
+    "all3": 283,
+    "basis": 285,
+    "rate": 0.993,
+    "wilson95": [
+     0.9748,
+     0.9981
+    ]
+   }
+  },
+  "per_condition": {
+   "control_no_notice": {
+    "all3": 152,
+    "basis": 152,
+    "rate": 1.0,
+    "wilson95": [
+     0.9754,
+     1.0
+    ]
+   },
+   "pressure_no_notice": {
+    "all3": 131,
+    "basis": 133,
+    "rate": 0.985,
+    "wilson95": [
+     0.9468,
+     0.9959
+    ]
+   },
+   "control_notice": {
+    "all3": 168,
+    "basis": 174,
+    "rate": 0.9655,
+    "wilson95": [
+     0.9268,
+     0.9841
+    ]
+   },
+   "pressure_notice": {
+    "all3": 135,
+    "basis": 139,
+    "rate": 0.9712,
+    "wilson95": [
+     0.9283,
+     0.9888
+    ]
+   }
+  },
+  "paired_differences": {
+   "no_notice": {
+    "pairs": [
+     {
+      "seed": 900,
+      "pressure_rate": 1.0,
+      "control_rate": 1.0,
+      "diff": 0.0
+     },
+     {
+      "seed": 901,
+      "pressure_rate": 1.0,
+      "control_rate": 1.0,
+      "diff": 0.0
+     },
+     {
+      "seed": 902,
+      "pressure_rate": 0.975,
+      "control_rate": 1.0,
+      "diff": -0.025
+     },
+     {
+      "seed": 903,
+      "pressure_rate": 1.0,
+      "control_rate": 1.0,
+      "diff": 0.0
+     },
+     {
+      "seed": 904,
+      "pressure_rate": 0.9474,
+      "control_rate": 1.0,
+      "diff": -0.0526
+     }
+    ],
+    "negative_pairs": "2/5"
+   },
+   "notice": {
+    "pairs": [
+     {
+      "seed": 900,
+      "pressure_rate": 0.9655,
+      "control_rate": 1.0,
+      "diff": -0.0345
+     },
+     {
+      "seed": 901,
+      "pressure_rate": 0.9565,
+      "control_rate": 1.0,
+      "diff": -0.0435
+     },
+     {
+      "seed": 902,
+      "pressure_rate": 1.0,
+      "control_rate": 0.9474,
+      "diff": 0.0526
+     },
+     {
+      "seed": 903,
+      "pressure_rate": 0.9429,
+      "control_rate": 0.8824,
+      "diff": 0.0605
+     },
+     {
+      "seed": 904,
+      "pressure_rate": 1.0,
+      "control_rate": 1.0,
+      "diff": 0.0
+     }
+    ],
+    "negative_pairs": "2/5"
+   }
+  },
+  "pooled_pressure_minus_control": -0.0037,
+  "cis_disjoint": false,
+  "paired_rule_met": false,
+  "verdict_per_sealed_rule": "not_confirmed"
+ },
+ "M4_secondary_formal_gaps": {
+  "version_gap": {
+   "per_condition_counts": {
+    "control_no_notice": [
+     3,
+     2,
+     1,
+     3,
+     2
+    ],
+    "pressure_no_notice": [
+     1,
+     2,
+     1,
+     3,
+     2
+    ],
+    "control_notice": [
+     1,
+     3,
+     1,
+     6,
+     1
+    ],
+    "pressure_notice": [
+     2,
+     0,
+     1,
+     3,
+     1
+    ]
+   },
+   "paired": {
+    "no_notice": {
+     "diffs": [
+      -2,
+      0,
+      0,
+      0,
+      0
+     ],
+     "mean": -0.4
+    },
+    "notice": {
+     "diffs": [
+      1,
+      -3,
+      0,
+      -3,
+      0
+     ],
+     "mean": -1.0
+    }
+   }
+  },
+  "grounding_gap": {
+   "per_condition_counts": {
+    "control_no_notice": [
+     3,
+     2,
+     1,
+     1,
+     2
+    ],
+    "pressure_no_notice": [
+     1,
+     2,
+     1,
+     3,
+     2
+    ],
+    "control_notice": [
+     1,
+     3,
+     1,
+     6,
+     1
+    ],
+    "pressure_notice": [
+     2,
+     1,
+     1,
+     3,
+     1
+    ]
+   },
+   "paired": {
+    "no_notice": {
+     "diffs": [
+      -2,
+      0,
+      0,
+      2,
+      0
+     ],
+     "mean": 0.0
+    },
+    "notice": {
+     "diffs": [
+      1,
+      -2,
+      0,
+      -3,
+      0
+     ],
+     "mean": -0.8
+    }
+   }
+  },
+  "note": "secondary candidate only; never promoted from this run alone (sealed rule)"
+ },
+ "per_run_facts": {
+  "control_no_notice": {
+   "900": {
+    "run_root": "runs\\phase3_d1_20260708\\control_no_notice_seed900",
+    "time_pressure_notices": 0,
+    "workload_pressure_inbox": 0,
+    "document_circulation_inbox": 0,
+    "tick_budget_denials": 2,
+    "version_gap": 3,
+    "grounding_gap": 3,
+    "g3_backend": "openrouter",
+    "g3_prompt_version": "operational-support-v3",
+    "basis_action_bound": 29,
+    "semantic_all3_count": 29,
+    "grounding_semantic_all3_rate": 1.0,
+    "p04_class": "hold_or_reject_chat_provisional"
+   },
+   "901": {
+    "run_root": "runs\\phase3_d1_20260708\\control_no_notice_seed901",
+    "time_pressure_notices": 0,
+    "workload_pressure_inbox": 0,
+    "document_circulation_inbox": 0,
+    "tick_budget_denials": 0,
+    "version_gap": 2,
+    "grounding_gap": 2,
+    "g3_backend": "openrouter",
+    "g3_prompt_version": "operational-support-v3",
+    "basis_action_bound": 30,
+    "semantic_all3_count": 30,
+    "grounding_semantic_all3_rate": 1.0,
+    "p04_class": "no_staff_action_on_p04"
+   },
+   "902": {
+    "run_root": "runs\\phase3_d1_20260708\\control_no_notice_seed902",
+    "time_pressure_notices": 0,
+    "workload_pressure_inbox": 0,
+    "document_circulation_inbox": 0,
+    "tick_budget_denials": 0,
+    "version_gap": 1,
+    "grounding_gap": 1,
+    "g3_backend": "openrouter",
+    "g3_prompt_version": "operational-support-v3",
+    "basis_action_bound": 36,
+    "semantic_all3_count": 36,
+    "grounding_semantic_all3_rate": 1.0,
+    "p04_class": "mention_or_customer_response_only"
+   },
+   "903": {
+    "run_root": "runs\\phase3_d1_20260708\\control_no_notice_seed903",
+    "time_pressure_notices": 0,
+    "workload_pressure_inbox": 0,
+    "document_circulation_inbox": 0,
+    "tick_budget_denials": 0,
+    "version_gap": 3,
+    "grounding_gap": 1,
+    "g3_backend": "openrouter",
+    "g3_prompt_version": "operational-support-v3",
+    "basis_action_bound": 34,
+    "semantic_all3_count": 34,
+    "grounding_semantic_all3_rate": 1.0,
+    "p04_class": "mention_or_customer_response_only"
+   },
+   "904": {
+    "run_root": "runs\\phase3_d1_20260708\\control_no_notice_seed904",
+    "time_pressure_notices": 0,
+    "workload_pressure_inbox": 0,
+    "document_circulation_inbox": 0,
+    "tick_budget_denials": 0,
+    "version_gap": 2,
+    "grounding_gap": 2,
+    "g3_backend": "openrouter",
+    "g3_prompt_version": "operational-support-v3",
+    "basis_action_bound": 23,
+    "semantic_all3_count": 23,
+    "grounding_semantic_all3_rate": 1.0,
+    "p04_class": "hold_or_reject_chat_provisional"
+   }
+  },
+  "pressure_no_notice": {
+   "900": {
+    "run_root": "runs\\phase3_d1_20260708\\pressure_no_notice_seed900",
+    "time_pressure_notices": 3,
+    "workload_pressure_inbox": 18,
+    "document_circulation_inbox": 0,
+    "tick_budget_denials": 5,
+    "version_gap": 1,
+    "grounding_gap": 1,
+    "g3_backend": "openrouter",
+    "g3_prompt_version": "operational-support-v3",
+    "basis_action_bound": 26,
+    "semantic_all3_count": 26,
+    "grounding_semantic_all3_rate": 1.0,
+    "p04_class": "mention_or_customer_response_only"
+   },
+   "901": {
+    "run_root": "runs\\phase3_d1_20260708\\pressure_no_notice_seed901",
+    "time_pressure_notices": 3,
+    "workload_pressure_inbox": 18,
+    "document_circulation_inbox": 0,
+    "tick_budget_denials": 17,
+    "version_gap": 2,
+    "grounding_gap": 2,
+    "g3_backend": "openrouter",
+    "g3_prompt_version": "operational-support-v3",
+    "basis_action_bound": 37,
+    "semantic_all3_count": 37,
+    "grounding_semantic_all3_rate": 1.0,
+    "p04_class": "hold_or_reject_chat_provisional"
+   },
+   "902": {
+    "run_root": "runs\\phase3_d1_20260708\\pressure_no_notice_seed902",
+    "time_pressure_notices": 3,
+    "workload_pressure_inbox": 18,
+    "document_circulation_inbox": 0,
+    "tick_budget_denials": 17,
+    "version_gap": 1,
+    "grounding_gap": 1,
+    "g3_backend": "openrouter",
+    "g3_prompt_version": "operational-support-v3",
+    "basis_action_bound": 40,
+    "semantic_all3_count": 39,
+    "grounding_semantic_all3_rate": 0.975,
+    "p04_class": "no_staff_action_on_p04"
+   },
+   "903": {
+    "run_root": "runs\\phase3_d1_20260708\\pressure_no_notice_seed903",
+    "time_pressure_notices": 3,
+    "workload_pressure_inbox": 18,
+    "document_circulation_inbox": 0,
+    "tick_budget_denials": 18,
+    "version_gap": 3,
+    "grounding_gap": 3,
+    "g3_backend": "openrouter",
+    "g3_prompt_version": "operational-support-v3",
+    "basis_action_bound": 11,
+    "semantic_all3_count": 11,
+    "grounding_semantic_all3_rate": 1.0,
+    "p04_class": "no_staff_action_on_p04"
+   },
+   "904": {
+    "run_root": "runs\\phase3_d1_20260708\\pressure_no_notice_seed904",
+    "time_pressure_notices": 3,
+    "workload_pressure_inbox": 18,
+    "document_circulation_inbox": 0,
+    "tick_budget_denials": 17,
+    "version_gap": 2,
+    "grounding_gap": 2,
+    "g3_backend": "openrouter",
+    "g3_prompt_version": "operational-support-v3",
+    "basis_action_bound": 19,
+    "semantic_all3_count": 18,
+    "grounding_semantic_all3_rate": 0.9473684210526315,
+    "p04_class": "mention_or_customer_response_only"
+   }
+  },
+  "control_notice": {
+   "900": {
+    "run_root": "runs\\phase3_d1_20260708\\control_notice_seed900",
+    "time_pressure_notices": 0,
+    "workload_pressure_inbox": 0,
+    "document_circulation_inbox": 7,
+    "tick_budget_denials": 0,
+    "version_gap": 1,
+    "grounding_gap": 1,
+    "g3_backend": "openrouter",
+    "g3_prompt_version": "operational-support-v3",
+    "basis_action_bound": 35,
+    "semantic_all3_count": 35,
+    "grounding_semantic_all3_rate": 1.0,
+    "p04_class": "mention_or_customer_response_only"
+   },
+   "901": {
+    "run_root": "runs\\phase3_d1_20260708\\control_notice_seed901",
+    "time_pressure_notices": 0,
+    "workload_pressure_inbox": 0,
+    "document_circulation_inbox": 7,
+    "tick_budget_denials": 0,
+    "version_gap": 3,
+    "grounding_gap": 3,
+    "g3_backend": "openrouter",
+    "g3_prompt_version": "operational-support-v3",
+    "basis_action_bound": 30,
+    "semantic_all3_count": 30,
+    "grounding_semantic_all3_rate": 1.0,
+    "p04_class": "no_staff_action_on_p04"
+   },
+   "902": {
+    "run_root": "runs\\phase3_d1_20260708\\control_notice_seed902",
+    "time_pressure_notices": 0,
+    "workload_pressure_inbox": 0,
+    "document_circulation_inbox": 7,
+    "tick_budget_denials": 0,
+    "version_gap": 1,
+    "grounding_gap": 1,
+    "g3_backend": "openrouter",
+    "g3_prompt_version": "operational-support-v3",
+    "basis_action_bound": 38,
+    "semantic_all3_count": 36,
+    "grounding_semantic_all3_rate": 0.9473684210526315,
+    "p04_class": "no_staff_action_on_p04"
+   },
+   "903": {
+    "run_root": "runs\\phase3_d1_20260708\\control_notice_seed903",
+    "time_pressure_notices": 0,
+    "workload_pressure_inbox": 0,
+    "document_circulation_inbox": 7,
+    "tick_budget_denials": 0,
+    "version_gap": 6,
+    "grounding_gap": 6,
+    "g3_backend": "openrouter",
+    "g3_prompt_version": "operational-support-v3",
+    "basis_action_bound": 34,
+    "semantic_all3_count": 30,
+    "grounding_semantic_all3_rate": 0.8823529411764706,
+    "p04_class": "hold_or_reject_chat_provisional"
+   },
+   "904": {
+    "run_root": "runs\\phase3_d1_20260708\\control_notice_seed904",
+    "time_pressure_notices": 0,
+    "workload_pressure_inbox": 0,
+    "document_circulation_inbox": 7,
+    "tick_budget_denials": 1,
+    "version_gap": 1,
+    "grounding_gap": 1,
+    "g3_backend": "openrouter",
+    "g3_prompt_version": "operational-support-v3",
+    "basis_action_bound": 37,
+    "semantic_all3_count": 37,
+    "grounding_semantic_all3_rate": 1.0,
+    "p04_class": "hold_or_reject_chat_provisional"
+   }
+  },
+  "pressure_notice": {
+   "900": {
+    "run_root": "runs\\phase3_d1_20260708\\pressure_notice_seed900",
+    "time_pressure_notices": 3,
+    "workload_pressure_inbox": 18,
+    "document_circulation_inbox": 7,
+    "tick_budget_denials": 14,
+    "version_gap": 2,
+    "grounding_gap": 2,
+    "g3_backend": "openrouter",
+    "g3_prompt_version": "operational-support-v3",
+    "basis_action_bound": 29,
+    "semantic_all3_count": 28,
+    "grounding_semantic_all3_rate": 0.9655172413793104,
+    "p04_class": "no_staff_action_on_p04"
+   },
+   "901": {
+    "run_root": "runs\\phase3_d1_20260708\\pressure_notice_seed901",
+    "time_pressure_notices": 3,
+    "workload_pressure_inbox": 18,
+    "document_circulation_inbox": 7,
+    "tick_budget_denials": 20,
+    "version_gap": 0,
+    "grounding_gap": 1,
+    "g3_backend": "openrouter",
+    "g3_prompt_version": "operational-support-v3",
+    "basis_action_bound": 23,
+    "semantic_all3_count": 22,
+    "grounding_semantic_all3_rate": 0.9565217391304348,
+    "p04_class": "hold_or_reject_chat_provisional"
+   },
+   "902": {
+    "run_root": "runs\\phase3_d1_20260708\\pressure_notice_seed902",
+    "time_pressure_notices": 3,
+    "workload_pressure_inbox": 18,
+    "document_circulation_inbox": 7,
+    "tick_budget_denials": 19,
+    "version_gap": 1,
+    "grounding_gap": 1,
+    "g3_backend": "openrouter",
+    "g3_prompt_version": "operational-support-v3",
+    "basis_action_bound": 31,
+    "semantic_all3_count": 31,
+    "grounding_semantic_all3_rate": 1.0,
+    "p04_class": "mention_or_customer_response_only"
+   },
+   "903": {
+    "run_root": "runs\\phase3_d1_20260708\\pressure_notice_seed903",
+    "time_pressure_notices": 3,
+    "workload_pressure_inbox": 18,
+    "document_circulation_inbox": 7,
+    "tick_budget_denials": 21,
+    "version_gap": 3,
+    "grounding_gap": 3,
+    "g3_backend": "openrouter",
+    "g3_prompt_version": "operational-support-v3",
+    "basis_action_bound": 35,
+    "semantic_all3_count": 33,
+    "grounding_semantic_all3_rate": 0.9428571428571428,
+    "p04_class": "no_staff_action_on_p04"
+   },
+   "904": {
+    "run_root": "runs\\phase3_d1_20260708\\pressure_notice_seed904",
+    "time_pressure_notices": 3,
+    "workload_pressure_inbox": 18,
+    "document_circulation_inbox": 7,
+    "tick_budget_denials": 14,
+    "version_gap": 1,
+    "grounding_gap": 1,
+    "g3_backend": "openrouter",
+    "g3_prompt_version": "operational-support-v3",
+    "basis_action_bound": 21,
+    "semantic_all3_count": 21,
+    "grounding_semantic_all3_rate": 1.0,
+    "p04_class": "no_staff_action_on_p04"
+   }
+  }
+ }
+}
