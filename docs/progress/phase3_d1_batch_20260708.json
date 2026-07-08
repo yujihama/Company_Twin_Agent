@@ -1,0 +1,247 @@
+{
+ "description": "Phase 3 D1 post-fix sealed confirmation run: 2x2 {ordinary,D1} x {no notice, circulated chat-approval notice}, K=5 fresh seeds 900-904. Sealed plan: docs/progress/phase3_d1_plan_20260708.json",
+ "concurrency": 4,
+ "stagger_seconds": 8,
+ "runs": [
+  {
+   "run_id": "d1v2_control_no_notice_seed900",
+   "stage": "s2",
+   "run_root": "runs/phase3_d1_20260708/control_no_notice_seed900",
+   "seed": 900,
+   "ticks": 40,
+   "prompt_mode": "measurement"
+  },
+  {
+   "run_id": "d1v2_control_no_notice_seed901",
+   "stage": "s2",
+   "run_root": "runs/phase3_d1_20260708/control_no_notice_seed901",
+   "seed": 901,
+   "ticks": 40,
+   "prompt_mode": "measurement"
+  },
+  {
+   "run_id": "d1v2_control_no_notice_seed902",
+   "stage": "s2",
+   "run_root": "runs/phase3_d1_20260708/control_no_notice_seed902",
+   "seed": 902,
+   "ticks": 40,
+   "prompt_mode": "measurement"
+  },
+  {
+   "run_id": "d1v2_control_no_notice_seed903",
+   "stage": "s2",
+   "run_root": "runs/phase3_d1_20260708/control_no_notice_seed903",
+   "seed": 903,
+   "ticks": 40,
+   "prompt_mode": "measurement"
+  },
+  {
+   "run_id": "d1v2_control_no_notice_seed904",
+   "stage": "s2",
+   "run_root": "runs/phase3_d1_20260708/control_no_notice_seed904",
+   "seed": 904,
+   "ticks": 40,
+   "prompt_mode": "measurement"
+  },
+  {
+   "run_id": "d1v2_pressure_no_notice_seed900",
+   "stage": "s2",
+   "run_root": "runs/phase3_d1_20260708/pressure_no_notice_seed900",
+   "seed": 900,
+   "ticks": 40,
+   "prompt_mode": "measurement",
+   "extra_args": [
+    "--time-pressure"
+   ]
+  },
+  {
+   "run_id": "d1v2_pressure_no_notice_seed901",
+   "stage": "s2",
+   "run_root": "runs/phase3_d1_20260708/pressure_no_notice_seed901",
+   "seed": 901,
+   "ticks": 40,
+   "prompt_mode": "measurement",
+   "extra_args": [
+    "--time-pressure"
+   ]
+  },
+  {
+   "run_id": "d1v2_pressure_no_notice_seed902",
+   "stage": "s2",
+   "run_root": "runs/phase3_d1_20260708/pressure_no_notice_seed902",
+   "seed": 902,
+   "ticks": 40,
+   "prompt_mode": "measurement",
+   "extra_args": [
+    "--time-pressure"
+   ]
+  },
+  {
+   "run_id": "d1v2_pressure_no_notice_seed903",
+   "stage": "s2",
+   "run_root": "runs/phase3_d1_20260708/pressure_no_notice_seed903",
+   "seed": 903,
+   "ticks": 40,
+   "prompt_mode": "measurement",
+   "extra_args": [
+    "--time-pressure"
+   ]
+  },
+  {
+   "run_id": "d1v2_pressure_no_notice_seed904",
+   "stage": "s2",
+   "run_root": "runs/phase3_d1_20260708/pressure_no_notice_seed904",
+   "seed": 904,
+   "ticks": 40,
+   "prompt_mode": "measurement",
+   "extra_args": [
+    "--time-pressure"
+   ]
+  },
+  {
+   "run_id": "d1v2_control_notice_seed900",
+   "stage": "s2",
+   "run_root": "runs/phase3_d1_20260708/control_notice_seed900",
+   "seed": 900,
+   "ticks": 40,
+   "prompt_mode": "measurement",
+   "mutations": [
+    "contradict_chat_approval_recorded"
+   ],
+   "extra_args": [
+    "--circulate-notices"
+   ]
+  },
+  {
+   "run_id": "d1v2_control_notice_seed901",
+   "stage": "s2",
+   "run_root": "runs/phase3_d1_20260708/control_notice_seed901",
+   "seed": 901,
+   "ticks": 40,
+   "prompt_mode": "measurement",
+   "mutations": [
+    "contradict_chat_approval_recorded"
+   ],
+   "extra_args": [
+    "--circulate-notices"
+   ]
+  },
+  {
+   "run_id": "d1v2_control_notice_seed902",
+   "stage": "s2",
+   "run_root": "runs/phase3_d1_20260708/control_notice_seed902",
+   "seed": 902,
+   "ticks": 40,
+   "prompt_mode": "measurement",
+   "mutations": [
+    "contradict_chat_approval_recorded"
+   ],
+   "extra_args": [
+    "--circulate-notices"
+   ]
+  },
+  {
+   "run_id": "d1v2_control_notice_seed903",
+   "stage": "s2",
+   "run_root": "runs/phase3_d1_20260708/control_notice_seed903",
+   "seed": 903,
+   "ticks": 40,
+   "prompt_mode": "measurement",
+   "mutations": [
+    "contradict_chat_approval_recorded"
+   ],
+   "extra_args": [
+    "--circulate-notices"
+   ]
+  },
+  {
+   "run_id": "d1v2_control_notice_seed904",
+   "stage": "s2",
+   "run_root": "runs/phase3_d1_20260708/control_notice_seed904",
+   "seed": 904,
+   "ticks": 40,
+   "prompt_mode": "measurement",
+   "mutations": [
+    "contradict_chat_approval_recorded"
+   ],
+   "extra_args": [
+    "--circulate-notices"
+   ]
+  },
+  {
+   "run_id": "d1v2_pressure_notice_seed900",
+   "stage": "s2",
+   "run_root": "runs/phase3_d1_20260708/pressure_notice_seed900",
+   "seed": 900,
+   "ticks": 40,
+   "prompt_mode": "measurement",
+   "mutations": [
+    "contradict_chat_approval_recorded"
+   ],
+   "extra_args": [
+    "--time-pressure",
+    "--circulate-notices"
+   ]
+  },
+  {
+   "run_id": "d1v2_pressure_notice_seed901",
+   "stage": "s2",
+   "run_root": "runs/phase3_d1_20260708/pressure_notice_seed901",
+   "seed": 901,
+   "ticks": 40,
+   "prompt_mode": "measurement",
+   "mutations": [
+    "contradict_chat_approval_recorded"
+   ],
+   "extra_args": [
+    "--time-pressure",
+    "--circulate-notices"
+   ]
+  },
+  {
+   "run_id": "d1v2_pressure_notice_seed902",
+   "stage": "s2",
+   "run_root": "runs/phase3_d1_20260708/pressure_notice_seed902",
+   "seed": 902,
+   "ticks": 40,
+   "prompt_mode": "measurement",
+   "mutations": [
+    "contradict_chat_approval_recorded"
+   ],
+   "extra_args": [
+    "--time-pressure",
+    "--circulate-notices"
+   ]
+  },
+  {
+   "run_id": "d1v2_pressure_notice_seed903",
+   "stage": "s2",
+   "run_root": "runs/phase3_d1_20260708/pressure_notice_seed903",
+   "seed": 903,
+   "ticks": 40,
+   "prompt_mode": "measurement",
+   "mutations": [
+    "contradict_chat_approval_recorded"
+   ],
+   "extra_args": [
+    "--time-pressure",
+    "--circulate-notices"
+   ]
+  },
+  {
+   "run_id": "d1v2_pressure_notice_seed904",
+   "stage": "s2",
+   "run_root": "runs/phase3_d1_20260708/pressure_notice_seed904",
+   "seed": 904,
+   "ticks": 40,
+   "prompt_mode": "measurement",
+   "mutations": [
+    "contradict_chat_approval_recorded"
+   ],
+   "extra_args": [
+    "--time-pressure",
+    "--circulate-notices"
+   ]
+  }
+ ]
+}

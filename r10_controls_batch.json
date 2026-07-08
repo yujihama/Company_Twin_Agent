@@ -1,0 +1,33 @@
+{
+ "concurrency": 2,
+ "runs": [
+  {
+   "run_id": "control_s2_seed811",
+   "stage": "s2",
+   "run_root": "runs/design_campaign_20260704_163819/control_s2_seed811",
+   "seed": 811,
+   "ticks": 40,
+   "prompt_mode": "measurement",
+   "model": "openrouter:qwen/qwen3.6-flash",
+   "extra_args": [
+    "--customer-model",
+    "openrouter:qwen/qwen3.6-plus",
+    "--circulate-notices"
+   ]
+  },
+  {
+   "run_id": "control_s2_seed812",
+   "stage": "s2",
+   "run_root": "runs/design_campaign_20260704_163819/control_s2_seed812",
+   "seed": 812,
+   "ticks": 40,
+   "prompt_mode": "measurement",
+   "model": "openrouter:qwen/qwen3.6-flash",
+   "extra_args": [
+    "--customer-model",
+    "openrouter:qwen/qwen3.6-plus",
+    "--circulate-notices"
+   ]
+  }
+ ]
+}

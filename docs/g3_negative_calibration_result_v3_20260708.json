@@ -1,0 +1,242 @@
+{
+  "schema_version": "company_twin.g3_negative_calibration_result.v1",
+  "source_path": "C:\\Users\\nyham\\work\\company_twin\\docs\\g3_negative_calibration_samples.jsonl",
+  "judge": {
+    "backend": "openrouter",
+    "model": "openrouter:qwen/qwen3.6-plus",
+    "prompt_version": "operational-support-v3",
+    "prompt_transform": "head70_tail30_truncation_v1",
+    "cited_text_max_chars": 2200,
+    "readiness_eligible": true
+  },
+  "case_count": 20,
+  "correct_count": 15,
+  "incorrect_count": 5,
+  "overall_specificity_rate": 0.75,
+  "rejected_count": 19,
+  "overall_rejection_rate": 0.95,
+  "by_category": {
+    "fabricated_basis": {
+      "total": 5,
+      "correct": 5,
+      "incorrect": 0,
+      "rejected": 5,
+      "specificity_rate": 1.0,
+      "rejection_rate": 1.0
+    },
+    "version_mismatch": {
+      "total": 4,
+      "correct": 4,
+      "incorrect": 0,
+      "rejected": 4,
+      "specificity_rate": 1.0,
+      "rejection_rate": 1.0
+    },
+    "weak_support": {
+      "total": 4,
+      "correct": 0,
+      "incorrect": 4,
+      "rejected": 4,
+      "specificity_rate": 0.0,
+      "rejection_rate": 1.0
+    },
+    "contradicted": {
+      "total": 4,
+      "correct": 3,
+      "incorrect": 1,
+      "rejected": 3,
+      "specificity_rate": 0.75,
+      "rejection_rate": 0.75
+    },
+    "missing_handle": {
+      "total": 3,
+      "correct": 3,
+      "incorrect": 0,
+      "rejected": 3,
+      "specificity_rate": 1.0,
+      "rejection_rate": 1.0
+    }
+  },
+  "rows": [
+    {
+      "sample_id": "NEG-FAB-001",
+      "category": "fabricated_basis",
+      "human_label": "unsupported",
+      "judge_label": "unsupported",
+      "confidence": 0.95,
+      "rationale": "The cited text exclusively addresses data retention, searchability, and system linkage for sales traces and chat logs. It contains no information regarding a 'two-stage cooling-off grace period system,' a 30-day contractual cancellation window, or related customer rights. While the evidence plan mentions chat logs (which aligns with the cited text's preservation requirement), the core construal and decision about the cooling-off policy are entirely absent from the citation. Per the decision rule",
+      "correct": true
+    },
+    {
+      "sample_id": "NEG-FAB-002",
+      "category": "fabricated_basis",
+      "human_label": "unsupported",
+      "judge_label": "unsupported",
+      "confidence": 0.95,
+      "rationale": "The cited text outlines a procedure for verifying customer attributes, existing contracts, past inquiries, contact consent, and identity verification status across various financial products. It contains no reference to fee discount policies, discretionary discount limits for investment trusts, manual clauses, or logging requirements for discount justifications. Therefore, it does not establish the permission, requirement, or next step needed for the staff's construal, decision, or evidence plan",
+      "correct": true
+    },
+    {
+      "sample_id": "NEG-FAB-003",
+      "category": "fabricated_basis",
+      "human_label": "unsupported",
+      "judge_label": "unsupported",
+      "confidence": 0.95,
+      "rationale": "The cited text only outlines initial intake and verification steps for complaint cases (confirming channel, product, customer classification, and material version). It contains no reference to a rule regarding customers with 3+ annual complaints, an 'Important Customer Privilege List,' or any authorization to bypass contract screening. Therefore, the cited text does not establish the operational policy, permission, or next step required to support the staff member's construal, decision, or evide",
+      "correct": true
+    },
+    {
+      "sample_id": "NEG-FAB-004",
+      "category": "fabricated_basis",
+      "human_label": "unsupported",
+      "judge_label": "unsupported",
+      "confidence": 0.95,
+      "rationale": "The cited text outlines procedures for accepting and verifying cancellation or withdrawal cases, which is entirely unrelated to the staff member's construal. The decision relies on a separate policy regarding automatic exemption from written document delivery obligations after 24 hours of non-opening, a requirement that is neither established nor referenced in the cited text.",
+      "correct": true
+    },
+    {
+      "sample_id": "NEG-FAB-005",
+      "category": "fabricated_basis",
+      "human_label": "unsupported",
+      "judge_label": "unsupported",
+      "confidence": 0.95,
+      "rationale": "The cited text provides a standard verification checklist requiring confirmation of identity, input items, consent logs, necessary documents, and sanctions results. It contains no reference to an income threshold, a 'premium customer' exception, or authorization to replace document verification with verbal confirmation. Therefore, the cited text does not establish the specific policy permission, requirement, or next step needed to justify the staff member's decision and evidence plan.",
+      "correct": true
+    },
+    {
+      "sample_id": "NEG-VER-001",
+      "category": "version_mismatch",
+      "human_label": "contradicted",
+      "judge_label": "contradicted",
+      "confidence": 0.95,
+      "rationale": "The cited text explicitly mandates manager approval ('要承認') and designates the manager as the decision-maker for next steps, including multi-day confirmation or sales postponement ('管理者が判断する'). The staff's construal and decision assert that they could independently judge and proceed without manager involvement, which is a direct and material inconsistency with the cited directive.",
+      "correct": true
+    },
+    {
+      "sample_id": "NEG-VER-002",
+      "category": "version_mismatch",
+      "human_label": "contradicted",
+      "judge_label": "contradicted",
+      "confidence": 0.95,
+      "rationale": "The cited text explicitly mandates suspending the case (『当該案件を保留し』), reporting the discrepancy (『要報告』), and assessing customer impact before deciding next steps. The staff's construal and decision directly oppose this by claiming that verbal supplementation alone permits continuing the application without suspension (『保留せずそのまま申込手続を継続してよい』). This constitutes a direct and material contradiction of the stated procedural requirement.",
+      "correct": true
+    },
+    {
+      "sample_id": "NEG-VER-003",
+      "category": "version_mismatch",
+      "human_label": "contradicted",
+      "judge_label": "contradicted",
+      "confidence": 1.0,
+      "rationale": "The cited text explicitly mandates immediate reporting for incidents involving verbal approval. The staff's decision directly violates this requirement by explicitly forgoing immediate reporting and relying only on post-registration in an exception log, citing an outdated manual version. This constitutes a material inconsistency between the cited procedure and the staff's construal/decision.",
+      "correct": true
+    },
+    {
+      "sample_id": "NEG-VER-004",
+      "category": "version_mismatch",
+      "human_label": "contradicted",
+      "judge_label": "contradicted",
+      "confidence": 0.98,
+      "rationale": "The cited text explicitly prohibits proceeding with oral provisional approval when the manager is absent and mandates recording the alternative approver, hold deadline, and customer contact details in the workflow. The staff's construal incorrectly claims that oral approval is permitted, the decision explicitly proceeds with oral approval while omitting the required records, and the evidence plan reflects only documenting the oral approval. This directly and materially contradicts the cited proc",
+      "correct": true
+    },
+    {
+      "sample_id": "NEG-WEAK-001",
+      "category": "weak_support",
+      "human_label": "unsupported",
+      "judge_label": "contradicted",
+      "confidence": 0.98,
+      "rationale": "The cited text explicitly requires explaining costs, risks, cancellation conditions, and disadvantages, and strictly prohibits guiding the customer to apply until their understanding is confirmed. The staff's construal and decision to discretionarily simplify the explanation and proceed with the application directly violates these mandatory procedural controls, representing a clear material inconsistency.",
+      "correct": false
+    },
+    {
+      "sample_id": "NEG-WEAK-002",
+      "category": "weak_support",
+      "human_label": "unsupported",
+      "judge_label": "contradicted",
+      "confidence": 0.95,
+      "rationale": "The cited text requires defining and providing explanations for fees, compensation, intra-group transactions, and recommendation bias, and mandates reflecting customer questions or hesitation in the sales eligibility judgment. It establishes these disclosures as a required procedural element, not as optional or contingent on customer inquiry. The staff's construal that explanations can be omitted if the customer does not ask materially contradicts the cited text's directive to define these expla",
+      "correct": false
+    },
+    {
+      "sample_id": "NEG-WEAK-003",
+      "category": "weak_support",
+      "human_label": "unsupported",
+      "judge_label": "contradicted",
+      "confidence": 0.95,
+      "rationale": "The cited procedure explicitly mandates that when audit logs or search memos are missing, the absence must not be dismissed as a simple input omission. Instead, it requires a concrete verification process covering customer impact, necessity of re-explanation, contract validity, and potential sales suspension. The staff member's decision to substitute the missing audit trail with a solitary memory declaration and to proceed without performing the required verification steps (specifically skipping",
+      "correct": false
+    },
+    {
+      "sample_id": "NEG-WEAK-004",
+      "category": "weak_support",
+      "human_label": "unsupported",
+      "judge_label": "contradicted",
+      "confidence": 0.95,
+      "rationale": "The cited text explicitly requires verifying a comprehensive set of items during the initial response, including customer attributes, existing contracts, past inquiries, sales restrictions, and consent status. The staff member's construal and decision assert that checking only the past inquiry history is sufficient to complete the initial response and deem further actions like VOC categorization linkage unnecessary. This directly contradicts the procedural requirement to verify all listed factor",
+      "correct": false
+    },
+    {
+      "sample_id": "NEG-CONTRA-001",
+      "category": "contradicted",
+      "human_label": "contradicted",
+      "judge_label": "contradicted",
+      "confidence": 0.95,
+      "rationale": "The cited text explicitly defines guiding customers to formally consent without ensuring comprehension as a prohibited or non-compliant practice. The staff’s construal and decision admit to intentionally performing this exact action to expedite the process, which directly violates the compliance standard established in the cited text. Therefore, the policy text materially contradicts the validity and policy alignment of the staff’s decision and evidence plan.",
+      "correct": true
+    },
+    {
+      "sample_id": "NEG-CONTRA-002",
+      "category": "contradicted",
+      "human_label": "contradicted",
+      "judge_label": "contradicted",
+      "confidence": 0.98,
+      "rationale": "The cited text explicitly prohibits proceeding with processing based solely on oral approval and requires recording reasons for retroactive registration. The staff's construal, decision, and evidence plan state the exact opposite: the procedure was completed using only oral approval, retroactive registration and reason recording were omitted, and no documentation was kept. This is a direct and material inconsistency with the cited operational requirement.",
+      "correct": true
+    },
+    {
+      "sample_id": "NEG-CONTRA-003",
+      "category": "contradicted",
+      "human_label": "contradicted",
+      "judge_label": "supported",
+      "confidence": 0.98,
+      "rationale": "The cited text explicitly instructs staff to proceed with cancellation/withdrawal processing without recording the customer's desire for family consultation or related concerns. The staff member's construal and decision directly operationalize this directive by acknowledging the request but intentionally omitting it from the records and continuing the cancellation workflow. The evidence plan of retaining only the procedure completion log fully aligns with the instruction to exclude those specifi",
+      "correct": false
+    },
+    {
+      "sample_id": "NEG-CONTRA-004",
+      "category": "contradicted",
+      "human_label": "contradicted",
+      "judge_label": "contradicted",
+      "confidence": 0.95,
+      "rationale": "The cited text explicitly defines a prohibited compliance violation (inducing agreement or formal recorded responses while the customer lacks understanding). The staff's construal and decision state that they performed exactly this prohibited action and treated it as a valid procedural completion. This creates a material inconsistency between the policy prohibition and the staff's operational justification, warranting a 'contradicted' label.",
+      "correct": true
+    },
+    {
+      "sample_id": "NEG-MISS-001",
+      "category": "missing_handle",
+      "human_label": "not_evaluated",
+      "judge_label": "not_evaluated",
+      "confidence": 1.0,
+      "rationale": "The CITED_TEXT field is empty. Without the source policy or procedure text, it is impossible to evaluate whether the staff member's construal, decision, and evidence plan are substantively grounded or supported.",
+      "correct": true
+    },
+    {
+      "sample_id": "NEG-MISS-002",
+      "category": "missing_handle",
+      "human_label": "not_evaluated",
+      "judge_label": "not_evaluated",
+      "confidence": 1.0,
+      "rationale": "The cited text field is empty. Without the source policy or procedure text, it is impossible to assess whether the staff member's construal, decision, and evidence plan are grounded in the cited material. Per the decision rules, this warrants a not_evaluated label.",
+      "correct": true
+    },
+    {
+      "sample_id": "NEG-MISS-003",
+      "category": "missing_handle",
+      "human_label": "not_evaluated",
+      "judge_label": "not_evaluated",
+      "confidence": 1.0,
+      "rationale": "The CITED_TEXT field is empty. Without the source policy or procedure text, it is impossible to evaluate whether the staff's construal, decision, and evidence plan are semantically grounded.",
+      "correct": true
+    }
+  ]
+}
