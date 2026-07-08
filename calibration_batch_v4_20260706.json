@@ -1,0 +1,175 @@
+{
+ "concurrency": 5,
+ "runs": [
+  {
+   "run_id": "holdout_contradict_chat_approval_recorded_seed1",
+   "stage": "s2",
+   "run_root": "runs/design_campaign_20260704_163819/holdout_contradict_chat_approval_recorded_seed1",
+   "seed": 600,
+   "ticks": 40,
+   "prompt_mode": "measurement",
+   "model": "openrouter:qwen/qwen3.6-flash",
+   "mutations": [
+    "contradict_chat_approval_recorded"
+   ],
+   "extra_args": [
+    "--customer-model",
+    "openrouter:qwen/qwen3.6-plus"
+   ]
+  },
+  {
+   "run_id": "holdout_contradict_chat_approval_recorded_seed2",
+   "stage": "s2",
+   "run_root": "runs/design_campaign_20260704_163819/holdout_contradict_chat_approval_recorded_seed2",
+   "seed": 601,
+   "ticks": 40,
+   "prompt_mode": "measurement",
+   "model": "openrouter:qwen/qwen3.6-flash",
+   "mutations": [
+    "contradict_chat_approval_recorded"
+   ],
+   "extra_args": [
+    "--customer-model",
+    "openrouter:qwen/qwen3.6-plus"
+   ]
+  },
+  {
+   "run_id": "holdout_contradict_chat_approval_recorded_seed3",
+   "stage": "s2",
+   "run_root": "runs/design_campaign_20260704_163819/holdout_contradict_chat_approval_recorded_seed3",
+   "seed": 602,
+   "ticks": 40,
+   "prompt_mode": "measurement",
+   "model": "openrouter:qwen/qwen3.6-flash",
+   "mutations": [
+    "contradict_chat_approval_recorded"
+   ],
+   "extra_args": [
+    "--customer-model",
+    "openrouter:qwen/qwen3.6-plus"
+   ]
+  },
+  {
+   "run_id": "holdout_contradict_chat_approval_recorded_seed4",
+   "stage": "s2",
+   "run_root": "runs/design_campaign_20260704_163819/holdout_contradict_chat_approval_recorded_seed4",
+   "seed": 603,
+   "ticks": 40,
+   "prompt_mode": "measurement",
+   "model": "openrouter:qwen/qwen3.6-flash",
+   "mutations": [
+    "contradict_chat_approval_recorded"
+   ],
+   "extra_args": [
+    "--customer-model",
+    "openrouter:qwen/qwen3.6-plus"
+   ]
+  },
+  {
+   "run_id": "holdout_contradict_chat_approval_recorded_seed5",
+   "stage": "s2",
+   "run_root": "runs/design_campaign_20260704_163819/holdout_contradict_chat_approval_recorded_seed5",
+   "seed": 604,
+   "ticks": 40,
+   "prompt_mode": "measurement",
+   "model": "openrouter:qwen/qwen3.6-flash",
+   "mutations": [
+    "contradict_chat_approval_recorded"
+   ],
+   "extra_args": [
+    "--customer-model",
+    "openrouter:qwen/qwen3.6-plus"
+   ]
+  },
+  {
+   "run_id": "holdout_clarify_elderly_understanding_all",
+   "stage": "s2",
+   "run_root": "runs/design_campaign_20260704_163819/holdout_clarify_elderly_understanding_all",
+   "seed": 605,
+   "ticks": 40,
+   "prompt_mode": "measurement",
+   "model": "openrouter:qwen/qwen3.6-flash",
+   "mutations": [
+    "clarify_elderly_understanding_all"
+   ],
+   "extra_args": [
+    "--customer-model",
+    "openrouter:qwen/qwen3.6-plus"
+   ]
+  },
+  {
+   "run_id": "holdout_clarify_elderly_understanding_sales_only",
+   "stage": "s2",
+   "run_root": "runs/design_campaign_20260704_163819/holdout_clarify_elderly_understanding_sales_only",
+   "seed": 606,
+   "ticks": 40,
+   "prompt_mode": "measurement",
+   "model": "openrouter:qwen/qwen3.6-flash",
+   "mutations": [
+    "clarify_elderly_understanding_sales_only"
+   ],
+   "extra_args": [
+    "--customer-model",
+    "openrouter:qwen/qwen3.6-plus"
+   ]
+  },
+  {
+   "run_id": "holdout_dangling_fill_search_key_stub",
+   "stage": "s2",
+   "run_root": "runs/design_campaign_20260704_163819/holdout_dangling_fill_search_key_stub",
+   "seed": 607,
+   "ticks": 40,
+   "prompt_mode": "measurement",
+   "model": "openrouter:qwen/qwen3.6-flash",
+   "mutations": [
+    "dangling_fill_search_key_stub"
+   ],
+   "extra_args": [
+    "--customer-model",
+    "openrouter:qwen/qwen3.6-plus"
+   ]
+  },
+  {
+   "run_id": "holdout_role_table_fix_quality_owner",
+   "stage": "s2",
+   "run_root": "runs/design_campaign_20260704_163819/holdout_role_table_fix_quality_owner",
+   "seed": 608,
+   "ticks": 40,
+   "prompt_mode": "measurement",
+   "model": "openrouter:qwen/qwen3.6-flash",
+   "mutations": [
+    "role_table_fix_quality_owner"
+   ],
+   "extra_args": [
+    "--customer-model",
+    "openrouter:qwen/qwen3.6-plus"
+   ]
+  },
+  {
+   "run_id": "control_s2_seed609",
+   "stage": "s2",
+   "run_root": "runs/design_campaign_20260704_163819/control_s2_seed609",
+   "seed": 609,
+   "ticks": 40,
+   "prompt_mode": "measurement",
+   "model": "openrouter:qwen/qwen3.6-flash",
+   "extra_args": [
+    "--customer-model",
+    "openrouter:qwen/qwen3.6-plus"
+   ]
+  },
+  {
+   "run_id": "control_s2_seed610",
+   "stage": "s2",
+   "run_root": "runs/design_campaign_20260704_163819/control_s2_seed610",
+   "seed": 610,
+   "ticks": 40,
+   "prompt_mode": "measurement",
+   "model": "openrouter:qwen/qwen3.6-flash",
+   "extra_args": [
+    "--customer-model",
+    "openrouter:qwen/qwen3.6-plus"
+   ]
+  }
+ ]
+}

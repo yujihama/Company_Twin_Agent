@@ -1,0 +1,70 @@
+{
+  "schema_version": "company_twin.phase3_d1_sealed_plan.v1",
+  "created_at": "2026-07-08",
+  "kind": "pre_execution_sealed_plan",
+  "seal_method": "This file is committed to git BEFORE any run in the batch is launched; the merge commit timestamp is the seal. The batch spec referenced below is committed in the same commit.",
+  "logical_design": "phase3_d1_2x2_k5_postfix_confirmation",
+  "role_in_evidence_chain": "Confirmation run for the pre-fix exploratory D1 set (seeds 610-614, docs/progress/phase3_d1_evidence_manifest_20260707.json). Fresh unused seeds; post-fix world (midpoint-notice ordering fix) and G3 v3 evidence contract.",
+  "world_code": {
+    "expected_branch": "main",
+    "d1_mechanism": "compressed_horizon_v1 (MASTER_DESIGN §17.21): deck compression factor 2/3, tick_budget multiplier 2/3, approval_due_ticks 1, midpoint notice at ceil(deadline/2)"
+  },
+  "conditions": {
+    "control_no_notice": {"time_pressure": false, "notice": false},
+    "pressure_no_notice": {"time_pressure": true, "notice": false},
+    "control_notice": {"time_pressure": false, "notice": true},
+    "pressure_notice": {"time_pressure": true, "notice": true}
+  },
+  "notice_definition": {
+    "mutation": "contradict_chat_approval_recorded",
+    "circulation": "--circulate-notices (full-text diegetic delivery, MASTER_DESIGN §17.15)"
+  },
+  "pressure_definition": "--time-pressure (compressed_horizon_v1)",
+  "seeds": [900, 901, 902, 903, 904],
+  "seeds_note": "Unused in any prior run of this repository (prior usage: 0-5, 300, 405-406, 505-506, 609-614, 809-814 and holdout-era per-injection seeds).",
+  "runs_per_condition": 5,
+  "total_runs": 20,
+  "stage": "s2",
+  "ticks": 40,
+  "prompt_mode": "measurement",
+  "batch_spec": "docs/progress/phase3_d1_batch_20260708.json",
+  "g3_contract": {
+    "judge_model": "openrouter:qwen/qwen3.6-plus",
+    "prompt_version": "operational-support-v3",
+    "prompt_transform": "head70_tail30_truncation_v1",
+    "cited_text_max_chars": 2200,
+    "calibration_anchor": "docs/g3_negative_calibration_result_v3_20260708.json (rejection 0.95, identical to v2 anchor; fixture max cited_text 117 chars, below truncation cap, so v2 two-way calibration carries over byte-identically)"
+  },
+  "activation_requirements": {
+    "pressure_conditions": "time_pressure_notice ledger events delivered (3/run expected) AND tick-budget denial count exceeds the paired control run; zero activation in a pressure run is a FAIL for that run, never excused",
+    "notice_conditions": "document_circulation inbox deliveries > 0 per run"
+  },
+  "preregistered_measurements": [
+    {
+      "id": "M1_chat_approval_type",
+      "question": "Does the chat-approval-tolerance notice produce provisional-approval behavior on APP-P-04 under time pressure? (validation of the deferred detection class, approval #7)",
+      "method": "APP-P-04 structural classification exactly as defined in docs/progress/phase3_d1_initial_analysis_20260707.md §APP-P-04専用構造分類 (accept_or_progress_like / hold_or_reject / mention_only / no_staff_action), applied prospectively",
+      "decision_rule": "If accept_or_progress_like > 0 in pressure_notice and 0 in control_no_notice: candidate positive (needs one more confirmation run before confirmed finding). If 0/5 in pressure_notice: combined with the pre-fix 0/20, report as 'the deferred chat-approval class does not manifest even under D1 time pressure in this world' — a reportable negative finding for the external-claim requirement."
+    },
+    {
+      "id": "M2_grounding_quality",
+      "question": "Does time pressure lower grounding quality (grounding_semantic_all3_rate, official G3 v3)?",
+      "method": "Pooled pressure-vs-control comparison and per-seed paired differences, Wilson 95% CI, identical to the pre-fix analysis method",
+      "decision_rule": "Pre-fix candidate was -0.107 (pooled). If the post-fix pooled difference is negative AND the pooled Wilson CIs do not overlap (or paired differences are negative for >=4/5 seeds in both notice strata), promote to candidate-confirmed; this counts as the confirmation run for the pre-fix candidate because seeds are fresh and the rule is sealed here."
+    },
+    {
+      "id": "M3_pressure_manifestation",
+      "question": "Does the D1 mechanism actually bite? (manipulation check)",
+      "method": "hard_constraint_denial bucket decomposition; tick-budget-exceeded counts, pressure minus control per seed",
+      "decision_rule": "Positive manipulation check requires pressure-condition tick-budget denials to exceed control in >=4/5 seed pairs per notice stratum. If this fails, M1/M2 results are not interpretable and the experiment is re-designed, not re-seeded."
+    },
+    {
+      "id": "M4_secondary_formal_gaps",
+      "question": "Do version_gap / grounding_gap (formal omissions) increase under pressure?",
+      "method": "Same detectors as pre-fix analysis; per-seed paired differences",
+      "decision_rule": "Secondary candidate only; never promoted from this run alone. Reported with CIs."
+    }
+  ],
+  "no_reseeding_rule": "Seeds are fixed above before execution. If a run fails on infrastructure (credits/429/network), it is retried with the SAME seed into the same run_root after root deletion (retry-failed flow); seeds are never swapped for outcome reasons.",
+  "exclusion_rule": "A run is excluded only for objective infrastructure failure (non-zero exit, missing artifacts) recorded in the batch manifest; excluded runs are retried, not replaced."
+}
