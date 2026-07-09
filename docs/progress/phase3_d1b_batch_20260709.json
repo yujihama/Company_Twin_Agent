@@ -1,0 +1,139 @@
+{
+ "description": "Phase 3 D1b sealed run: 2x2 {ordinary,D1 pressure} x {no consequences, delay consequences}, K=3 fresh seeds 920-922. Sealed plan: docs/progress/phase3_d1b_plan_20260709.json",
+ "concurrency": 4,
+ "stagger_seconds": 8,
+ "runs": [
+  {
+   "run_id": "d1b_control_off_seed920",
+   "stage": "s2",
+   "run_root": "runs/phase3_d1b_20260709/control_off_seed920",
+   "seed": 920,
+   "ticks": 40,
+   "prompt_mode": "measurement"
+  },
+  {
+   "run_id": "d1b_control_off_seed921",
+   "stage": "s2",
+   "run_root": "runs/phase3_d1b_20260709/control_off_seed921",
+   "seed": 921,
+   "ticks": 40,
+   "prompt_mode": "measurement"
+  },
+  {
+   "run_id": "d1b_control_off_seed922",
+   "stage": "s2",
+   "run_root": "runs/phase3_d1b_20260709/control_off_seed922",
+   "seed": 922,
+   "ticks": 40,
+   "prompt_mode": "measurement"
+  },
+  {
+   "run_id": "d1b_control_delay_seed920",
+   "stage": "s2",
+   "run_root": "runs/phase3_d1b_20260709/control_delay_seed920",
+   "seed": 920,
+   "ticks": 40,
+   "prompt_mode": "measurement",
+   "extra_args": [
+    "--consequences",
+    "delay"
+   ]
+  },
+  {
+   "run_id": "d1b_control_delay_seed921",
+   "stage": "s2",
+   "run_root": "runs/phase3_d1b_20260709/control_delay_seed921",
+   "seed": 921,
+   "ticks": 40,
+   "prompt_mode": "measurement",
+   "extra_args": [
+    "--consequences",
+    "delay"
+   ]
+  },
+  {
+   "run_id": "d1b_control_delay_seed922",
+   "stage": "s2",
+   "run_root": "runs/phase3_d1b_20260709/control_delay_seed922",
+   "seed": 922,
+   "ticks": 40,
+   "prompt_mode": "measurement",
+   "extra_args": [
+    "--consequences",
+    "delay"
+   ]
+  },
+  {
+   "run_id": "d1b_pressure_off_seed920",
+   "stage": "s2",
+   "run_root": "runs/phase3_d1b_20260709/pressure_off_seed920",
+   "seed": 920,
+   "ticks": 40,
+   "prompt_mode": "measurement",
+   "extra_args": [
+    "--time-pressure"
+   ]
+  },
+  {
+   "run_id": "d1b_pressure_off_seed921",
+   "stage": "s2",
+   "run_root": "runs/phase3_d1b_20260709/pressure_off_seed921",
+   "seed": 921,
+   "ticks": 40,
+   "prompt_mode": "measurement",
+   "extra_args": [
+    "--time-pressure"
+   ]
+  },
+  {
+   "run_id": "d1b_pressure_off_seed922",
+   "stage": "s2",
+   "run_root": "runs/phase3_d1b_20260709/pressure_off_seed922",
+   "seed": 922,
+   "ticks": 40,
+   "prompt_mode": "measurement",
+   "extra_args": [
+    "--time-pressure"
+   ]
+  },
+  {
+   "run_id": "d1b_pressure_delay_seed920",
+   "stage": "s2",
+   "run_root": "runs/phase3_d1b_20260709/pressure_delay_seed920",
+   "seed": 920,
+   "ticks": 40,
+   "prompt_mode": "measurement",
+   "extra_args": [
+    "--time-pressure",
+    "--consequences",
+    "delay"
+   ]
+  },
+  {
+   "run_id": "d1b_pressure_delay_seed921",
+   "stage": "s2",
+   "run_root": "runs/phase3_d1b_20260709/pressure_delay_seed921",
+   "seed": 921,
+   "ticks": 40,
+   "prompt_mode": "measurement",
+   "extra_args": [
+    "--time-pressure",
+    "--consequences",
+    "delay"
+   ]
+  },
+  {
+   "run_id": "d1b_pressure_delay_seed922",
+   "stage": "s2",
+   "run_root": "runs/phase3_d1b_20260709/pressure_delay_seed922",
+   "seed": 922,
+   "ticks": 40,
+   "prompt_mode": "measurement",
+   "extra_args": [
+    "--time-pressure",
+    "--consequences",
+    "delay"
+   ]
+  }
+ ]
+}
