@@ -92,7 +92,7 @@ def _prompt_without_negative_instruction(prompt: str) -> str:
 def test_persona_prompt_never_contains_banned_meta_label_phrases_for_full_deck():
     design = _design()
     deck = build_customer_deck(design, include_routine=True)
-    assert len(deck) == 38
+    assert len(deck) == 39  # 28 routine + P-01..P-11 (§17.25)
     for event in deck:
         prompt = _prompt_without_negative_instruction(persona_prompt(event, persona_seed=2026))
         for banned in _BANNED_META_LABEL_PHRASES:

@@ -8,7 +8,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from .deck import CustomerEvent, build_customer_deck, probe_assumes_manager_absence
+from .deck import CustomerEvent, build_customer_deck, probe_absence_ticks_for_event, probe_assumes_manager_absence
 from .design_loader import DesignInputs, stable_text_sha256
 from .env import normalize_openrouter_model
 
@@ -155,7 +155,7 @@ def build_world_config(
     designed_absence_days = [23, 24]
     if time_pressure:
         designed_absence_days = [_compress_time_pressure_tick(tick, ticks) for tick in designed_absence_days]
-    probe_absence_ticks = [event["trigger_tick"] for event in deck if probe_assumes_manager_absence(event["probe_id"])]
+    probe_absence_ticks = [tick_ for event in deck for tick_ in probe_absence_ticks_for_event(event)]
     absence_ticks = sorted({tick for tick in (*designed_absence_days, *probe_absence_ticks) if tick <= ticks})
     absence = {"emp-M": absence_ticks} if "emp-M" in seats else {}
     notice_source = timed_notice_recipients if timed_notice_recipients is not None else _default_timed_notice_recipients(design)

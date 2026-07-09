@@ -27,7 +27,7 @@ def test_s0_matrix_covers_roles_spans_and_variants() -> None:
     design = load_design(Path.cwd())
     matrix = build_s0_matrix(design, models=["openrouter:qwen/qwen3.6-flash"], variants=2)
 
-    assert len(matrix) == 210  # 182 + P-05/P-10 bind repair (undefined spans replaced by STR-02r/STR-01)
+    assert len(matrix) == 238  # 182 + P-05/P-10 bind repair + P-11 dilemma probe (§17.25: AMB-04d/AMB-09 rows)
     assert {row.variant for row in matrix} == {0, 1}
     assert {"emp-A", "emp-M", "emp-Q"}.issubset({row.seat_id for row in matrix})
     assert {"AMB-02", "AMB-04d", "CONTRA-01"}.issubset({row.span_id for row in matrix})
