@@ -204,6 +204,7 @@ def run_s1_episode(
     time_pressure: bool = False,
     consequences: str = "off",
     motives: bool = False,
+    absence_off_probes: list[str] | None = None,
 ) -> dict[str, Any]:
     event = _retime_event(event_for_probe(design, probe_id), trigger_tick=1, deadline_tick=ticks)
     return _run_world(
@@ -232,6 +233,7 @@ def run_s1_episode(
         time_pressure=time_pressure,
         consequences=consequences,
         motives=motives,
+        absence_off_probes=absence_off_probes,
     )
 
 
@@ -260,6 +262,7 @@ def run_s2_world(
     time_pressure: bool = False,
     consequences: str = "off",
     motives: bool = False,
+    absence_off_probes: list[str] | None = None,
 ) -> dict[str, Any]:
     events = deck if deck is not None else build_customer_deck(design, include_routine=True)
     return _run_world(
@@ -288,6 +291,7 @@ def run_s2_world(
         time_pressure=time_pressure,
         consequences=consequences,
         motives=motives,
+        absence_off_probes=absence_off_probes,
     )
 
 
@@ -318,6 +322,7 @@ def _run_world(
     time_pressure: bool = False,
     consequences: str = "off",
     motives: bool = False,
+    absence_off_probes: list[str] | None = None,
 ) -> dict[str, Any]:
     model_name = normalize_openrouter_model(model)
     if prompt_mode not in {"scaffold", "measurement"}:
@@ -345,6 +350,7 @@ def _run_world(
         time_pressure=time_pressure,
         consequences=consequences,
         motives=motives,
+        absence_off_probes=absence_off_probes,
     )
     write_config_snapshot(run_root, config)
     budgets = config["world"]["population"]["tick_budget"]
