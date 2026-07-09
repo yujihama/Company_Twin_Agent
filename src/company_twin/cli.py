@@ -650,6 +650,48 @@ def holdout_score(
         raise typer.Exit(code=1)
 
 
+@app.command("action-replay")
+def action_replay_cmd(
+    run_root: Annotated[Path, typer.Option("--run-root", help="Completed run bundle whose probe decision turn should be replayed")],
+    probe: Annotated[str, typer.Option("--probe", help="Probe id, e.g. P-04")],
+    n: Annotated[int, typer.Option("--n", help="Number of sandbox samples of the reconstructed turn")] = 25,
+    output: Annotated[Path | None, typer.Option("--output", help="Report path; defaults to <run-root>/action_replay_<probe>.json")] = None,
+    model: Annotated[str | None, typer.Option("--model", help="Override seat model; defaults to the run's recorded seat binding")] = None,
+    root: Annotated[Path | None, typer.Option("--root")] = None,
+) -> None:
+    """Decision-point action battery (行動版S0): replay one recorded seat turn N
+    times in a live-faithful sandbox (real kernel + throwaway recorder) and
+    report the sampled action-class distribution. Experimenter-side analysis
+    only -- nothing enters any world; results are action PROPENSITIES
+    (claim_level=action_propensity_sandbox), never behavioral findings.
+    Fidelity (inbox FIFO reconstruction, prompt chars vs recorded llm_invoke,
+    corpus hash) is machine-checked and reported; a failed fidelity block
+    means the replay must not be scored."""
+    _provenance_banner()
+    base = _root(root)
+    _require_live(base)
+    design = load_design(base)
+    resolved_run_root = run_root.resolve()
+    target = (output or (resolved_run_root / f"action_replay_{probe}.json")).resolve()
+    import tempfile
+
+    from .action_replay import replay_probe_turn_battery
+
+    with tempfile.TemporaryDirectory(prefix="action_replay_") as sandbox:
+        payload = replay_probe_turn_battery(
+            design=design,
+            run_root=resolved_run_root,
+            probe_id=probe,
+            n_samples=n,
+            sandbox_dir=Path(sandbox),
+            model=model,
+        )
+    target.write_text(json.dumps(payload, ensure_ascii=False, indent=1), encoding="utf-8")
+    _echo_json({k: v for k, v in payload.items() if k != "samples"} | {"output_path": str(target)})
+    if not payload["fidelity"]["passed"]:
+        raise typer.Exit(code=1)
+
+
 @app.command("sme-pack")
 def sme_pack(
     campaign_root: Annotated[Path, typer.Option("--campaign-root")],
