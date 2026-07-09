@@ -185,6 +185,7 @@ def s1(
     circulate_notices: Annotated[bool, typer.Option("--circulate-notices/--no-circulate-notices", help="Diegetic notice circulation (default off, MASTER_DESIGN.md §17.13/17.x): at tick 1, circulate each applied mutation's own document (full text, not just its title) to every seat whose role is in that mutation's visible_roles, as a natural-business-phrasing timed_notice inbox message. Delivery counts as content exposure; whether a seat acts on or cites it remains behavioral. Recorded in config.json's world.corpus.circulation")] = False,
     time_pressure: Annotated[bool, typer.Option("--time-pressure/--no-time-pressure", help="D1 phase-3 condition: compress the world horizon, deadlines, and seat tick budgets; default off and recorded in config.json")] = False,
     consequences: Annotated[str, typer.Option("--consequences", help="D1b consequence layer (MASTER_DESIGN §17.23, approval #10): off | delay | speed | both; default off and recorded in config.json")] = "off",
+    motives: Annotated[bool, typer.Option("--motives/--no-motives", help="E2 motive layer (MASTER_DESIGN §17.24, approval #11): sales-target/progress/summary notices + recurring follow-ups with churn (consequence layer v2); default off and recorded in config.json")] = False,
 ) -> None:
     """Run one live S1 multi-seat episode."""
     base = _root(root)
@@ -193,7 +194,7 @@ def s1(
     corpus, applied_mutations = _corpus_with_mutations(base, design, mutation)
     knobs = {"K-completion-gate": strict_completion, "K-material-picker": strict_material}
     target_root = (run_root or make_run_root(base, f"s1_{probe}")).resolve()
-    result = run_s1_episode(design=design, corpus=corpus, probe_id=probe, run_root=target_root, model=model, customer_model=customer_model, knobs=knobs, seed=seed, ticks=ticks, prompt_mode=prompt_mode, model_bindings=_seat_model_bindings(seat_model), scc_switch_tick=scc_switch_tick, mutations=applied_mutations, circulate_notices=circulate_notices, time_pressure=time_pressure, consequences=consequences)  # type: ignore[arg-type]
+    result = run_s1_episode(design=design, corpus=corpus, probe_id=probe, run_root=target_root, model=model, customer_model=customer_model, knobs=knobs, seed=seed, ticks=ticks, prompt_mode=prompt_mode, model_bindings=_seat_model_bindings(seat_model), scc_switch_tick=scc_switch_tick, mutations=applied_mutations, circulate_notices=circulate_notices, time_pressure=time_pressure, consequences=consequences, motives=motives)  # type: ignore[arg-type]
     write_triage(target_root)
     _echo_json(result)
 
@@ -214,6 +215,7 @@ def s2(
     circulate_notices: Annotated[bool, typer.Option("--circulate-notices/--no-circulate-notices", help="Diegetic notice circulation (default off, MASTER_DESIGN.md §17.13/17.x): at tick 1, circulate each applied mutation's own document (full text, not just its title) to every seat whose role is in that mutation's visible_roles, as a natural-business-phrasing timed_notice inbox message. Delivery counts as content exposure; whether a seat acts on or cites it remains behavioral. Recorded in config.json's world.corpus.circulation")] = False,
     time_pressure: Annotated[bool, typer.Option("--time-pressure/--no-time-pressure", help="D1 phase-3 condition: compress the world horizon, deadlines, and seat tick budgets; default off and recorded in config.json")] = False,
     consequences: Annotated[str, typer.Option("--consequences", help="D1b consequence layer (MASTER_DESIGN §17.23, approval #10): off | delay | speed | both; default off and recorded in config.json")] = "off",
+    motives: Annotated[bool, typer.Option("--motives/--no-motives", help="E2 motive layer (MASTER_DESIGN §17.24, approval #11): sales-target/progress/summary notices + recurring follow-ups with churn (consequence layer v2); default off and recorded in config.json")] = False,
 ) -> None:
     """Run one live S2 world (full deck)."""
     base = _root(root)
@@ -221,7 +223,7 @@ def s2(
     design = load_design(base)
     corpus, applied_mutations = _corpus_with_mutations(base, design, mutation)
     target_root = (run_root or make_run_root(base, "anchor_s2" if anchor else "s2")).resolve()
-    result = run_s2_world(design=design, corpus=corpus, run_root=target_root, model=model, customer_model=customer_model, knobs={}, seed=seed, ticks=ticks, anchor=anchor, prompt_mode=prompt_mode, model_bindings=_seat_model_bindings(seat_model), scc_switch_tick=scc_switch_tick, mutations=applied_mutations, circulate_notices=circulate_notices, time_pressure=time_pressure, consequences=consequences)  # type: ignore[arg-type]
+    result = run_s2_world(design=design, corpus=corpus, run_root=target_root, model=model, customer_model=customer_model, knobs={}, seed=seed, ticks=ticks, anchor=anchor, prompt_mode=prompt_mode, model_bindings=_seat_model_bindings(seat_model), scc_switch_tick=scc_switch_tick, mutations=applied_mutations, circulate_notices=circulate_notices, time_pressure=time_pressure, consequences=consequences, motives=motives)  # type: ignore[arg-type]
     write_triage(target_root)
     _echo_json(result)
 
@@ -246,6 +248,7 @@ def campaign(
     circulate_notices: Annotated[bool, typer.Option("--circulate-notices/--no-circulate-notices", help="Diegetic notice circulation (default off, MASTER_DESIGN.md §17.13/17.x): at tick 1, circulate each applied mutation's own document (full text, not just its title) to every seat whose role is in that mutation's visible_roles, as a natural-business-phrasing timed_notice inbox message, in every S1/S2/anchor bundle of this campaign. Delivery counts as content exposure; whether a seat acts on or cites it remains behavioral. Recorded in config.json's world.corpus.circulation")] = False,
     time_pressure: Annotated[bool, typer.Option("--time-pressure/--no-time-pressure", help="D1 phase-3 condition for S1/S2 legs; default off and recorded in config.json")] = False,
     consequences: Annotated[str, typer.Option("--consequences", help="D1b consequence layer (MASTER_DESIGN §17.23, approval #10): off | delay | speed | both; default off and recorded in config.json")] = "off",
+    motives: Annotated[bool, typer.Option("--motives/--no-motives", help="E2 motive layer (MASTER_DESIGN §17.24, approval #11): sales-target/progress/summary notices + recurring follow-ups with churn (consequence layer v2); default off and recorded in config.json")] = False,
 ) -> None:
     """Run a live campaign: S0 battery -> S1 ensemble -> optional S2 + anchor -> acceptance."""
     base = _root(root)
@@ -273,6 +276,7 @@ def campaign(
         circulate_notices=circulate_notices,
         time_pressure=time_pressure,
         consequences=consequences,
+        motives=motives,
     )
     _echo_json(payload)
 
@@ -319,6 +323,7 @@ def control_pair_campaign(
     timed_notices: Annotated[bool, typer.Option("--timed-notices/--no-timed-notices", help="Deliver campaign deadline notices during the control-pair campaign")] = False,
     time_pressure: Annotated[bool, typer.Option("--time-pressure/--no-time-pressure", help="D1 phase-3 condition for S1/S2 pair sides; default off and recorded in config.json")] = False,
     consequences: Annotated[str, typer.Option("--consequences", help="D1b consequence layer (MASTER_DESIGN §17.23, approval #10): off | delay | speed | both; default off and recorded in config.json")] = "off",
+    motives: Annotated[bool, typer.Option("--motives/--no-motives", help="E2 motive layer (MASTER_DESIGN §17.24, approval #11): sales-target/progress/summary notices + recurring follow-ups with churn (consequence layer v2); default off and recorded in config.json")] = False,
     s0_span: Annotated[str | None, typer.Option("--s0-span", help="S0 span id to bind; defaults to the first span bound to --probe")] = None,
     s0_seat: Annotated[str, typer.Option("--s0-seat", help="S0 seat id / role cell to run")] = "emp-A",
     s0_model: Annotated[list[str] | None, typer.Option("--s0-model", help="S0 cold-read model; repeat for multiple models")] = None,
@@ -343,6 +348,7 @@ def control_pair_campaign(
         timed_notice_recipients=None if timed_notices else [],
         time_pressure=time_pressure,
         consequences=consequences,
+        motives=motives,
         s0_span=s0_span,
         s0_seat=s0_seat,
         s0_models=s0_model,
