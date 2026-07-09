@@ -1,0 +1,207 @@
+{
+ "description": "P-11 closed-valve dilemma 3-arm K=5 (sealed plan docs/progress/p11_plan_20260710.json)",
+ "concurrency": 4,
+ "stagger_seconds": 8,
+ "runs": [
+  {
+   "run_id": "p11_closed_motives_seed930",
+   "stage": "s2",
+   "run_root": "runs/phase3_p11_20260710/closed_motives_seed930",
+   "seed": 930,
+   "ticks": 40,
+   "prompt_mode": "measurement",
+   "extra_args": [
+    "--consequences",
+    "delay",
+    "--motives"
+   ]
+  },
+  {
+   "run_id": "p11_closed_motives_seed931",
+   "stage": "s2",
+   "run_root": "runs/phase3_p11_20260710/closed_motives_seed931",
+   "seed": 931,
+   "ticks": 40,
+   "prompt_mode": "measurement",
+   "extra_args": [
+    "--consequences",
+    "delay",
+    "--motives"
+   ]
+  },
+  {
+   "run_id": "p11_closed_motives_seed932",
+   "stage": "s2",
+   "run_root": "runs/phase3_p11_20260710/closed_motives_seed932",
+   "seed": 932,
+   "ticks": 40,
+   "prompt_mode": "measurement",
+   "extra_args": [
+    "--consequences",
+    "delay",
+    "--motives"
+   ]
+  },
+  {
+   "run_id": "p11_closed_motives_seed933",
+   "stage": "s2",
+   "run_root": "runs/phase3_p11_20260710/closed_motives_seed933",
+   "seed": 933,
+   "ticks": 40,
+   "prompt_mode": "measurement",
+   "extra_args": [
+    "--consequences",
+    "delay",
+    "--motives"
+   ]
+  },
+  {
+   "run_id": "p11_closed_motives_seed934",
+   "stage": "s2",
+   "run_root": "runs/phase3_p11_20260710/closed_motives_seed934",
+   "seed": 934,
+   "ticks": 40,
+   "prompt_mode": "measurement",
+   "extra_args": [
+    "--consequences",
+    "delay",
+    "--motives"
+   ]
+  },
+  {
+   "run_id": "p11_closed_plain_seed930",
+   "stage": "s2",
+   "run_root": "runs/phase3_p11_20260710/closed_plain_seed930",
+   "seed": 930,
+   "ticks": 40,
+   "prompt_mode": "measurement",
+   "extra_args": [
+    "--consequences",
+    "delay"
+   ]
+  },
+  {
+   "run_id": "p11_closed_plain_seed931",
+   "stage": "s2",
+   "run_root": "runs/phase3_p11_20260710/closed_plain_seed931",
+   "seed": 931,
+   "ticks": 40,
+   "prompt_mode": "measurement",
+   "extra_args": [
+    "--consequences",
+    "delay"
+   ]
+  },
+  {
+   "run_id": "p11_closed_plain_seed932",
+   "stage": "s2",
+   "run_root": "runs/phase3_p11_20260710/closed_plain_seed932",
+   "seed": 932,
+   "ticks": 40,
+   "prompt_mode": "measurement",
+   "extra_args": [
+    "--consequences",
+    "delay"
+   ]
+  },
+  {
+   "run_id": "p11_closed_plain_seed933",
+   "stage": "s2",
+   "run_root": "runs/phase3_p11_20260710/closed_plain_seed933",
+   "seed": 933,
+   "ticks": 40,
+   "prompt_mode": "measurement",
+   "extra_args": [
+    "--consequences",
+    "delay"
+   ]
+  },
+  {
+   "run_id": "p11_closed_plain_seed934",
+   "stage": "s2",
+   "run_root": "runs/phase3_p11_20260710/closed_plain_seed934",
+   "seed": 934,
+   "ticks": 40,
+   "prompt_mode": "measurement",
+   "extra_args": [
+    "--consequences",
+    "delay"
+   ]
+  },
+  {
+   "run_id": "p11_open_motives_seed930",
+   "stage": "s2",
+   "run_root": "runs/phase3_p11_20260710/open_motives_seed930",
+   "seed": 930,
+   "ticks": 40,
+   "prompt_mode": "measurement",
+   "extra_args": [
+    "--consequences",
+    "delay",
+    "--motives",
+    "--absence-off-probe",
+    "P-11"
+   ]
+  },
+  {
+   "run_id": "p11_open_motives_seed931",
+   "stage": "s2",
+   "run_root": "runs/phase3_p11_20260710/open_motives_seed931",
+   "seed": 931,
+   "ticks": 40,
+   "prompt_mode": "measurement",
+   "extra_args": [
+    "--consequences",
+    "delay",
+    "--motives",
+    "--absence-off-probe",
+    "P-11"
+   ]
+  },
+  {
+   "run_id": "p11_open_motives_seed932",
+   "stage": "s2",
+   "run_root": "runs/phase3_p11_20260710/open_motives_seed932",
+   "seed": 932,
+   "ticks": 40,
+   "prompt_mode": "measurement",
+   "extra_args": [
+    "--consequences",
+    "delay",
+    "--motives",
+    "--absence-off-probe",
+    "P-11"
+   ]
+  },
+  {
+   "run_id": "p11_open_motives_seed933",
+   "stage": "s2",
+   "run_root": "runs/phase3_p11_20260710/open_motives_seed933",
+   "seed": 933,
+   "ticks": 40,
+   "prompt_mode": "measurement",
+   "extra_args": [
+    "--consequences",
+    "delay",
+    "--motives",
+    "--absence-off-probe",
+    "P-11"
+   ]
+  },
+  {
+   "run_id": "p11_open_motives_seed934",
+   "stage": "s2",
+   "run_root": "runs/phase3_p11_20260710/open_motives_seed934",
+   "seed": 934,
+   "ticks": 40,
+   "prompt_mode": "measurement",
+   "extra_args": [
+    "--consequences",
+    "delay",
+    "--motives",
+    "--absence-off-probe",
+    "P-11"
+   ]
+  }
+ ]
+}
