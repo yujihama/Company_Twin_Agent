@@ -1,0 +1,320 @@
+{
+ "schema": "company_twin.phase3_d1b_live_analysis.v1",
+ "runs_dir": "runs\\phase3_d1b_20260709",
+ "B3_manifestation": {
+  "per_run": {
+   "control_delay": {
+    "920": {
+     "followup_due": 76,
+     "followup_delivered": 74,
+     "stall_notices": 113
+    },
+    "921": {
+     "followup_due": 76,
+     "followup_delivered": 76,
+     "stall_notices": 113
+    },
+    "922": {
+     "followup_due": 76,
+     "followup_delivered": 76,
+     "stall_notices": 113
+    }
+   },
+   "pressure_delay": {
+    "920": {
+     "followup_due": 76,
+     "followup_delivered": 76,
+     "stall_notices": 113
+    },
+    "921": {
+     "followup_due": 76,
+     "followup_delivered": 74,
+     "stall_notices": 113
+    },
+    "922": {
+     "followup_due": 76,
+     "followup_delivered": 76,
+     "stall_notices": 113
+    }
+   }
+  },
+  "all_delay_runs_manifested": true,
+  "off_runs_clean": true,
+  "passed": true
+ },
+ "B1_condition_rates": {
+  "control_off": {
+   "hold_rate_per_seed": {
+    "920": 0.2368,
+    "921": 0.3421,
+    "922": 0.3947
+   },
+   "hold_or_escalate_rate_per_seed": {
+    "920": 0.2368,
+    "921": 0.3421,
+    "922": 0.3947
+   },
+   "no_staff_action_rate_per_seed": {
+    "920": 0.7632,
+    "921": 0.6579,
+    "922": 0.6053
+   }
+  },
+  "control_delay": {
+   "hold_rate_per_seed": {
+    "920": 1.0,
+    "921": 1.0,
+    "922": 0.9474
+   },
+   "hold_or_escalate_rate_per_seed": {
+    "920": 1.0,
+    "921": 1.0,
+    "922": 0.9474
+   },
+   "no_staff_action_rate_per_seed": {
+    "920": 0.0,
+    "921": 0.0,
+    "922": 0.0526
+   }
+  },
+  "pressure_off": {
+   "hold_rate_per_seed": {
+    "920": 0.2105,
+    "921": 0.2368,
+    "922": 0.1842
+   },
+   "hold_or_escalate_rate_per_seed": {
+    "920": 0.2105,
+    "921": 0.2368,
+    "922": 0.1842
+   },
+   "no_staff_action_rate_per_seed": {
+    "920": 0.7895,
+    "921": 0.7632,
+    "922": 0.8158
+   }
+  },
+  "pressure_delay": {
+   "hold_rate_per_seed": {
+    "920": 0.5,
+    "921": 0.6579,
+    "922": 0.5789
+   },
+   "hold_or_escalate_rate_per_seed": {
+    "920": 0.5,
+    "921": 0.6579,
+    "922": 0.5789
+   },
+   "no_staff_action_rate_per_seed": {
+    "920": 0.5,
+    "921": 0.3421,
+    "922": 0.4211
+   }
+  }
+ },
+ "B1_pressure_stratum_pairs": {
+  "pairs": [
+   {
+    "seed": 920,
+    "hold_or_escalate_delay_minus_off": 0.2895,
+    "no_action_delay_minus_off": -0.2895
+   },
+   {
+    "seed": 921,
+    "hold_or_escalate_delay_minus_off": 0.4211,
+    "no_action_delay_minus_off": -0.4211
+   },
+   {
+    "seed": 922,
+    "hold_or_escalate_delay_minus_off": 0.3947,
+    "no_action_delay_minus_off": -0.3947
+   }
+  ],
+  "restoring_pairs": "3/3",
+  "passes_2_of_3": true
+ },
+ "per_run_facts": {
+  "control_off": {
+   "920": {
+    "total_apps": 38,
+    "apps_with_hold": 9,
+    "hold_rate": 0.2368,
+    "hold_or_escalate_rate": 0.2368,
+    "no_staff_action_apps": 29,
+    "no_staff_action_rate": 0.7632,
+    "followup_due_count": 0,
+    "followup_due_levels": {},
+    "followup_delivered": 0,
+    "stalled_case_review_notices": 0,
+    "stalled_app_count": 0
+   },
+   "921": {
+    "total_apps": 38,
+    "apps_with_hold": 13,
+    "hold_rate": 0.3421,
+    "hold_or_escalate_rate": 0.3421,
+    "no_staff_action_apps": 25,
+    "no_staff_action_rate": 0.6579,
+    "followup_due_count": 0,
+    "followup_due_levels": {},
+    "followup_delivered": 0,
+    "stalled_case_review_notices": 0,
+    "stalled_app_count": 0
+   },
+   "922": {
+    "total_apps": 38,
+    "apps_with_hold": 15,
+    "hold_rate": 0.3947,
+    "hold_or_escalate_rate": 0.3947,
+    "no_staff_action_apps": 23,
+    "no_staff_action_rate": 0.6053,
+    "followup_due_count": 0,
+    "followup_due_levels": {},
+    "followup_delivered": 0,
+    "stalled_case_review_notices": 0,
+    "stalled_app_count": 0
+   }
+  },
+  "control_delay": {
+   "920": {
+    "total_apps": 38,
+    "apps_with_hold": 38,
+    "hold_rate": 1.0,
+    "hold_or_escalate_rate": 1.0,
+    "no_staff_action_apps": 0,
+    "no_staff_action_rate": 0.0,
+    "followup_due_count": 76,
+    "followup_due_levels": {
+     "1": 38,
+     "2": 38
+    },
+    "followup_delivered": 74,
+    "stalled_case_review_notices": 113,
+    "stalled_app_count": 38
+   },
+   "921": {
+    "total_apps": 38,
+    "apps_with_hold": 38,
+    "hold_rate": 1.0,
+    "hold_or_escalate_rate": 1.0,
+    "no_staff_action_apps": 0,
+    "no_staff_action_rate": 0.0,
+    "followup_due_count": 76,
+    "followup_due_levels": {
+     "1": 38,
+     "2": 38
+    },
+    "followup_delivered": 76,
+    "stalled_case_review_notices": 113,
+    "stalled_app_count": 38
+   },
+   "922": {
+    "total_apps": 38,
+    "apps_with_hold": 36,
+    "hold_rate": 0.9474,
+    "hold_or_escalate_rate": 0.9474,
+    "no_staff_action_apps": 2,
+    "no_staff_action_rate": 0.0526,
+    "followup_due_count": 76,
+    "followup_due_levels": {
+     "1": 38,
+     "2": 38
+    },
+    "followup_delivered": 76,
+    "stalled_case_review_notices": 113,
+    "stalled_app_count": 38
+   }
+  },
+  "pressure_off": {
+   "920": {
+    "total_apps": 38,
+    "apps_with_hold": 8,
+    "hold_rate": 0.2105,
+    "hold_or_escalate_rate": 0.2105,
+    "no_staff_action_apps": 30,
+    "no_staff_action_rate": 0.7895,
+    "followup_due_count": 0,
+    "followup_due_levels": {},
+    "followup_delivered": 0,
+    "stalled_case_review_notices": 0,
+    "stalled_app_count": 0
+   },
+   "921": {
+    "total_apps": 38,
+    "apps_with_hold": 9,
+    "hold_rate": 0.2368,
+    "hold_or_escalate_rate": 0.2368,
+    "no_staff_action_apps": 29,
+    "no_staff_action_rate": 0.7632,
+    "followup_due_count": 0,
+    "followup_due_levels": {},
+    "followup_delivered": 0,
+    "stalled_case_review_notices": 0,
+    "stalled_app_count": 0
+   },
+   "922": {
+    "total_apps": 38,
+    "apps_with_hold": 7,
+    "hold_rate": 0.1842,
+    "hold_or_escalate_rate": 0.1842,
+    "no_staff_action_apps": 31,
+    "no_staff_action_rate": 0.8158,
+    "followup_due_count": 0,
+    "followup_due_levels": {},
+    "followup_delivered": 0,
+    "stalled_case_review_notices": 0,
+    "stalled_app_count": 0
+   }
+  },
+  "pressure_delay": {
+   "920": {
+    "total_apps": 38,
+    "apps_with_hold": 19,
+    "hold_rate": 0.5,
+    "hold_or_escalate_rate": 0.5,
+    "no_staff_action_apps": 19,
+    "no_staff_action_rate": 0.5,
+    "followup_due_count": 76,
+    "followup_due_levels": {
+     "1": 38,
+     "2": 38
+    },
+    "followup_delivered": 76,
+    "stalled_case_review_notices": 113,
+    "stalled_app_count": 38
+   },
+   "921": {
+    "total_apps": 38,
+    "apps_with_hold": 25,
+    "hold_rate": 0.6579,
+    "hold_or_escalate_rate": 0.6579,
+    "no_staff_action_apps": 13,
+    "no_staff_action_rate": 0.3421,
+    "followup_due_count": 76,
+    "followup_due_levels": {
+     "1": 38,
+     "2": 38
+    },
+    "followup_delivered": 74,
+    "stalled_case_review_notices": 113,
+    "stalled_app_count": 38
+   },
+   "922": {
+    "total_apps": 38,
+    "apps_with_hold": 22,
+    "hold_rate": 0.5789,
+    "hold_or_escalate_rate": 0.5789,
+    "no_staff_action_apps": 16,
+    "no_staff_action_rate": 0.4211,
+    "followup_due_count": 76,
+    "followup_due_levels": {
+     "1": 38,
+     "2": 38
+    },
+    "followup_delivered": 76,
+    "stalled_case_review_notices": 113,
+    "stalled_app_count": 38
+   }
+  }
+ }
+}
