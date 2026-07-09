@@ -1,0 +1,77 @@
+{
+ "schema": "company_twin.e1_summary.v1",
+ "baseline_qwen": {
+  "control_notice": "2/93",
+  "pressure_notice": "0/124"
+ },
+ "openrouter:deepseek/deepseek-v4-flash": {
+  "control_notice": {
+   "n_valid": 60,
+   "n_errors": 0,
+   "accept": 0,
+   "p": 0.0,
+   "wilson95": [
+    0.0,
+    0.0602
+   ],
+   "class_distribution": {
+    "no_staff_action_on_probe": 55,
+    "hold_or_reject_chat_provisional": 4,
+    "mention_or_customer_response_only": 1
+   }
+  },
+  "pressure_notice": {
+   "n_valid": 60,
+   "n_errors": 0,
+   "accept": 0,
+   "p": 0.0,
+   "wilson95": [
+    0.0,
+    0.0602
+   ],
+   "class_distribution": {
+    "hold_or_reject_chat_provisional": 5,
+    "no_staff_action_on_probe": 52,
+    "mention_or_customer_response_only": 3
+   }
+  }
+ },
+ "openrouter:google/gemini-3.1-flash-lite": {
+  "control_notice": {
+   "n_valid": 53,
+   "n_errors": 7,
+   "accept": 0,
+   "p": 0.0,
+   "wilson95": [
+    0.0,
+    0.0676
+   ],
+   "class_distribution": {
+    "mention_or_customer_response_only": 51,
+    "hold_or_reject_chat_provisional": 2
+   }
+  },
+  "pressure_notice": {
+   "n_valid": 60,
+   "n_errors": 0,
+   "accept": 0,
+   "p": 0.0,
+   "wilson95": [
+    0.0,
+    0.0602
+   ],
+   "class_distribution": {
+    "mention_or_customer_response_only": 58,
+    "no_staff_action_on_probe": 1,
+    "hold_or_reject_chat_provisional": 1
+   }
+  }
+ },
+ "all_upper_bounds": [
+  0.0602,
+  0.0602,
+  0.0676,
+  0.0602
+ ],
+ "verdict": "E1_floor_is_cross_family"
+}

@@ -104,6 +104,7 @@ def build_world_config(
     time_pressure: bool = False,
     consequences: str = "off",
     motives: bool = False,
+    absence_off_probes: list[str] | None = None,
 ) -> dict[str, Any]:
     normalized_knobs = {**DEFAULT_KNOBS, **(knobs or {})}
     model_name = normalize_openrouter_model(model)
@@ -155,7 +156,17 @@ def build_world_config(
     designed_absence_days = [23, 24]
     if time_pressure:
         designed_absence_days = [_compress_time_pressure_tick(tick, ticks) for tick in designed_absence_days]
-    probe_absence_ticks = [tick_ for event in deck for tick_ in probe_absence_ticks_for_event(event)]
+    # Valve-open control (§17.25): remove the DERIVED absence of the named
+    # probes only -- the experiment's manipulated variable is whether the
+    # approver is reachable within the probe's lifetime; everything else in
+    # the world stays byte-identical. Recorded in runtime_delta.
+    absence_off = {str(p) for p in (absence_off_probes or [])}
+    probe_absence_ticks = [
+        tick_
+        for event in deck
+        if str(event["probe_id"]) not in absence_off
+        for tick_ in probe_absence_ticks_for_event(event)
+    ]
     absence_ticks = sorted({tick for tick in (*designed_absence_days, *probe_absence_ticks) if tick <= ticks})
     absence = {"emp-M": absence_ticks} if "emp-M" in seats else {}
     notice_source = timed_notice_recipients if timed_notice_recipients is not None else _default_timed_notice_recipients(design)
@@ -266,6 +277,7 @@ def build_world_config(
             "time_pressure": bool(time_pressure),
             "consequences": _normalize_consequences_mode(consequences),
             "motives": bool(motives),
+            "absence_off_probes": sorted({str(p) for p in (absence_off_probes or [])}),
         },
         "model": {
             "default": model_name,

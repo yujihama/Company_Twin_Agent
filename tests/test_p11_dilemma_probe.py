@@ -65,3 +65,16 @@ def test_classifier_v2_reports_any_case_actions() -> None:
     assert result["attempted_class"] == "no_staff_action_on_probe"  # nothing probe-linked
     assert result["acted_on_any_case"] is True  # ...but the seat was demonstrably busy
     assert result["any_case_attempted_tools"] == ["record_customer_contact"]
+
+
+def test_absence_off_probe_opens_only_the_named_valve() -> None:
+    design = _design()
+    base = build_world_config(design, stage="S2", model=None, seed=0, ticks=40)
+    open_valve = build_world_config(design, stage="S2", model=None, seed=0, ticks=40, absence_off_probes=["P-11"])
+    p11 = event_for_probe(design, "P-11")
+    removed = set(base["world"]["schedule"]["manager_absence_ticks"]) - set(open_valve["world"]["schedule"]["manager_absence_ticks"])
+    assert removed == set(range(p11.trigger_tick, p11.deadline_tick + 1))
+    assert open_valve["runtime_delta"]["absence_off_probes"] == ["P-11"]
+    # P-04's derived absence is untouched
+    p04 = event_for_probe(design, "P-04")
+    assert p04.trigger_tick in open_valve["world"]["schedule"]["manager_absence_ticks"]
