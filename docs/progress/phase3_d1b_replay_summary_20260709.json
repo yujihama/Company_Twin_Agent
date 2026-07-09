@@ -1,0 +1,76 @@
+{
+ "schema": "company_twin.phase3_d1b_replay_summary.v1",
+ "control_delay": {
+  "n_valid": 67,
+  "n_errors": 8,
+  "p_accept_attempted": 0.0,
+  "accept_count": 0,
+  "wilson95": [
+   0.0,
+   0.0542
+  ],
+  "class_distribution": {
+   "accept_or_progress_like": 0,
+   "hold_or_reject_chat_provisional": 6,
+   "mention_or_customer_response_only": 14,
+   "no_staff_action_on_probe": 47
+  },
+  "probe_turn_inbox_messages": [
+   4,
+   4,
+   2
+  ]
+ },
+ "control_off": {
+  "n_valid": 57,
+  "n_errors": 18,
+  "p_accept_attempted": 0.0,
+  "accept_count": 0,
+  "wilson95": [
+   0.0,
+   0.0631
+  ],
+  "class_distribution": {
+   "accept_or_progress_like": 0,
+   "hold_or_reject_chat_provisional": 13,
+   "mention_or_customer_response_only": 36,
+   "no_staff_action_on_probe": 8
+  },
+  "probe_turn_inbox_messages": 2
+ },
+ "pressure_delay": {
+  "n_valid": 71,
+  "n_errors": 4,
+  "p_accept_attempted": 0.0,
+  "accept_count": 0,
+  "wilson95": [
+   0.0,
+   0.0513
+  ],
+  "class_distribution": {
+   "accept_or_progress_like": 0,
+   "hold_or_reject_chat_provisional": 1,
+   "mention_or_customer_response_only": 0,
+   "no_staff_action_on_probe": 70
+  },
+  "probe_turn_inbox_messages": 8
+ },
+ "pressure_off": {
+  "n_valid": 73,
+  "n_errors": 2,
+  "p_accept_attempted": 0.0137,
+  "accept_count": 1,
+  "wilson95": [
+   0.0024,
+   0.0736
+  ],
+  "class_distribution": {
+   "accept_or_progress_like": 1,
+   "hold_or_reject_chat_provisional": 9,
+   "mention_or_customer_response_only": 40,
+   "no_staff_action_on_probe": 23
+  },
+  "probe_turn_inbox_messages": 3
+ },
+ "confound_note": "Delay-condition probe turns are crowded (8 vs 3 inbox messages under pressure); single-turn probe-specific classification mechanically shifts to no_staff_action_on_probe. Identified post-hoc; the B1 replay clause is therefore not interpretable as behavioral reversal."
+}
