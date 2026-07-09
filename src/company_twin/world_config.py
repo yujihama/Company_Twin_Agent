@@ -38,8 +38,12 @@ TIME_PRESSURE_FACTOR = 2.0 / 3.0
 TIME_PRESSURE_BUDGET_MULTIPLIER = 2.0 / 3.0
 
 CONSEQUENCES_MODE_VERSION = "consequence_layer_v1"
+CONSEQUENCES_RECURRENCE_VERSION = "consequence_layer_v2"
 CONSEQUENCES_MODES = ("off", "delay", "speed", "both")
 CONSEQUENCES_STALL_AFTER_TICKS = 3
+
+MOTIVE_LAYER_VERSION = "motive_layer_v1"
+MOTIVE_SALES_TARGET = 4
 
 
 def _normalize_consequences_mode(value: str | None) -> str:
@@ -49,7 +53,19 @@ def _normalize_consequences_mode(value: str | None) -> str:
     return mode
 
 
-def _consequences_schedule(value: str | None) -> dict[str, Any]:
+def _motives_schedule(enabled: bool) -> dict[str, Any]:
+    """E2 motive layer (MASTER_DESIGN §17.24, approval #11): default-off,
+    sealed parameters. The single --motives flag also upgrades delay
+    consequences to v2 (recurring follow-ups + churn) per the approved
+    design."""
+    return {
+        "enabled": bool(enabled),
+        "version": MOTIVE_LAYER_VERSION,
+        "sales_target": MOTIVE_SALES_TARGET,
+    }
+
+
+def _consequences_schedule(value: str | None, *, recurrence: bool = False) -> dict[str, Any]:
     """D1b consequence layer (MASTER_DESIGN §17.23, approval #10): default-off,
     stamped into the config snapshot like every other experimental condition.
     stall_after_ticks is an ABSOLUTE tick count and is deliberately NOT
@@ -59,7 +75,8 @@ def _consequences_schedule(value: str | None) -> dict[str, Any]:
     return {
         "enabled": mode != "off",
         "mode": mode,
-        "version": CONSEQUENCES_MODE_VERSION,
+        "version": CONSEQUENCES_RECURRENCE_VERSION if recurrence else CONSEQUENCES_MODE_VERSION,
+        "recurrence": bool(recurrence),
         "stall_after_ticks": CONSEQUENCES_STALL_AFTER_TICKS,
     }
 
@@ -86,6 +103,7 @@ def build_world_config(
     circulate_notices: bool = False,
     time_pressure: bool = False,
     consequences: str = "off",
+    motives: bool = False,
 ) -> dict[str, Any]:
     normalized_knobs = {**DEFAULT_KNOBS, **(knobs or {})}
     model_name = normalize_openrouter_model(model)
@@ -229,7 +247,8 @@ def build_world_config(
                 "approval_due_ticks": approval_due_ticks,
                 "approval_notice_recipients": approval_notice_recipients,
                 "time_pressure": pressure_schedule,
-                "consequences": _consequences_schedule(consequences),
+                "consequences": _consequences_schedule(consequences, recurrence=bool(motives)),
+                "motives": _motives_schedule(motives),
             },
             "seeds": {
                 "retrieval": seed,
@@ -246,6 +265,7 @@ def build_world_config(
             "seats_subset": requested_seats,
             "time_pressure": bool(time_pressure),
             "consequences": _normalize_consequences_mode(consequences),
+            "motives": bool(motives),
         },
         "model": {
             "default": model_name,

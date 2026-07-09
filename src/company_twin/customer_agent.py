@@ -556,7 +556,9 @@ def persona_prompt(event: CustomerEvent, *, persona_seed: int = 0) -> str:
 def follow_up_prompt(event: CustomerEvent, history: list[tuple[str, str]], *, level: int) -> str:
     rendered = "\n".join(f"- {'担当者' if who == 'staff' else 'あなた'}: {text}" for who, text in history[-6:]) or "-（まだやり取りはありません）"
     deadline = deadline_display(event.trigger_tick, event.deadline_tick)
-    if level >= 2:
+    if level >= 3:
+        stance = "何度連絡しても対応が進まなかったため、あなたはこの手続きを取りやめることを決めました。これまでの経緯への不満(苦情)と、手続きを取りやめる意思を、あなたの言葉ではっきり伝えてください。"
+    elif level >= 2:
         stance = "希望期限が迫っているのに返事がなく、強い不安と不満を感じています。期限に間に合うのか、間に合わないなら今後どうするのかをはっきり尋ね、場合によっては手続きの取りやめや苦情も考えていることを、あなたの言葉で伝えてください。"
     else:
         stance = "しばらく返事がないため、状況を確認したいと思っています。今どうなっているのか、次に何を待てばよいのかを丁寧に尋ねてください。"
