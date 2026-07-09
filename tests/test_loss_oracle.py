@@ -94,7 +94,7 @@ def test_contact_before_completion_clears_the_vulnerable_flag(tmp_path: Path) ->
     assert not [f for f in report["loss_events"] if f["loss_class"] == "unconfirmed_vulnerable_sale"]
 
 
-def test_withdrawal_counts_as_abandonment_loss(tmp_path: Path) -> None:
+def test_withdrawal_is_business_impact_not_loss_event(tmp_path: Path) -> None:
     recorder = RunRecorder(tmp_path / "withdrawal", run_id="unit", meta={})
     profile = kernel_profile(
         load_design(Path.cwd()),
@@ -108,4 +108,6 @@ def test_withdrawal_counts_as_abandonment_loss(tmp_path: Path) -> None:
         recorder.set_tick(tick)
         kernel.fire_timed_events(tick)
     report = loss_event_findings(recorder.run_root)
-    assert [f for f in report["loss_events"] if f["loss_class"] == "abandonment_with_complaint"]
+    # abandonment is a business-impact indicator (R6 territory), NOT a loss event
+    assert not [f for f in report["loss_events"] if f.get("loss_class") == "abandonment_with_complaint"]
+    assert report["business_impact_indicators"]
