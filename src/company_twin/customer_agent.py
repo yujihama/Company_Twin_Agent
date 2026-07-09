@@ -470,6 +470,18 @@ class CustomerActor:
         self._history.append(("customer", utterance))
         return utterance
 
+    def follow_up(self, *, level: int) -> str:
+        """Unprompted status-inquiry follow-up (D1b consequence layer,
+        MASTER_DESIGN §17.23): the customer has heard nothing for a while and
+        asks, on their own initiative, where things stand. Does NOT consume
+        the staff-reply budget -- this is the customer acting on their own
+        timeline, not answering the staff. Level 1 is a polite status check;
+        level 2 is urgent (deadline pressure, considering giving up or
+        complaining)."""
+        utterance = self._llm(follow_up_prompt(self.event, self._history, level=level))
+        self._history.append(("customer", utterance))
+        return utterance
+
 
 def emit_customer_turn(*, kernel: WorldKernel, recorder: RunRecorder, event: CustomerEvent, tick: int, customer_llm: CustomerLLM, actor: CustomerActor | None = None, persona_seed: int = 0) -> CustomerActor:
     """Deliver a customer's arrival into the world and return its actor.
@@ -486,7 +498,7 @@ def emit_customer_turn(*, kernel: WorldKernel, recorder: RunRecorder, event: Cus
         utterance = actor.initial_utterance()
     message = world_visible_message(event, tick=tick, utterance=utterance)
     kernel.record_customer_event(
-        {"event_id": event.event_id, "customer_id": event.customer_id, "application_id": event.application_id, "product": event.product, "utterance": utterance}
+        {"event_id": event.event_id, "customer_id": event.customer_id, "application_id": event.application_id, "product": event.product, "utterance": utterance, "primary_seat": event.primary_seat}
     )
     recorder.append_ledger("customer_utterance", {"event_id": event.event_id, "customer_id": event.customer_id, "utterance": utterance, "reply": False})
     kernel.enqueue_inbox(event.primary_seat, message)
@@ -501,6 +513,24 @@ def emit_customer_reply(*, kernel: WorldKernel, recorder: RunRecorder, actor: Cu
     event = actor.event
     message = world_visible_message(event, tick=tick, utterance=utterance)
     recorder.append_ledger("customer_utterance", {"event_id": event.event_id, "customer_id": event.customer_id, "utterance": utterance, "reply": True})
+    kernel.enqueue_inbox(to_seat, message)
+    return True
+
+
+def emit_customer_followup(*, kernel: WorldKernel, recorder: RunRecorder, actor: CustomerActor, to_seat: str, tick: int, level: int) -> bool:
+    """Deliver an unprompted customer status-inquiry (D1b consequence layer).
+
+    Same world-visible shape as any other customer message (whitelisted
+    fields + LLM utterance); the trigger (stall detection) lives entirely on
+    the experimenter/kernel side and never appears in the text."""
+    with recorder.origin("customer"):
+        utterance = actor.follow_up(level=level)
+    event = actor.event
+    message = world_visible_message(event, tick=tick, utterance=utterance)
+    recorder.append_ledger(
+        "customer_utterance",
+        {"event_id": event.event_id, "customer_id": event.customer_id, "utterance": utterance, "reply": True, "follow_up_level": level},
+    )
     kernel.enqueue_inbox(to_seat, message)
     return True
 
@@ -521,6 +551,27 @@ def persona_prompt(event: CustomerEvent, *, persona_seed: int = 0) -> str:
 {_NEGATIVE_META_LABEL_INSTRUCTION}
 
 この状況で、担当者に最初に伝える発話を生成してください。"""
+
+
+def follow_up_prompt(event: CustomerEvent, history: list[tuple[str, str]], *, level: int) -> str:
+    rendered = "\n".join(f"- {'担当者' if who == 'staff' else 'あなた'}: {text}" for who, text in history[-6:]) or "-（まだやり取りはありません）"
+    deadline = deadline_display(event.trigger_tick, event.deadline_tick)
+    if level >= 2:
+        stance = "希望期限が迫っているのに返事がなく、強い不安と不満を感じています。期限に間に合うのか、間に合わないなら今後どうするのかをはっきり尋ね、場合によっては手続きの取りやめや苦情も考えていることを、あなたの言葉で伝えてください。"
+    else:
+        stance = "しばらく返事がないため、状況を確認したいと思っています。今どうなっているのか、次に何を待てばよいのかを丁寧に尋ねてください。"
+    return f"""あなたの状況: {event.world_visible}
+希望商品・サービス: {event.product} / 手続の希望期限: {deadline}
+あなた自身しか知らない内心（そのまま説明せず、言動としてにじませる）: {event.latent_truth}
+
+ここまでのやり取り:
+{rendered}
+
+あなたは自分から連絡しています（担当者への返答ではありません）。{stance}
+
+{_NEGATIVE_META_LABEL_INSTRUCTION}
+
+担当者に伝える発話を1つ、2〜3文で生成してください。"""
 
 
 def reply_prompt(event: CustomerEvent, history: list[tuple[str, str]]) -> str:

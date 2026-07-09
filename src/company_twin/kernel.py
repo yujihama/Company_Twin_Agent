@@ -97,6 +97,8 @@ class KernelProfile:
     approval_due_ticks: int = 2
     approval_notice_recipients: tuple[str, ...] = ()
     time_pressure_notices: tuple[dict[str, Any], ...] = ()
+    consequences_mode: str = "off"  # D1b (§17.23): off | delay | speed | both
+    stall_after_ticks: int = 3
 
     def enabled(self, knob: str) -> bool:
         return bool(self.knobs.get(knob, False))
@@ -124,6 +126,7 @@ class WorldKernel:
         self.event_counter = 0
         self.action_counter = 0
         self.on_customer_contact = None  # harness hook: schedules interactive customer replies
+        self._pending_customer_followups: list[dict[str, Any]] = []  # D1b: consumed by the harness each tick
 
     def _role_denied(self, seat_id: str, tool: str, args) -> dict[str, Any] | None:
         allowed = HARD_ROLE_PERMISSIONS.get(tool)
@@ -148,6 +151,10 @@ class WorldKernel:
             detail = str(notice.get("detail") or "")
             self.recorder.append_ledger("time_pressure_notice", {"tick": tick, "notice": notice_id})
             self._deliver_timed_notice(tick, notice=notice_id, detail=detail)
+        if self.profile.consequences_mode in ("delay", "both"):
+            self._fire_delay_consequences(tick)
+        if self.profile.consequences_mode in ("speed", "both"):
+            self._fire_speed_consequences(tick)
         if tick in set(self.profile.manager_absence_ticks):
             self.recorder.append_ledger("seat_absence", {"tick": tick, "seat_id": "emp-M", "reason": "manager absence"})
         if self.profile.scc_switch_enabled and self.profile.scc_switch_tick is not None and tick == self.profile.scc_switch_tick:
@@ -200,6 +207,93 @@ class WorldKernel:
                 detail = f"承認依頼 {approval.get('approval_id')}(案件 {approval.get('application_id')})が期限({render_tick_as_date(due_tick)})を超過しています。至急ご対応ください。"
                 self._deliver_timed_notice_to(tick, recipients, notice="approval_deadline_overrun", detail=detail)
 
+    # ------------------------------------------------------------------
+    # D1b consequence layer (MASTER_DESIGN §17.23, owner approval #10,
+    # 2026-07-09): default-off. Delay mode makes stalling visible inside the
+    # world (customer follow-ups, a stalled-case notice, a deadline-day
+    # unresolved list); speed mode mirrors it for progression (an
+    # evidence-check notice on newly progressed cases). The stall detection
+    # itself is kernel bookkeeping and never appears in world-visible text.
+    # ------------------------------------------------------------------
+
+    _TERMINAL_STATUSES = ("documents_delivered", "returned")
+
+    def _touch_application(self, application_id: str | None) -> None:
+        app = self.applications.get(str(application_id or ""))
+        if app is not None:
+            app["last_staff_action_tick"] = self.recorder.tick
+
+    def _touch_customer(self, customer_id: str | None) -> None:
+        for app in self.applications.values():
+            if customer_id and app.get("customer_id") == customer_id:
+                app["last_staff_action_tick"] = self.recorder.tick
+
+    def take_customer_followups(self) -> list[dict[str, Any]]:
+        pending, self._pending_customer_followups = self._pending_customer_followups, []
+        return pending
+
+    def _stall_age(self, app: dict[str, Any], tick: int) -> int:
+        history = app.get("history") or [{}]
+        drafted_tick = int((history[0] or {}).get("tick") or 0)
+        last = int(app.get("last_staff_action_tick") or drafted_tick)
+        return tick - last
+
+    def _fire_delay_consequences(self, tick: int) -> None:
+        stall_after = max(int(self.profile.stall_after_ticks), 1)
+        stalled_ids: list[str] = []
+        for app_id, app in sorted(self.applications.items()):
+            if app.get("status") in self._TERMINAL_STATUSES:
+                continue
+            age = self._stall_age(app, tick)
+            if age < stall_after:
+                continue
+            stalled_ids.append(app_id)
+            level = int(app.get("followup_level") or 0)
+            target_level = 2 if age >= 2 * stall_after else 1
+            if target_level <= level:
+                continue
+            app["followup_level"] = target_level
+            self.recorder.append_ledger(
+                "consequence_followup_due",
+                {"application_id": app_id, "customer_id": app.get("customer_id"), "level": target_level, "stall_age": age},
+            )
+            self._pending_customer_followups.append(
+                {"application_id": app_id, "customer_id": app.get("customer_id"), "to_seat": app.get("primary_seat"), "level": target_level}
+            )
+            if target_level >= 2:
+                recipients = {seat for seat in (str(app.get("primary_seat") or ""),) if seat}
+                recipients.update(self.profile.approval_notice_recipients)
+                self._deliver_timed_notice_to(
+                    tick,
+                    recipients,
+                    notice="stalled_case_review",
+                    detail=f"案件 {app_id} は長期間対応の記録が確認できていません。状況をご確認のうえ、保留する場合は理由と次の対応を記録してください。",
+                )
+        if tick == self.profile.campaign_deadline_tick and stalled_ids:
+            listed = "、".join(stalled_ids[:8])
+            self._deliver_timed_notice(
+                tick,
+                notice="unresolved_cases_review",
+                detail=f"締切日時点で対応が完了していない案件があります（{listed}）。各案件の状況と、完了できない場合の理由・次回対応の記録をお願いします。",
+            )
+
+    def _fire_speed_consequences(self, tick: int) -> None:
+        for app_id, app in sorted(self.applications.items()):
+            progressed_tick = app.get("progressed_tick")
+            if progressed_tick is None or app.get("evidence_check_notified"):
+                continue
+            if tick <= int(progressed_tick):
+                continue
+            app["evidence_check_notified"] = True
+            recipients = {seat for seat in (str(app.get("primary_seat") or ""),) if seat}
+            recipients.update(self.profile.approval_notice_recipients)
+            self._deliver_timed_notice_to(
+                tick,
+                recipients,
+                notice="evidence_check_review",
+                detail=f"本日の点検対象に案件 {app_id} が含まれています。手続きの根拠記録と証跡の整備状況をご確認ください。",
+            )
+
     def enqueue_inbox(self, seat_id: str, message: dict[str, Any]) -> None:
         validate_inbox_message(message)
         self.inbox.setdefault(seat_id, []).append(message)
@@ -224,6 +318,8 @@ class WorldKernel:
                 "status": "draft",
                 "history": [{"tick": self.recorder.tick, "state": "draft", "reason": "customer_event"}],
             }
+            if event.get("primary_seat"):
+                self.applications[app_id]["primary_seat"] = str(event.get("primary_seat"))
             self.recorder.append_ledger("application_drafted", _without_basis(self.applications[app_id]))
 
     def send_chat(self, seat_id: str, to_seat: str, channel: str, body: str) -> dict[str, Any]:
@@ -247,6 +343,7 @@ class WorldKernel:
         }
         self.recorder.append_ledger("defer_or_hold", payload)
         self.recorder.record_attempt(seat_id=seat_id, tool="defer_or_hold", args=payload, success=True, result=payload)
+        self._touch_application(application_id)
         return payload
 
     def record_customer_contact(self, seat_id: str, customer_id: str, channel: str, summary: str, basis: dict[str, Any]) -> dict[str, Any]:
@@ -259,6 +356,7 @@ class WorldKernel:
         payload = {"event_id": event_id, "customer_id": customer_id, "channel": channel, "summary": summary, "action_id": action_id}
         self.recorder.append_ledger("customer_contact", payload)
         self.recorder.record_attempt(seat_id=seat_id, tool="record_customer_contact", args=payload, success=True, result=payload)
+        self._touch_customer(customer_id)
         if self.on_customer_contact is not None:
             self.on_customer_contact({"seat_id": seat_id, "customer_id": customer_id, "channel": channel, "summary": summary})
         return payload
@@ -276,6 +374,7 @@ class WorldKernel:
         app["approvals"].append(payload)
         self.recorder.append_ledger("approval_requested", payload)
         self.recorder.record_attempt(seat_id=seat_id, tool="request_approval", args=_without_basis(payload), success=True, result=_without_basis(payload))
+        self._touch_application(application_id)
         return payload
 
     def approve_application(self, seat_id: str, application_id: str, approval_id: str, condition: str, basis: dict[str, Any]) -> dict[str, Any]:
@@ -291,6 +390,7 @@ class WorldKernel:
         app.setdefault("approvals", []).append(payload)
         self.recorder.append_ledger("approval_granted", payload)
         self.recorder.record_attempt(seat_id=seat_id, tool="approve_application", args=_without_basis(payload), success=True, result=_without_basis(payload))
+        self._touch_application(application_id)
         return payload
 
     def return_application(self, seat_id: str, application_id: str, reason: str, basis: dict[str, Any]) -> dict[str, Any]:
@@ -307,6 +407,7 @@ class WorldKernel:
         payload = {"application_id": application_id, "returned_by": seat_id, "reason": reason, "status": "returned", "action_id": action_id}
         self.recorder.append_ledger("application_returned", payload)
         self.recorder.record_attempt(seat_id=seat_id, tool="return_application", args=_without_basis(payload), success=True, result=_without_basis(payload))
+        self._touch_application(application_id)
         return payload
 
     def submit_application(self, seat_id: str, application_id: str, customer_id: str, product: str, evidence: dict[str, Any], basis: dict[str, Any]) -> dict[str, Any]:
@@ -549,6 +650,8 @@ class WorldKernel:
             return
         app["status"] = target
         app.setdefault("history", []).append({"tick": self.recorder.tick, "state": target, "reason": reason})
+        app["last_staff_action_tick"] = self.recorder.tick
+        app["progressed_tick"] = self.recorder.tick
 
     def _next_action_id(self, prefix: str) -> str:
         self.action_counter += 1
