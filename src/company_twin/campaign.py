@@ -134,6 +134,7 @@ def run_design_campaign(
     mutations: list[dict[str, Any]] | None = None,
     circulate_notices: bool = False,
     time_pressure: bool = False,
+    consequences: str = "off",
 ) -> dict[str, Any]:
     """Live-only campaign: S0 battery -> divergence aggregation -> S1 ensemble -> (optional) S2 + anchor.
 
@@ -194,6 +195,7 @@ def run_design_campaign(
             mutations=mutations,
             circulate_notices=circulate_notices,
             time_pressure=time_pressure,
+            consequences=consequences,
         )
         write_triage(s1_root)
         s1_roots.append(str(s1_root))
@@ -220,6 +222,7 @@ def run_design_campaign(
             mutations=mutations,
             circulate_notices=circulate_notices,
             time_pressure=time_pressure,
+            consequences=consequences,
         )
         write_triage(anchor_path)
         anchor_root = str(anchor_path)
@@ -243,6 +246,7 @@ def run_design_campaign(
                 mutations=mutations,
                 circulate_notices=circulate_notices,
                 time_pressure=time_pressure,
+                consequences=consequences,
             )
             write_triage(s2_root)
             s2_roots.append(str(s2_root))
@@ -268,6 +272,7 @@ def run_design_campaign(
         "mutations": mutations or [],
         "circulate_notices": circulate_notices,
         "time_pressure": time_pressure,
+        "consequences": consequences,
     }
     aggregate_ensemble_triage(campaign_root)
     acceptance = run_acceptance(campaign_root=campaign_root, design=design, corpus=corpus, scope="full_world" if with_s2 else "s0_s1")
@@ -295,6 +300,7 @@ def run_control_pair_campaign(
     scc_switch_tick: int | None = None,
     timed_notice_recipients: list[str] | None = None,
     time_pressure: bool = False,
+    consequences: str = "off",
     s0_span: str | None = None,
     s0_seat: str = "emp-A",
     s0_models: list[str] | None = None,
@@ -410,6 +416,7 @@ def run_control_pair_campaign(
                 "mutations": mutation_result.applied,
                 "timed_notice_recipients": [] if timed_notice_recipients is None else timed_notice_recipients,
                 "time_pressure": time_pressure,
+                "consequences": consequences,
             }
             if stage == "S1":
                 result = run_s1_episode(probe_id=probe, ticks=ticks, **common)
@@ -454,6 +461,7 @@ def run_control_pair_campaign(
         "prompt_mode": prompt_mode,
         "timed_notice_recipients": [] if timed_notice_recipients is None else timed_notice_recipients,
         "time_pressure": time_pressure,
+        "consequences": consequences,
         "s0_endpoint": {
             "span_id": s0_span_id,
             "seat_id": s0_seat,

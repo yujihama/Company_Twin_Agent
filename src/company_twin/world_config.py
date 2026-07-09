@@ -37,6 +37,32 @@ TIME_PRESSURE_MODE = "compressed_horizon_v1"
 TIME_PRESSURE_FACTOR = 2.0 / 3.0
 TIME_PRESSURE_BUDGET_MULTIPLIER = 2.0 / 3.0
 
+CONSEQUENCES_MODE_VERSION = "consequence_layer_v1"
+CONSEQUENCES_MODES = ("off", "delay", "speed", "both")
+CONSEQUENCES_STALL_AFTER_TICKS = 3
+
+
+def _normalize_consequences_mode(value: str | None) -> str:
+    mode = str(value or "off").strip().lower()
+    if mode not in CONSEQUENCES_MODES:
+        raise ValueError(f"unknown consequences mode: {value!r} (expected one of {CONSEQUENCES_MODES})")
+    return mode
+
+
+def _consequences_schedule(value: str | None) -> dict[str, Any]:
+    """D1b consequence layer (MASTER_DESIGN §17.23, approval #10): default-off,
+    stamped into the config snapshot like every other experimental condition.
+    stall_after_ticks is an ABSOLUTE tick count and is deliberately NOT
+    compressed under time pressure: the customer's patience is a property of
+    the customer, not of the staff's schedule."""
+    mode = _normalize_consequences_mode(value)
+    return {
+        "enabled": mode != "off",
+        "mode": mode,
+        "version": CONSEQUENCES_MODE_VERSION,
+        "stall_after_ticks": CONSEQUENCES_STALL_AFTER_TICKS,
+    }
+
 
 def build_world_config(
     design: DesignInputs,
@@ -59,6 +85,7 @@ def build_world_config(
     customer_model: str | None = None,
     circulate_notices: bool = False,
     time_pressure: bool = False,
+    consequences: str = "off",
 ) -> dict[str, Any]:
     normalized_knobs = {**DEFAULT_KNOBS, **(knobs or {})}
     model_name = normalize_openrouter_model(model)
@@ -202,6 +229,7 @@ def build_world_config(
                 "approval_due_ticks": approval_due_ticks,
                 "approval_notice_recipients": approval_notice_recipients,
                 "time_pressure": pressure_schedule,
+                "consequences": _consequences_schedule(consequences),
             },
             "seeds": {
                 "retrieval": seed,
@@ -217,6 +245,7 @@ def build_world_config(
             "d4_enabled": d4_enabled,
             "seats_subset": requested_seats,
             "time_pressure": bool(time_pressure),
+            "consequences": _normalize_consequences_mode(consequences),
         },
         "model": {
             "default": model_name,

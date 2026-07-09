@@ -10,7 +10,7 @@ from langgraph.errors import GraphRecursionError
 
 from .agents import CustomerLLM, SeatFactory, default_customer_llm, default_seat_factory, recursion_for_budget
 from .corpus import Corpus
-from .customer_agent import CustomerActor, emit_customer_reply, emit_customer_turn
+from .customer_agent import CustomerActor, emit_customer_followup, emit_customer_reply, emit_customer_turn
 from .deck import CustomerEvent, build_customer_deck, event_for_probe
 from .design_loader import DesignInputs
 from .env import normalize_openrouter_model
@@ -202,6 +202,7 @@ def run_s1_episode(
     seats_subset: list[str] | None = None,
     circulate_notices: bool = False,
     time_pressure: bool = False,
+    consequences: str = "off",
 ) -> dict[str, Any]:
     event = _retime_event(event_for_probe(design, probe_id), trigger_tick=1, deadline_tick=ticks)
     return _run_world(
@@ -228,6 +229,7 @@ def run_s1_episode(
         seats_subset=seats_subset,
         circulate_notices=circulate_notices,
         time_pressure=time_pressure,
+        consequences=consequences,
     )
 
 
@@ -254,6 +256,7 @@ def run_s2_world(
     seats_subset: list[str] | None = None,
     circulate_notices: bool = False,
     time_pressure: bool = False,
+    consequences: str = "off",
 ) -> dict[str, Any]:
     events = deck if deck is not None else build_customer_deck(design, include_routine=True)
     return _run_world(
@@ -280,6 +283,7 @@ def run_s2_world(
         seats_subset=seats_subset,
         circulate_notices=circulate_notices,
         time_pressure=time_pressure,
+        consequences=consequences,
     )
 
 
@@ -308,6 +312,7 @@ def _run_world(
     seats_subset: list[str] | None = None,
     circulate_notices: bool = False,
     time_pressure: bool = False,
+    consequences: str = "off",
 ) -> dict[str, Any]:
     model_name = normalize_openrouter_model(model)
     if prompt_mode not in {"scaffold", "measurement"}:
@@ -333,6 +338,7 @@ def _run_world(
         customer_model=customer_model,
         circulate_notices=circulate_notices,
         time_pressure=time_pressure,
+        consequences=consequences,
     )
     write_config_snapshot(run_root, config)
     budgets = config["world"]["population"]["tick_budget"]
@@ -382,6 +388,15 @@ def _run_world(
     agent_turns = 0
     for tick in range(1, ticks + 1):
         kernel.fire_timed_events(tick)
+        # D1b consequence layer (§17.23): stalled cases surface as the
+        # customer's own follow-up through the ordinary customer machinery.
+        for followup in kernel.take_customer_followups():
+            follow_actor = actors.get(str(followup.get("customer_id")))
+            to_seat = str(followup.get("to_seat") or "")
+            if follow_actor is None or to_seat not in active_seats:
+                recorder.append_ledger("consequence_followup_skipped", {**followup, "reason": "no actor or inactive seat"})
+                continue
+            emit_customer_followup(kernel=kernel, recorder=recorder, actor=follow_actor, to_seat=to_seat, tick=tick, level=int(followup.get("level") or 1))
         _deliver_circulation_announcements(
             kernel=kernel,
             announcements=circulation_announcements,
@@ -463,6 +478,7 @@ def _run_world(
             "mutation_hash": corpus_meta.get("mutation_hash"),
             "effective_corpus_hash": corpus_meta.get("effective_corpus_hash"),
             "time_pressure": time_pressure,
+            "consequences": config["runtime_delta"]["consequences"],
         },
     )
     return summary
@@ -625,6 +641,8 @@ def kernel_profile(
         approval_due_ticks=int(schedule.get("approval_due_ticks") or 2),
         approval_notice_recipients=tuple(str(seat_id) for seat_id in (schedule.get("approval_notice_recipients") or [])),
         time_pressure_notices=tuple(dict(item) for item in ((schedule.get("time_pressure") or {}).get("notices") or [])),
+        consequences_mode=str((schedule.get("consequences") or {}).get("mode") or "off"),
+        stall_after_ticks=int((schedule.get("consequences") or {}).get("stall_after_ticks") or 3),
         seat_qualifications={
             "emp-A": {"投資", "ロボアド"},
             "emp-B": {"保険"},
