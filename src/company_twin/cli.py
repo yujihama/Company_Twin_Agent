@@ -664,6 +664,21 @@ def holdout_score(
         raise typer.Exit(code=1)
 
 
+@app.command("loss-events")
+def loss_events_cmd(
+    run_root: Annotated[Path, typer.Option("--run-root", help="Completed run bundle to scan for layer-1 loss events")],
+) -> None:
+    """Loss-event oracle v1 (MASTER_DESIGN §17.26, approval #13): judge RISK
+    MATERIALIZATION in the proper sense — loss events (unapproved completion,
+    unconfirmed vulnerable sale, abandonment with complaint), not intermediate
+    symptoms. Judged against the experimenter-plane latent truths; writes
+    loss_events.json into the run bundle."""
+    from .loss_oracle import loss_event_findings
+
+    payload = loss_event_findings(run_root.resolve())
+    _echo_json(payload)
+
+
 @app.command("action-replay")
 def action_replay_cmd(
     run_root: Annotated[Path, typer.Option("--run-root", help="Completed run bundle whose probe decision turn should be replayed")],
