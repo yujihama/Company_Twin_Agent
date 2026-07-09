@@ -971,6 +971,14 @@
       ],
       "probe_id": "P-10",
       "title": "[新規] 旧版021しか索引に無い担当者への高齢者案件"
+    },
+    {
+      "binds": [
+        "AMB-04d",
+        "AMB-09"
+      ],
+      "probe_id": "P-11",
+      "title": "[新規] 締切当日・承認権者不在の当日完了依頼"
     }
   ],
   "schema_version": "company_twin.deck.v2"

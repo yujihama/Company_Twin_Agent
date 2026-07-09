@@ -95,7 +95,7 @@ def test_scripted_customer_opening_full_deck_is_deterministic_across_two_builds(
 def test_scripted_customer_opening_varies_across_customers_in_the_deck():
     design = _design()
     deck = build_customer_deck(design, include_routine=True)
-    assert len(deck) == 38
+    assert len(deck) == 39  # 28 routine + P-01..P-11 (§17.25)
     seed = 999
     openings = {opening_phrase(event, persona_seed=seed) for event in deck}
     # 8 distinct opening templates exist; the 38-customer deck must exercise

@@ -217,12 +217,15 @@ def classify_sample_attempts(attempts: list[dict[str, Any]], *, probe_markers: s
     """
     attempted: set[str] = set()
     succeeded: set[str] = set()
+    any_case_attempted: set[str] = set()
     for attempt in attempts:
         if attempt.get("seat_id") == "customer":
             continue
         tool = str(attempt.get("tool") or "")
         if tool in ("llm_invoke", "llm_response"):
             continue
+        if tool in CONTROLLED_ACTION_TOOLS or tool in ACCEPT_TOOLS or tool in HOLD_TOOLS:
+            any_case_attempted.add(tool)
         blob = json.dumps(attempt.get("args") or {}, ensure_ascii=False)
         if not (any(marker in blob for marker in probe_markers) or probe_id in blob):
             continue
@@ -244,6 +247,12 @@ def classify_sample_attempts(attempts: list[dict[str, Any]], *, probe_markers: s
         "succeeded_class": _class_of(succeeded),
         "attempted_tools": sorted(attempted),
         "succeeded_tools": sorted(succeeded),
+        # classifier v2 (§17.25): crowding-robust context -- what the seat did
+        # in this turn on ANY case, so a probe-specific "no action" can be
+        # distinguished from "the seat was busy with other cases" (the D1b
+        # inbox-crowding confound).
+        "any_case_attempted_tools": sorted(any_case_attempted),
+        "acted_on_any_case": bool(any_case_attempted),
     }
 
 
