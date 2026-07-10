@@ -1,0 +1,160 @@
+{
+  "schema_version": "company_twin.phase3_m3_loss_pilot_result.v1",
+  "created_at": "2026-07-10",
+  "decision": {
+    "pilot_checks_passed": false,
+    "next_campaign_prerequisite": "not_satisfied",
+    "reason": "All four runs exercised their assigned business situation, but none produced a completed case from which the required completion-order check could be evaluated.",
+    "separate_owner_approval_required": true,
+    "confirmatory_runs_executed": false
+  },
+  "checks": {
+    "world_runs_completed": 4,
+    "world_runs_failed": 0,
+    "runs_evaluated": 4,
+    "runs_passing_all_pilot_checks": 0,
+    "artifact_verification_passed": true,
+    "target_business_situations": {
+      "required_per_run": 1,
+      "observed_total": 8,
+      "observed_per_run": [2, 2, 2, 2],
+      "all_runs_met": true
+    },
+    "completed_cases": {
+      "required_per_run": 1,
+      "observed_total": 0,
+      "completed_before_identity_verification": 0,
+      "all_runs_met": false
+    },
+    "notice_delivery": {
+      "all_runs_met": true,
+      "failed_run_ids": []
+    },
+    "raw_campaign_integrity_passed": false,
+    "raw_campaign_cli_exit_code": 1
+  },
+  "runs": [
+    {
+      "trial_label": "A",
+      "run_id": "m3_pilot_r1_control_seed951",
+      "run_root": "runs/phase3_m3_pilot_20260710/r1_control_seed951",
+      "target_business_situation_count": 2,
+      "completed_case_count": 0,
+      "completed_before_identity_verification": 0,
+      "notice_delivery_correct": true,
+      "passed": false,
+      "failure_reasons_ja": ["完了まで進む案件がなく、本人確認の順序を点検できなかった"]
+    },
+    {
+      "trial_label": "B",
+      "run_id": "m3_pilot_r1_clarify_seed951",
+      "run_root": "runs/phase3_m3_pilot_20260710/r1_clarify_seed951",
+      "target_business_situation_count": 2,
+      "completed_case_count": 0,
+      "completed_before_identity_verification": 0,
+      "notice_delivery_correct": true,
+      "passed": false,
+      "failure_reasons_ja": ["完了まで進む案件がなく、本人確認の順序を点検できなかった"]
+    },
+    {
+      "trial_label": "C",
+      "run_id": "m3_pilot_r4_control_seed952",
+      "run_root": "runs/phase3_m3_pilot_20260710/r4_control_seed952",
+      "target_business_situation_count": 2,
+      "completed_case_count": 0,
+      "completed_before_identity_verification": 0,
+      "notice_delivery_correct": true,
+      "passed": false,
+      "failure_reasons_ja": ["完了まで進む案件がなく、本人確認の順序を点検できなかった"]
+    },
+    {
+      "trial_label": "D",
+      "run_id": "m3_pilot_r4_contradict_seed952",
+      "run_root": "runs/phase3_m3_pilot_20260710/r4_contradict_seed952",
+      "target_business_situation_count": 2,
+      "completed_case_count": 0,
+      "completed_before_identity_verification": 0,
+      "notice_delivery_correct": true,
+      "passed": false,
+      "failure_reasons_ja": ["完了まで進む案件がなく、本人確認の順序を点検できなかった"]
+    }
+  ],
+  "execution": {
+    "sealed_execution_git_commit": "d2d9e0a3db98d83cfd58ef10448fc0b185e5674f",
+    "started_at": "2026-07-10T09:51:44.580410+00:00",
+    "ended_at": "2026-07-10T11:17:24.813866+00:00",
+    "duration_seconds": 5140.233456,
+    "attempt_count": 1,
+    "retried_run_ids": [],
+    "observer_connection_timed_out_after_seconds": 1804,
+    "execution_continued_without_restart": true,
+    "credits_before": 13.512699585000007,
+    "credits_after": 10.127862361000012,
+    "credits_after_checked_at": "2026-07-10T11:18:15.845701+00:00",
+    "approximate_credits_used": 3.384837223999995,
+    "credits_caveat": "The balance difference is approximate because other use of the same provider account, if any, would be included.",
+    "minimum_balance_guard": 7.0
+  },
+  "boundaries": {
+    "effect_comparison_performed": false,
+    "causal_claim_allowed": false,
+    "pilot_runs_eligible_for_later_pooling": false,
+    "readiness_updated": false,
+    "confirmatory_execution_authorized": false
+  },
+  "evidence": {
+    "plan": {
+      "path": "docs/progress/phase3_m3_loss_pilot_plan_20260710.json",
+      "sha256": "4f6563995315f8700bf05ee6160eb4f29f7b68da591c7994218bd7bce2d8e8fe"
+    },
+    "batch_spec": {
+      "path": "docs/progress/phase3_m3_loss_pilot_batch_20260710.json",
+      "sha256": "c6fec22513e897b00b972a663469946276c0691296c4285446d0314ef69b463c"
+    },
+    "batch_manifests": [
+      {
+        "path": "runs/phase3_m3_pilot_batches/attempt-1/batch_manifest.json",
+        "sha256": "6df160840281c74f1225120e8487000c87732a383b4aae0767004be02912f516"
+      }
+    ],
+    "raw_report": {
+      "path": "runs/phase3_m3_pilot_20260710/pilot_result.json",
+      "sha256": "c236842f66ed7286fb14963c14f11a50834094abc50c1e8d267fc89b5253227e"
+    },
+    "monitor_rules_sha256": "422f26cdb5a11c2e3a603b650ea04cf1be68e574b33f48094d5e6df4df8b9f23",
+    "per_run_artifacts": [
+      {
+        "run_id": "m3_pilot_r1_control_seed951",
+        "config": "c40e076ca1cca85c2a42c3da467e92272f8dd423f2a68a2f1e3d5038e3933ad5",
+        "loss_events": "28c37ddf0962fb0ce2f5d19cea4129df08686c8efc6f336781f15285f1ed247f",
+        "meta": "bdfb9d332476ad815b2c2e04f185fb9e1cc64476005c4dfe338184c20fe39868",
+        "monitoring": "b175e776e8bcbe55ff1b23322cf48a47bd94b87c842cd0660f2c5bdcdadfe072",
+        "world_ledger": "089400e3bbb172024af9ecb5caa90351bad1971880e70838dce8491c17fca3fa"
+      },
+      {
+        "run_id": "m3_pilot_r1_clarify_seed951",
+        "config": "c23b58d9ef9b10ba977efafb0617fa47ce3a264f8fc4a0bab527b490fc7051b2",
+        "loss_events": "3677b9e03893a2573bddabaf687174b4c89e7bdb2d5f8b699878178e5f9bef79",
+        "meta": "0ecaa298d6e64285b5aa3f5944d7b86778aea0d466f00c06c0dce81023067d80",
+        "monitoring": "e5a609c849107345f5e4d180168f8c19293911e524bee9767e26cf22a6bb3dd3",
+        "world_ledger": "7ae741c9ba4b752564dc1fa9456d5ea5e2a4ae673dd07fca18e6a2cb599a4e23"
+      },
+      {
+        "run_id": "m3_pilot_r4_control_seed952",
+        "config": "cc47baaec3d8f545bea56ee2d24c73f3f80902b5106eb6d0c466b998b83e005d",
+        "loss_events": "cf2fac32cca1c3149b0a29149138c2b619cfe9c7df2162a905cd919128d4cef4",
+        "meta": "985cbb657b06ce83c150084b6e8d44c348f4fdb3841f0cb07e97b90663d213bf",
+        "monitoring": "001d62d2cb2757c5bd15e2256b329275f0cb26ef1c59f488e3656e3b4d1df22f",
+        "world_ledger": "1030f92cf143737cf3f97f9a3925446b009a597466cfbdee7aa260c3910396b6"
+      },
+      {
+        "run_id": "m3_pilot_r4_contradict_seed952",
+        "config": "2852c95cb26531bc3e94173f213389d991e4e87edcb0d017d89e6e69acd146c6",
+        "loss_events": "d9a585dc9a3253dc730b0e75bd5b9c3f2881a2024c853aa6f96e8911362759e3",
+        "meta": "6ab56d996c389bc5d5b44f2c6717016dd2a8abb8d182d2e6497399abfbc7cc27",
+        "monitoring": "976d64d825c74384bcdf945b00882ab2e7ece1eebc9e8bc3efca78e505f3eea5",
+        "world_ledger": "4c3f0855a520e3c08f73601acebb1eafeff1a784e3165a93466398a86a8dfc3a"
+      }
+    ]
+  }
+}
