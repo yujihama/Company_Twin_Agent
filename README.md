@@ -122,15 +122,22 @@ plans must separately seal how loss/monitoring/manipulation integrity is
 approved before the next wave; the current M3 template records that checkpoint
 as a pre-confirmatory decision rather than claiming it is already automated.
 
-The M3 proposal uses five fixed four-run waves with concurrency two and a
+The M3 confirmatory proposal uses five fixed four-run waves with concurrency two and a
 seven-credit preflight before every wave. Wave boundaries limit avoidable
 spend; they are not sequential effect-analysis checkpoints, so treatment
 direction, rates, and deltas must not drive stopping or continuation. Its
 separate four-run `campaign_role=feasibility_pilot` must first pass per-run
 assigned-endpoint and R3 opportunity gates, zero R3 events, and exact exposure.
 Pilot effects are suppressed and pilot runs never enter confirmatory K=5.
-Pilot and confirmatory plans require separate merge seals. Draft/template
-files carry false authorization flags and cannot be launched or aggregated.
+Pilot and confirmatory plans require separate merge seals. Non-executable
+Draft/template files carry false authorization flags and cannot be launched or aggregated.
+
+The pilot sealed by PR #83 completed all four runs on 2026-07-10, but returned
+`no_go`: every run exercised its assigned business situation twice and passed
+exact notice delivery, while no run produced a completed case for the required
+completion-order check. No arm comparison was produced, the pilot is excluded
+from confirmatory data, and the 20-run campaign remains unauthorized. See
+`docs/progress/phase3_m3_loss_pilot_result_20260710.md`.
 
 ## Full-World Evidence Boundary
 
