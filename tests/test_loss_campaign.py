@@ -20,6 +20,7 @@ from company_twin.loss_campaign import (
     LossCampaignError,
     _direct_detection_metrics,
     _unexpected_loss_events,
+    _validate_sealed_batch_spec,
     build_loss_event_campaign_report,
     load_loss_campaign_plan,
     wilson_interval,
@@ -34,7 +35,7 @@ from company_twin.loss_monitoring import (
     write_loss_event_monitoring,
 )
 from company_twin.loss_oracle import loss_event_findings
-from company_twin.parallel_runner import BATCH_MANIFEST_SCHEMA_VERSION, RunSpec
+from company_twin.parallel_runner import BATCH_MANIFEST_SCHEMA_VERSION, BatchSpec, RunSpec
 from company_twin.recorder import RunRecorder, read_jsonl
 
 
@@ -778,3 +779,18 @@ def test_report_write_is_byte_deterministic(tmp_path: Path) -> None:
 
     assert first == second
     assert first_bytes == (fixture["root"] / output).read_bytes()
+
+
+def test_repository_m3_draft_plan_matches_its_batch_and_rule_seals() -> None:
+    root = Path(__file__).resolve().parents[1]
+    plan_path = root / "docs" / "progress" / "phase3_m3_loss_campaign_plan_20260710.json"
+    batch_path = root / "docs" / "progress" / "phase3_m3_loss_campaign_batch_20260710.json"
+    plan = load_loss_campaign_plan(plan_path, root=root)
+    batch = BatchSpec.from_dict(json.loads(batch_path.read_text(encoding="utf-8")))
+
+    assignments = _validate_sealed_batch_spec(plan, batch, root=root)
+
+    assert _sha256(batch_path) == plan["batch_spec_sha256"]
+    assert _canonical_sha256(load_loss_monitor_rules(root)) == plan["policy"]["input_contract"]["monitor_rules_sha256"]
+    assert len(assignments) == 20
+    assert {assignment["seed"] for assignment in assignments.values()} == set(range(940, 950))
