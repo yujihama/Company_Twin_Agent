@@ -83,6 +83,9 @@ def _build_bundle(
     related_notice: bool = False,
     unexpected_r1: bool = False,
     bundle_id: str | None = None,
+    circulation_message: str | None = None,
+    deliver_circulation: bool = True,
+    circulation_fault: str | None = None,
 ) -> None:
     bundle_id = bundle_id or run_root.name
     recorder = RunRecorder(
@@ -91,6 +94,30 @@ def _build_bundle(
         meta={"stage": "S2", "seed": seed, "live": True, "prompt_mode": "measurement", "model": MODEL},
     )
     recorder.set_tick(1)
+    announcement_message = (
+        "tampered announcement body" if circulation_fault == "wrong-detail" else circulation_message
+    )
+
+    def append_circulation_delivery() -> None:
+        recorder.append_ledger(
+            "inbox_delivered",
+            {
+                "to_seat": "emp-Q",
+                "message": {
+                    "kind": "wrong_kind" if circulation_fault == "wrong-kind" else "timed_notice",
+                    "tick": 999 if circulation_fault == "wrong-message-tick" else 1,
+                    "notice": "document_circulation",
+                    "detail": announcement_message,
+                },
+            },
+        )
+
+    if (
+        circulation_message is not None
+        and deliver_circulation
+        and circulation_fault != "late-delivery"
+    ):
+        append_circulation_delivery()
     recorder.append_ledger(
         "customer_event",
         {
@@ -100,6 +127,8 @@ def _build_bundle(
             "product": "unit-test-product",
         },
     )
+    if circulation_message is not None and deliver_circulation and circulation_fault == "late-delivery":
+        append_circulation_delivery()
     if not unverified:
         recorder.append_ledger("identity_verified", {"application_id": "APP-P-11", "status": "identity_verified"})
     if approved:
@@ -142,7 +171,36 @@ def _build_bundle(
         )
     recorder.append_ledger("tick_committed", {"tick": 2})
 
-    mutation_rows = [{"mutation_id": mutation_id} for mutation_id in mutations]
+    mutation_rows = [
+        {
+            "mutation_id": mutation_id,
+            "doc_id": "DOC-TEST",
+            "visible_roles": ["second_line"],
+            "circulation_message": circulation_message,
+            "circulation_digest": "test digest",
+        }
+        if circulation_message is not None
+        else {"mutation_id": mutation_id}
+        for mutation_id in mutations
+    ]
+    circulation = {
+        "enabled": True,
+        "mode": "digest" if circulation_fault == "wrong-mode" else "full_text",
+        "announcements": (
+            [
+                {
+                    "mutation_id": mutations[0] if mutations else "unexpected-control-mutation",
+                    "doc_id": "DOC-TEST",
+                    "tick": True if circulation_fault == "bool-tick" else 1,
+                    "visible_roles": ["second_line"],
+                    "message": announcement_message,
+                    "digest": "test digest",
+                }
+            ]
+            if circulation_message is not None
+            else []
+        ),
+    }
     config = {
         "schema_version": "company_twin.world_config.v2",
         "stage": "S2",
@@ -154,6 +212,7 @@ def _build_bundle(
                 "mutation_hash": "treatment-hash" if mutations else "control-hash",
                 "effective_corpus_hash": "treatment-corpus" if mutations else "control-corpus",
                 "document_count": 11 if mutations else 10,
+                "circulation": circulation,
             },
             "population": {"seats": {"emp-Q": {"role": "second_line"}}},
             "schedule": {"ticks": 2},
@@ -247,6 +306,7 @@ def _campaign_fixture(
     bundle_id_mismatch: bool = False,
     unexpected_handling: str = "fail_integrity_gate",
     r3_minimum_scope: str = "campaign_total",
+    manipulation_gate: str | None = None,
 ) -> dict[str, Any]:
     root = tmp_path / "repo"
     root.mkdir(parents=True)
@@ -354,6 +414,16 @@ def _campaign_fixture(
             }
         ],
     }
+    if manipulation_gate is not None:
+        plan["manipulation_gate"] = {
+            "schema_version": "company_twin.mutation_circulation_gate.v1",
+            "mode": "exact_config_announcement_delivery",
+            "delivery_tick": 1,
+            "recipient_scope": "all_active_visible_roles",
+            "temporal_requirement": "before_first_assigned_endpoint_opportunity",
+            "control_handling": "forbid_document_circulation",
+            "treatment_handling": "require_exact_config_announcement_delivery",
+        }
     plan_path = root / "plans" / "loss_campaign_plan.json"
     _write_json(plan_path, plan)
 
@@ -371,6 +441,7 @@ def _campaign_fixture(
         approved=True,
         completion=control_completion,
         bundle_id="wrong-control-id" if bundle_id_mismatch else None,
+        circulation_message="unexpected control circulation" if manipulation_gate == "control-delivery" else None,
     )
     _build_bundle(
         root,
@@ -382,6 +453,14 @@ def _campaign_fixture(
         unverified=treatment_unverified,
         related_notice=True,
         unexpected_r1=unexpected_treatment,
+        circulation_message="full treatment circulation" if manipulation_gate is not None else None,
+        deliver_circulation=manipulation_gate not in {"missing-treatment-delivery", "bool-tick"},
+        circulation_fault=(
+            manipulation_gate
+            if manipulation_gate
+            in {"wrong-mode", "wrong-kind", "wrong-message-tick", "wrong-detail", "late-delivery", "bool-tick"}
+            else None
+        ),
     )
 
     original_path = root / "batch" / "attempt-1" / "batch_manifest.json"
@@ -443,6 +522,8 @@ def test_campaign_aggregates_occurrence_and_keeps_uncovered_detection_na(tmp_pat
 
     assert report["schema_version"] == LOSS_CAMPAIGN_REPORT_SCHEMA_VERSION
     assert report["campaign_integrity_passed"] is True
+    assert report["manipulation_gate"] is None
+    assert report["integrity_gates"]["manipulation_gate"] is None
     result = report["contrasts"][0]["endpoint_results"][0]
     assert result["arms"]["control"]["occurrence"]["primary_rate"]["rate"] == 0.0
     assert result["arms"]["treatment"]["occurrence"]["primary_rate"]["rate"] == 1.0
@@ -454,6 +535,76 @@ def test_campaign_aggregates_occurrence_and_keeps_uncovered_detection_na(tmp_pat
     assert detection["related_control_signal_event_count"] == 1
     assert report["r3_sentinel"]["status"] == "observed_zero"
     assert report["r3_sentinel"]["exercise_status"] == "fully_exercised"
+
+
+def test_declared_mutation_circulation_gate_passes_exact_delivery(tmp_path: Path) -> None:
+    fixture = _campaign_fixture(tmp_path, manipulation_gate="valid")
+
+    report = _build(fixture)
+
+    assert report["manipulation_gate"]["schema_version"] == "company_twin.mutation_circulation_gate_report.v1"
+    assert report["manipulation_gate"]["status"] == "passed"
+    assert report["manipulation_gate"]["contract"]["delivery_tick"] == 1
+    assert report["manipulation_gate"]["passed"] is True
+    assert report["integrity_gates"]["manipulation_gate"] is True
+    treatment = next(row for row in report["manipulation_gate"]["runs"] if row["condition"] == "treatment")
+    assert treatment["expected_recipient_seats"] == ["emp-Q"]
+    assert treatment["observed_deliveries"][0]["ledger_ordinal"] < treatment[
+        "first_assigned_endpoint_opportunity_ordinal"
+    ]
+    assert report["campaign_integrity_passed"] is True
+
+
+@pytest.mark.parametrize(
+    "gate_failure",
+    [
+        "missing-treatment-delivery",
+        "control-delivery",
+        "wrong-kind",
+        "wrong-message-tick",
+        "wrong-detail",
+        "late-delivery",
+        "bool-tick",
+    ],
+)
+def test_declared_mutation_circulation_gate_failure_blocks_integrity(
+    tmp_path: Path,
+    gate_failure: str,
+) -> None:
+    fixture = _campaign_fixture(tmp_path, manipulation_gate=gate_failure)
+
+    report = _build(fixture)
+
+    assert report["manipulation_gate"]["passed"] is False
+    assert report["integrity_gates"]["manipulation_gate"] is False
+    assert report["manipulation_gate"]["failed_run_ids"]
+    assert report["campaign_integrity_passed"] is False
+
+
+def test_circulation_mode_drift_is_rejected_before_aggregation(tmp_path: Path) -> None:
+    fixture = _campaign_fixture(tmp_path, manipulation_gate="wrong-mode")
+
+    with pytest.raises(LossCampaignError, match="actual config drift outside mutation"):
+        _build(fixture)
+
+
+def test_unknown_mutation_gate_contract_field_fails_plan_validation(tmp_path: Path) -> None:
+    fixture = _campaign_fixture(tmp_path)
+    plan = json.loads(fixture["plan_path"].read_text(encoding="utf-8"))
+    plan["manipulation_gate"] = {
+        "schema_version": "company_twin.mutation_circulation_gate.v1",
+        "mode": "exact_config_announcement_delivery",
+        "delivery_tick": 1,
+        "recipient_scope": "all_active_visible_roles",
+        "temporal_requirement": "before_first_assigned_endpoint_opportunity",
+        "control_handling": "forbid_document_circulation",
+        "treatment_handling": "require_exact_config_announcement_delivery",
+        "unknown": True,
+    }
+    _write_json(fixture["plan_path"], plan)
+
+    with pytest.raises(LossCampaignError, match="missing or unknown"):
+        load_loss_campaign_plan(fixture["plan_path"], root=fixture["root"])
 
 
 def test_retry_chain_preserves_failed_attempt_provenance(tmp_path: Path) -> None:
@@ -762,6 +913,28 @@ def test_cli_writes_failed_integrity_diagnostics_then_exits_one(tmp_path: Path) 
     output = fixture["root"] / "reports" / "loss_event_campaign.json"
     assert output.exists()
     assert LOSS_CAMPAIGN_REPORT_SCHEMA_VERSION in output.read_text(encoding="utf-8")
+
+
+def test_cli_exits_one_and_preserves_manipulation_gate_failure(tmp_path: Path) -> None:
+    fixture = _campaign_fixture(tmp_path, manipulation_gate="missing-treatment-delivery")
+    args = [
+        "loss-event-campaign",
+        "--root",
+        str(fixture["root"]),
+        "--plan",
+        "plans/loss_campaign_plan.json",
+        "--output",
+        "reports/loss_event_campaign.json",
+    ]
+    for path in fixture["manifest_paths"]:
+        args.extend(["--batch-manifest", str(path.relative_to(fixture["root"]))])
+
+    result = CliRunner().invoke(app, args)
+
+    assert result.exit_code == 1, result.output
+    payload = json.loads((fixture["root"] / "reports" / "loss_event_campaign.json").read_text(encoding="utf-8"))
+    assert payload["manipulation_gate"]["status"] == "failed"
+    assert payload["integrity_gates"]["manipulation_gate"] is False
 
 
 def test_report_write_is_byte_deterministic(tmp_path: Path) -> None:
