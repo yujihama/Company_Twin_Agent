@@ -3,12 +3,12 @@
   "status": "sealed",
   "plan_id": "phase3-m3-document-mutation-feasibility-pilot-20260710",
   "created_at": "2026-07-10",
-  "kind": "pre_execution_pilot_plan_pending_separate_approval",
+  "kind": "pre_execution_pilot_plan",
   "campaign_role": "feasibility_pilot",
-  "approval_status": "Pilot structure approved in principle; live execution is not approved or authorized while this PR is Draft. Before Ready, record the explicit pilot execution approval in this field.",
-  "approval_granted_by_this_file": false,
-  "execution_authorized_by_this_file": false,
-  "seal_method": "This Draft artifact is a proposal only. After explicit pilot execution approval, change kind to pre_execution_pilot_plan, record the grant in approval_status, set approval_granted_by_this_file and execution_authorized_by_this_file to true, refresh the confirmatory template's pinned pilot-plan hash, and revalidate before Ready. That merge commit is the pilot execution seal. The confirmatory artifacts in the same PR are a hash-frozen template only and receive no execution authorization from that merge.",
+  "approval_status": "Explicit execution approval was granted in the task conversation on 2026-07-10. Authorization is limited to this four-run feasibility pilot and excludes the confirmatory K=5 campaign.",
+  "approval_granted_by_this_file": true,
+  "execution_authorized_by_this_file": true,
+  "seal_method": "The owner explicitly approved this four-run pilot on 2026-07-10. This PR's merge commit is the pilot execution seal. The confirmatory artifacts in the same PR remain a hash-frozen template only and receive no execution authorization from that merge.",
   "question": "Before spending on the confirmatory K=5 campaign, can one fresh R1 pair and one fresh R4 pair exercise every assigned endpoint and the R3 completion sentinel while preserving exact mutation-circulation exposure?",
   "measurement_boundary": {
     "primary": "Feasibility and integrity only: assigned-endpoint opportunity exercise, R3 opportunity exercise with zero R3 events, and exact manipulation-gate exposure in every run.",
@@ -17,7 +17,7 @@
     "readiness": "The pilot and its report do not update acceptance or readiness."
   },
   "batch_spec": "docs/progress/phase3_m3_loss_pilot_batch_20260710.json",
-  "batch_spec_sha256": "cd88e69adf07d8b21d264b9dac38d0dcb6be0fa8c891bf31ac53434ec4605aa2",
+  "batch_spec_sha256": "c6fec22513e897b00b972a663469946276c0691296c4285446d0314ef69b463c",
   "pilot_gate": {
     "schema_version": "company_twin.loss_event_feasibility_gate.v1",
     "effect_estimation": "forbidden_exclude_from_confirmatory",
@@ -167,21 +167,21 @@
     "abort_on_low_credits": true,
     "require_available": true,
     "rule": "The batch-sealed guard is authoritative: abort before launching any pilot run when available balance cannot be read or is below 7 credits.",
-    "execution_authorized_by_this_file": false
+    "execution_authorized_by_this_file": true
   },
   "proposed_execution_order": [
-    "After explicit pilot execution approval, change kind to pre_execution_pilot_plan, update approval_status, set approval_granted_by_this_file and execution_authorized_by_this_file to true, recompute the confirmatory template's pilot_prerequisite.plan_sha256, revalidate, mark this PR Ready, and merge it before any live run. The merge commit becomes the pilot seal and freezes—but does not authorize—the confirmatory M3 template.",
+    "The owner granted pilot-only execution approval on 2026-07-10. Recompute the confirmatory template's pilot_prerequisite.plan_sha256, revalidate, mark this PR Ready, and merge it before any live run. The merge commit becomes the pilot seal and freezes—but does not authorize—the confirmatory M3 template.",
     "Check out that exact pilot merge commit with a clean working tree and execute the full four-run pilot with both --batch-spec and --plan under its sealed seven-credit fail-closed guard.",
     "Retry only manifest-recorded infrastructure failures with identical run IDs/seeds and a distinct retry batch directory.",
     "Produce loss_events.json and loss_event_monitoring.json for every successful run, then run loss-event-campaign with the sealed pilot plan and complete manifest chain.",
     "Evaluate only pilot_gate and manipulation-gate integrity. Do not inspect or publish effect direction, paired deltas, or arm comparisons.",
-    "If and only if pilot_gate.passed=true, record the pilot result and exact artifact hashes in a result PR. That result is a prerequisite for separately approving and merging the confirmatory plan; it is never pooled into K=5."
+    "Record the pilot result and exact artifact hashes in a result PR regardless of outcome. Only pilot_gate.passed=true can satisfy the prerequisite for separately approving and merging the confirmatory plan; pilot data is never pooled into K=5."
   ],
-  "owner_decisions_required_before_pilot_merge": [
-    "Confirm that the pilot-only PR contains no confirmatory execution authorization.",
-    "Confirm the four-run all-or-nothing feasibility gate and exact exposure gate.",
-    "Confirm pilot seed 951/952 exclusion from every confirmatory analysis.",
-    "Confirm the fail-closed seven-credit guard and that approval remains withheld while this PR is Draft.",
-    "Before Ready, require kind=pre_execution_pilot_plan, an approval_status grant record, both approval/execution booleans=true, and an exact refresh of the confirmatory template's pinned pilot-plan SHA-256."
+  "owner_decisions_recorded_for_pilot_merge": [
+    "The pilot-only PR contains no confirmatory execution authorization.",
+    "The four-run all-or-nothing feasibility gate and exact exposure gate are approved.",
+    "Pilot seeds 951/952 are excluded from every confirmatory analysis.",
+    "The fail-closed seven-credit guard is approved for this pilot only.",
+    "Ready requires kind=pre_execution_pilot_plan, an approval_status grant record, both approval/execution booleans=true, and an exact refresh of the confirmatory template's pinned pilot-plan SHA-256; those conditions are recorded before merge."
   ]
 }

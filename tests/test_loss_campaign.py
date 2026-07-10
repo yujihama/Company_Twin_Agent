@@ -1573,8 +1573,10 @@ def test_repository_m3_pilot_plan_is_feasibility_only_and_sealed_to_four_runs() 
 
     assert _sha256(batch_path) == plan["batch_spec_sha256"]
     assert plan["campaign_role"] == "feasibility_pilot"
-    assert plan["execution_authorized_by_this_file"] is False
-    assert plan["approval_granted_by_this_file"] is False
+    assert plan["kind"] == "pre_execution_pilot_plan"
+    assert plan["execution_authorized_by_this_file"] is True
+    assert plan["approval_granted_by_this_file"] is True
+    assert plan["cost_guard"]["execution_authorized_by_this_file"] is True
     assert plan["pilot_gate"] == {
         "schema_version": LOSS_FEASIBILITY_GATE_SCHEMA_VERSION,
         "effect_estimation": "forbidden_exclude_from_confirmatory",

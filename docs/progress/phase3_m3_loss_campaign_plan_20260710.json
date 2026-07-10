@@ -21,7 +21,7 @@
   "pilot_prerequisite": {
     "plan_id": "phase3-m3-document-mutation-feasibility-pilot-20260710",
     "plan_path": "docs/progress/phase3_m3_loss_pilot_plan_20260710.json",
-    "plan_sha256": "5f9215381cc455dd2f37e26f129d72d4f20e3e6fbce8da6f48d40ec2ed4743fc",
+    "plan_sha256": "4f6563995315f8700bf05ee6160eb4f29f7b68da591c7994218bd7bce2d8e8fe",
     "required_result": "pilot_gate.passed=true",
     "required_campaign_role": "feasibility_pilot",
     "required_pilot_kind_at_execution_seal": "pre_execution_pilot_plan",

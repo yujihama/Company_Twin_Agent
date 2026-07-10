@@ -1,5 +1,5 @@
 {
-  "description": "DRAFT M3 feasibility-only pilot: one R1 and one R4 same-seed control/treatment pair. Pilot runs are excluded from the confirmatory K=5 campaign and cannot estimate effects.",
+  "description": "AUTHORIZED M3 feasibility-only pilot: one R1 and one R4 same-seed control/treatment pair. Pilot runs are excluded from the confirmatory K=5 campaign and cannot estimate effects.",
   "root": ".",
   "concurrency": 2,
   "stagger_seconds": 8,
