@@ -94,6 +94,9 @@ Repeat `--batch-manifest` for each retry attempt, preserving the original full
 manifest first; retries must use a distinct `--batch-dir` so history is not
 overwritten. The command verifies that the plan and batch spec existed at the
 execution commit, revalidates every run artifact, and never updates readiness.
+If the sealed plan declares a mutation-circulation manipulation gate, the
+report also requires exact config-derived full-text delivery before the first
+assigned endpoint opportunity; any mismatch makes the CLI exit non-zero.
 For the current R1-R4 catalog, direct detection coverage is `uncovered`, so
 direct miss rates are N/A rather than 100%; occurrence rates remain estimable.
 

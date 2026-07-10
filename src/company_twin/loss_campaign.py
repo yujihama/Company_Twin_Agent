@@ -49,6 +49,8 @@ from .recorder import read_jsonl
 LOSS_CAMPAIGN_PLAN_SCHEMA_VERSION = "company_twin.loss_event_campaign_plan.v1"
 LOSS_CAMPAIGN_POLICY_SCHEMA_VERSION = "company_twin.loss_event_campaign_policy.v1"
 LOSS_CAMPAIGN_REPORT_SCHEMA_VERSION = "company_twin.loss_event_campaign.v1"
+MUTATION_CIRCULATION_GATE_SCHEMA_VERSION = "company_twin.mutation_circulation_gate.v1"
+MUTATION_CIRCULATION_GATE_REPORT_SCHEMA_VERSION = "company_twin.mutation_circulation_gate_report.v1"
 
 _KNOWN_ENDPOINTS = {
     ("R1/R2", "unconfirmed_vulnerable_sale"),
@@ -77,6 +79,7 @@ class ResolvedCampaignRun:
     monitoring: dict[str, Any]
     meta: dict[str, Any]
     config: dict[str, Any]
+    ledger: tuple[dict[str, Any], ...]
     source_hashes: dict[str, str]
 
 
@@ -158,6 +161,7 @@ def resolve_loss_campaign_runs(
                 monitoring=bundle["monitoring"],
                 meta=bundle["meta"],
                 config=bundle["config"],
+                ledger=tuple(bundle["ledger"]),
                 source_hashes=bundle["source_hashes"],
             )
         )
@@ -254,9 +258,15 @@ def build_loss_event_campaign_report(
         minimum_scope=str(policy["r3_sentinel"]["minimum_scope"]),
     )
     unexpected = _unexpected_loss_events(runs, plan["endpoints"], plan["contrasts"])
+    manipulation_gate = _evaluate_manipulation_gate(plan, runs)
     unexpected_handling = str(policy["unexpected_loss_events"]["handling"])
     unexpected_gate_passed = not unexpected or unexpected_handling == "report_descriptive"
-    campaign_integrity_passed = sentinel["causal_interpretation_allowed"] and unexpected_gate_passed
+    manipulation_gate_passed = manipulation_gate is None or manipulation_gate["passed"]
+    campaign_integrity_passed = (
+        sentinel["causal_interpretation_allowed"]
+        and unexpected_gate_passed
+        and manipulation_gate_passed
+    )
     execution_commits = sorted({str(source["git_commit"]) for source in manifest_sources})
 
     return {
@@ -268,6 +278,7 @@ def build_loss_event_campaign_report(
             "r3_zero_event_sentinel": sentinel["causal_interpretation_allowed"],
             "unexpected_loss_events": unexpected_gate_passed,
             "unexpected_loss_event_handling": unexpected_handling,
+            "manipulation_gate": None if manipulation_gate is None else manipulation_gate_passed,
         },
         "measurement_boundary": {
             "direct_detection_miss": "estimated only for catalog-covered materialized events; uncovered classes are N/A, never 100% miss",
@@ -279,6 +290,7 @@ def build_loss_event_campaign_report(
         "contrasts": contrast_rows,
         "r3_sentinel": sentinel,
         "unexpected_loss_events": unexpected,
+        "manipulation_gate": manipulation_gate,
         "runs": [_run_provenance_row(run, root=root) for run in sorted(runs, key=lambda item: item.batch_run_id)],
         "sources": {
             "plan": {"path": _relative_path(plan_path, root), "sha256": _file_sha256(plan_path)},
@@ -495,6 +507,7 @@ def _validate_plan(plan: dict[str, Any]) -> None:
     primary_ids = {endpoint_id for endpoint_id, endpoint in endpoint_by_id.items() if endpoint["role"] == "primary"}
     if referenced_primary != primary_ids:
         raise LossCampaignError(f"every primary endpoint must be referenced by a contrast: missing={sorted(primary_ids - referenced_primary)}")
+    _validate_manipulation_gate_contract(plan.get("manipulation_gate"))
 
 
 def _validate_policy(policy: dict[str, Any]) -> None:
@@ -563,6 +576,29 @@ def _validate_policy(policy: dict[str, Any]) -> None:
         raise LossCampaignError(
             "policy unexpected_loss_events.handling must explicitly be fail_integrity_gate or report_descriptive"
         )
+
+
+def _validate_manipulation_gate_contract(gate: Any) -> None:
+    if gate is None:
+        return
+    expected = {
+        "schema_version": MUTATION_CIRCULATION_GATE_SCHEMA_VERSION,
+        "mode": "exact_config_announcement_delivery",
+        "recipient_scope": "all_active_visible_roles",
+        "temporal_requirement": "before_first_assigned_endpoint_opportunity",
+        "control_handling": "forbid_document_circulation",
+        "treatment_handling": "require_exact_config_announcement_delivery",
+    }
+    if not isinstance(gate, dict):
+        raise LossCampaignError("manipulation_gate must be an object when configured")
+    if set(gate) != {*expected, "delivery_tick"}:
+        raise LossCampaignError("manipulation_gate has missing or unknown fields")
+    for key, value in expected.items():
+        if gate.get(key) != value:
+            raise LossCampaignError(f"manipulation_gate.{key} must be {value!r}")
+    delivery_tick = gate.get("delivery_tick")
+    if isinstance(delivery_tick, bool) or not isinstance(delivery_tick, int) or delivery_tick <= 0:
+        raise LossCampaignError("manipulation_gate.delivery_tick must be a positive integer")
 
 
 def _validate_sealed_batch_spec(
@@ -895,6 +931,7 @@ def _load_and_validate_bundle(
         "monitoring": monitoring,
         "meta": meta,
         "config": config,
+        "ledger": ledger,
         "source_hashes": {
             **expected_hashes,
             "monitoring": _file_sha256(required["monitoring"]),
@@ -1270,6 +1307,223 @@ def _aggregate_r3_sentinel(
         "hit_runs": [view["batch_run_id"] for view in views if view["event_count"] > 0],
         "causal_interpretation_allowed": status == "observed_zero",
     }
+
+
+def _evaluate_manipulation_gate(
+    plan: dict[str, Any],
+    runs: list[ResolvedCampaignRun],
+) -> dict[str, Any] | None:
+    gate = plan.get("manipulation_gate")
+    if gate is None:
+        return None
+    endpoints = {str(endpoint["endpoint_id"]): endpoint for endpoint in plan["endpoints"]}
+    contrasts = {str(contrast["contrast_id"]): contrast for contrast in plan["contrasts"]}
+    rows: list[dict[str, Any]] = []
+    for run in sorted(runs, key=lambda item: item.batch_run_id):
+        contrast = contrasts[run.contrast_id]
+        assigned_endpoints = [endpoints[str(endpoint_id)] for endpoint_id in contrast["endpoint_ids"]]
+        eligible_opportunities = [
+            opportunity
+            for opportunity in run.monitoring["opportunities"]
+            if any(_opportunity_matches_endpoint(opportunity, endpoint) for endpoint in assigned_endpoints)
+        ]
+        first_opportunity_ordinal = min(
+            (int((item.get("anchor") or {}).get("ledger_ordinal")) for item in eligible_opportunities),
+            default=None,
+        )
+        observed_deliveries = _document_circulation_deliveries(run.ledger)
+        issues: list[str] = []
+        expected_recipients: list[str] = []
+        announcement_hashes: list[str] = []
+        if run.condition == "control":
+            announcements = _config_circulation_announcements(run.config, issues=issues)
+            if announcements:
+                issues.append("control config contains mutation-derived circulation announcements")
+            if observed_deliveries:
+                issues.append("control ledger contains document_circulation deliveries")
+        else:
+            announcements = _config_circulation_announcements(run.config, issues=issues)
+            if len(announcements) != 1:
+                issues.append(f"treatment config must contain exactly one circulation announcement, got {len(announcements)}")
+            expected_mutation = str(contrast["mutation_id"])
+            corpus = ((run.config.get("world") or {}).get("corpus") or {})
+            circulation = corpus.get("circulation") or {}
+            if circulation.get("enabled") is not True:
+                issues.append("treatment circulation must be enabled")
+            if circulation.get("mode") != "full_text":
+                issues.append("treatment circulation mode must be full_text")
+            mutation_entries = corpus.get("mutations") or []
+            matching_mutations = [
+                entry
+                for entry in mutation_entries
+                if isinstance(entry, dict) and str(entry.get("mutation_id") or "") == expected_mutation
+            ]
+            if len(matching_mutations) != 1:
+                issues.append("treatment config must contain exactly one full mutation entry for the contrast")
+            mutation_entry = matching_mutations[0] if len(matching_mutations) == 1 else {}
+            expected_delivery_keys: list[tuple[str, int, str, int, str]] = []
+            for announcement in announcements:
+                if str(announcement.get("mutation_id") or "") != expected_mutation:
+                    issues.append("treatment circulation announcement mutation_id drift")
+                tick = announcement.get("tick")
+                valid_tick = not isinstance(tick, bool) and isinstance(tick, int)
+                if not valid_tick or tick != gate["delivery_tick"]:
+                    issues.append(
+                        f"treatment circulation announcement tick must be {gate['delivery_tick']}, got {tick!r}"
+                    )
+                message_value = announcement.get("message")
+                message = message_value if isinstance(message_value, str) else ""
+                if not message:
+                    issues.append("treatment circulation announcement message is empty")
+                    continue
+                if announcement.get("doc_id") != mutation_entry.get("doc_id"):
+                    issues.append("treatment circulation announcement doc_id differs from the mutation entry")
+                if announcement.get("visible_roles") != mutation_entry.get("visible_roles"):
+                    issues.append("treatment circulation visible_roles differ from the mutation entry")
+                if message != mutation_entry.get("circulation_message"):
+                    issues.append("treatment circulation message is not the mutation entry full-text message")
+                if announcement.get("digest") != mutation_entry.get("circulation_digest"):
+                    issues.append("treatment circulation digest differs from the mutation entry")
+                announcement_hashes.append(hashlib.sha256(message.encode("utf-8")).hexdigest())
+                recipients = _announcement_recipients(run.config, mutation_entry, issues=issues)
+                expected_recipients.extend(recipients)
+                if valid_tick:
+                    expected_delivery_keys.extend(
+                        (recipient, tick, "timed_notice", tick, message) for recipient in recipients
+                    )
+            observed_delivery_keys = [
+                (
+                    str(item["seat_id"]),
+                    int(item["tick"]),
+                    str(item["kind"]),
+                    int(item["message_tick"]),
+                    str(item["detail"]),
+                )
+                for item in observed_deliveries
+            ]
+            if sorted(observed_delivery_keys) != sorted(expected_delivery_keys):
+                issues.append("treatment document_circulation deliveries do not exactly match config announcements")
+            if first_opportunity_ordinal is None:
+                issues.append("assigned endpoint has no opportunity anchor for temporal exposure validation")
+            elif any(int(item["ledger_ordinal"]) >= first_opportunity_ordinal for item in observed_deliveries):
+                issues.append("document_circulation delivery is not before the first assigned endpoint opportunity")
+        rows.append(
+            {
+                "batch_run_id": run.batch_run_id,
+                "bundle_run_id": run.bundle_run_id,
+                "contrast_id": run.contrast_id,
+                "condition": run.condition,
+                "seed": run.seed,
+                "passed": not issues,
+                "issues": issues,
+                "first_assigned_endpoint_opportunity_ordinal": first_opportunity_ordinal,
+                "expected_recipient_seats": sorted(set(expected_recipients)),
+                "announcement_message_sha256": sorted(announcement_hashes),
+                "observed_deliveries": [
+                    {
+                        "seat_id": item["seat_id"],
+                        "tick": item["tick"],
+                        "kind": item["kind"],
+                        "message_tick": item["message_tick"],
+                        "ledger_ordinal": item["ledger_ordinal"],
+                        "ledger_hash": item["ledger_hash"],
+                        "message_sha256": hashlib.sha256(str(item["detail"]).encode("utf-8")).hexdigest(),
+                    }
+                    for item in observed_deliveries
+                ],
+            }
+        )
+    return {
+        "schema_version": MUTATION_CIRCULATION_GATE_REPORT_SCHEMA_VERSION,
+        "configured": True,
+        "contract": copy.deepcopy(gate),
+        "mode": gate["mode"],
+        "status": "passed" if all(row["passed"] for row in rows) else "failed",
+        "passed": all(row["passed"] for row in rows),
+        "failed_run_ids": [row["batch_run_id"] for row in rows if not row["passed"]],
+        "runs": rows,
+    }
+
+
+def _opportunity_matches_endpoint(opportunity: dict[str, Any], endpoint: dict[str, Any]) -> bool:
+    probe_ids = set(endpoint["eligible_probe_ids"])
+    return (
+        opportunity.get("risk") == endpoint["risk"]
+        and opportunity.get("loss_class") == endpoint["loss_class"]
+        and ("*" in probe_ids or opportunity.get("probe_id") in probe_ids)
+    )
+
+
+def _config_circulation_announcements(config: dict[str, Any], *, issues: list[str]) -> list[dict[str, Any]]:
+    circulation = ((((config.get("world") or {}).get("corpus") or {}).get("circulation")) or {})
+    announcements = circulation.get("announcements") or []
+    if not isinstance(announcements, list) or not all(isinstance(item, dict) for item in announcements):
+        issues.append("config circulation announcements must be a list of objects")
+        return []
+    return announcements
+
+
+def _announcement_recipients(
+    config: dict[str, Any],
+    announcement: dict[str, Any],
+    *,
+    issues: list[str],
+) -> list[str]:
+    population = ((config.get("world") or {}).get("population") or {})
+    seats = population.get("seats") or {}
+    if not isinstance(seats, dict):
+        issues.append("config population.seats must be an object")
+        return []
+    bindings = population.get("binding") or {}
+    if bindings and not isinstance(bindings, dict):
+        issues.append("config population.binding must be an object")
+        return []
+    active_seats = set(bindings) if bindings else set(seats)
+    raw_visible_roles = announcement.get("visible_roles")
+    if not isinstance(raw_visible_roles, list) or not raw_visible_roles or not all(
+        isinstance(role, str) and role for role in raw_visible_roles
+    ):
+        issues.append("mutation visible_roles must be a non-empty string list")
+        return []
+    visible_roles = set(raw_visible_roles)
+    recipients = sorted(
+        seat_id
+        for seat_id in active_seats
+        if isinstance(seats.get(seat_id), dict) and str(seats[seat_id].get("role") or "") in visible_roles
+    )
+    if not recipients:
+        issues.append("circulation announcement has no active recipient in its visible roles")
+    return recipients
+
+
+def _document_circulation_deliveries(ledger: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
+    deliveries: list[dict[str, Any]] = []
+    for ordinal, row in enumerate(ledger):
+        payload = row.get("payload") or {}
+        if not isinstance(payload, dict):
+            continue
+        message = payload.get("message") or {}
+        if not isinstance(message, dict):
+            continue
+        if row.get("event_type") != "inbox_delivered" or message.get("notice") != "document_circulation":
+            continue
+        message_tick = message.get("tick")
+        deliveries.append(
+            {
+                "seat_id": str(payload.get("to_seat") or ""),
+                "tick": int(row.get("tick") or 0),
+                "kind": str(message.get("kind") or ""),
+                "message_tick": (
+                    int(message_tick)
+                    if isinstance(message_tick, int) and not isinstance(message_tick, bool)
+                    else -1
+                ),
+                "detail": str(message.get("detail") or ""),
+                "ledger_ordinal": ordinal,
+                "ledger_hash": str(row.get("hash") or ""),
+            }
+        )
+    return deliveries
 
 
 def _unexpected_loss_events(

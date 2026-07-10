@@ -2094,7 +2094,11 @@ run/arm/seedをディレクトリ名から推測しない。planとbatch specが
 meta/config/ledger/loss/monitoringのschema/method/hash、現在ledgerから再計算したloss oracleと
 monitoring joinを照合する。欠損run、失敗run、seed非対称、mixed commit、plan外条件差、
 post-hoc plan、改変artifactはreportを書かずfail closedする。検証済みのintegrity gate不合格は
-診断reportを残してCLIを非0終了する。
+診断reportを残してCLIを非0終了する。planが任意の
+`company_twin.mutation_circulation_gate.v1` を宣言した場合は、controlの無配信と、
+treatment configのexact full-text announcementが全active/visible seatへ指定tickで、
+assigned endpointの最初のopportunityより前に配達されたこともledger ordinal/hashで検証し、
+1 runでも不一致ならcampaign integrityを不合格にする。
 
 **指標と表示境界.** planのendpoint/probe定義に合うopportunityを分母とするopportunity rate、
 またはeligible runを分母とするrun incidenceを算定し、arm率にはWilson 95%区間、
