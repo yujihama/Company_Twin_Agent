@@ -1,14 +1,23 @@
 # 統制環境ツイン 作業状況メモ
 
-最終更新: 2026-07-10 — **M3測定経路: `loss_events.v2` と世界内通知の案件・時系列joinを実装。現行R1〜R4の直接発見被覆なし。campaign集計・検知policyが次工程**
+最終更新: 2026-07-10 — **M3汎用集計経路を実装。現行direct coverageなし・直接検知漏れ率N/A。M3は未封印/未実行、次はplanの重大判断**
+
+## 0-D. 損失事象campaign集計器(2026-07-10)
+
+- `loss-event-campaign` は実行commitに存在する封印planに列挙したrun/arm/seedだけを対象に、機会分母の発生率とWilson 95%区間、same-seed差を集計する
+- original+retry manifest、plan/batch spec、meta/config/ledger/per-run artifactのschema/method/hash、same-seed pair、許可deltaをfail closedで検証する。persist済みloss/monitoringも現在ledgerから再計算する
+- 現行R1〜R4はdirect coverage=`uncovered`。直接検知漏れ件数・率・区間はN/Aで、未カバー件数とR4関連信号を別表示する。関連通知は直接捕捉・読了・認識を証明しない
+- R3最小機会数と適用scope、pre-event lookback、post-event window、plan外損失の扱いはplanに明記がなければ拒否する
+- **実装・synthetic testのみ完了。M3 plan、live run、結果、readiness接続は未実施**
+- 次はmutation/probe、seed/K、分母、時間policy、直接発見統制の要否をオーナー判断して封印する
 
 ## 0-C. 損失事象×世界内モニタリングjoin(2026-07-10)
 
 - `loss-event-monitoring` は完走runの `loss_events.v2` を最初の完了ledger行へ再固定し、同一application・ledger ordinal/hashで世界可視通知を突合。出力は `loss_event_monitoring.v1`
 - 既存の中間所見用 `detection_miss_rates` は種類別総数の相殺で別案件を誤結合し得るため流用しない
 - 現行R1/R2・R3・R4には損失事象を直接識別する世界内発見統制がない。R4の `approval_deadline_overrun` は承認依頼の期限超過を知らせる関連信号で、未承認完了の検知には数えない
-- hash chain・全tick完走・schema/method/count・completion anchorをfail-closed検証。pre-event/時間窓/uncovered分母はraw joinで決めず、M3封印policyに残す
-- 次工程: campaign集計。新しい直接発見通知の追加は世界条件を変えるため、M3設計時のオーナー判断
+- hash chain・全tick完走・schema/method/count・completion anchorをfail-closed検証。raw join自体は統計policyを決めず、campaign集計器がplan必須項目として検証する。M3の具体planは未封印
+- 次工程: M3の封印判断。新しい直接発見通知の追加は世界条件を変えるためオーナー判断
 
 ## 0-B. 行動分布電池とD1b帰結実験(2026-07-09)
 

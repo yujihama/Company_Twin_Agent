@@ -705,6 +705,44 @@ def loss_event_monitoring_cmd(
     _echo_json(payload)
 
 
+@app.command("loss-event-campaign")
+def loss_event_campaign_cmd(
+    plan: Annotated[Path, typer.Option("--plan", help="Sealed loss-event campaign plan JSON")],
+    batch_manifest: Annotated[
+        list[Path],
+        typer.Option(
+            "--batch-manifest",
+            help="Original batch manifest, followed by any retry manifests in attempt order; repeat this option",
+        ),
+    ],
+    output: Annotated[Path, typer.Option("--output", help="Output path for loss_event_campaign.v1 JSON")],
+    root: Annotated[Path | None, typer.Option("--root", help="Repository root for relative paths and provenance checks")] = None,
+) -> None:
+    """Aggregate a sealed loss-event campaign without inferring run scope.
+
+    The command validates the plan at the execution commit, the complete
+    batch/retry chain, same-seed pairs, and every per-run source hash before
+    writing.  It never updates acceptance or readiness.  A failed integrity
+    gate still leaves the validated diagnostic report on disk and exits 1.
+    """
+    from .loss_campaign import LossCampaignError, write_loss_event_campaign_report
+
+    _provenance_banner()
+    base = _root(root)
+    try:
+        payload = write_loss_event_campaign_report(
+            plan,
+            batch_manifest_paths=batch_manifest,
+            root=base,
+            output_path=output,
+        )
+    except (FileNotFoundError, LossCampaignError, OSError) as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    _echo_json(payload)
+    if not payload["campaign_integrity_passed"]:
+        raise typer.Exit(code=1)
+
+
 @app.command("action-replay")
 def action_replay_cmd(
     run_root: Annotated[Path, typer.Option("--run-root", help="Completed run bundle whose probe decision turn should be replayed")],
