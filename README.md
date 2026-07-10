@@ -77,6 +77,26 @@ normalize to an OpenRouter Qwen model such as:
 openrouter:qwen/qwen3.6-flash
 ```
 
+## Loss-Event Campaign Aggregation
+
+After every sealed S2 run has produced `loss_events.json` and
+`loss_event_monitoring.json`, aggregate only the runs named by the sealed plan:
+
+```powershell
+python -m company_twin.cli loss-event-campaign `
+  --root . `
+  --plan docs\progress\loss_campaign_plan.json `
+  --batch-manifest runs\m3_batch\batch_manifest.json `
+  --output runs\m3_batch\loss_event_campaign.json
+```
+
+Repeat `--batch-manifest` for each retry attempt, preserving the original full
+manifest first; retries must use a distinct `--batch-dir` so history is not
+overwritten. The command verifies that the plan and batch spec existed at the
+execution commit, revalidates every run artifact, and never updates readiness.
+For the current R1-R4 catalog, direct detection coverage is `uncovered`, so
+direct miss rates are N/A rather than 100%; occurrence rates remain estimable.
+
 ## Full-World Evidence Boundary
 
 For a full-world claim, run a live campaign with S2 and then verify both gates:
