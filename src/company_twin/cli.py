@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import hashlib
 import json
+import math
 import os
 import sys
 from pathlib import Path
@@ -32,12 +34,19 @@ from .parallel_runner import (
     BatchSpecError,
     DEFAULT_MIN_CREDITS,
     RATE_LIMIT_WARN_THRESHOLD,
+    acquire_wave_execution_lease,
     build_retry_spec,
     check_openrouter_credits,
+    complete_wave_launch,
     delete_partial_roots,
     load_batch_manifest,
+    mark_wave_launch_started,
+    release_wave_execution_lease,
     run_batch,
+    select_wave,
     validate_batch_spec,
+    validate_managed_checkout,
+    validate_retry_manifest,
 )
 from .readiness import run_readiness_gate, write_readiness_reports
 from .semantic_grounding import (
@@ -828,13 +837,15 @@ def lint(root: Annotated[Path | None, typer.Option("--root")] = None) -> None:
 @app.command("run-batch")
 def run_batch_cmd(
     batch_spec: Annotated[Path | None, typer.Option("--batch-spec", help="JSON file with {\"runs\": [...], \"concurrency\": N, \"stagger_seconds\": S}")] = None,
+    plan: Annotated[Path | None, typer.Option("--plan", help="Sealed plan JSON that binds plan_id and exact batch_spec SHA-256; required when the batch has credit_guard")] = None,
     concurrency: Annotated[int | None, typer.Option("--concurrency", help="Max simultaneous run subprocesses (default 3; see module docstring for observed OpenRouter contention)")] = None,
     stagger_seconds: Annotated[float | None, typer.Option("--stagger-seconds", help="Delay between successive launches, in addition to the concurrency cap")] = None,
     batch_dir: Annotated[Path | None, typer.Option("--batch-dir", help="Directory for per-run logs and batch_manifest.json; defaults to --root/runs/batch_<timestamp>")] = None,
     retry_failed: Annotated[Path | None, typer.Option("--retry-failed", help="Path to a prior batch_manifest.json; re-run only its failed entries into the SAME run_roots")] = None,
     delete_partial_roots_flag: Annotated[bool, typer.Option("--delete-partial-roots", help="With --retry-failed, delete each failed run's (partial) run_root before re-launching it. Never happens by default -- required explicitly, once, per retry")] = False,
-    min_credits: Annotated[float, typer.Option("--min-credits", help="OpenRouter credit floor for the pre-launch balance check. Sizing rule of thumb: one S2 40-tick run costs ~0.85-1.2 credits (more with a plus-tier customer model), so budget ~1.2 x the number of runs in the batch. Below the floor this command warns by default; add --abort-on-low-credits to stop before any run launches")] = DEFAULT_MIN_CREDITS,
-    abort_on_low_credits: Annotated[bool, typer.Option("--abort-on-low-credits/--warn-on-low-credits", help="Abort (instead of just warning) when remaining credits are below --min-credits. An unavailable credits endpoint only ever warns -- it never blocks the batch")] = False,
+    wave: Annotated[str | None, typer.Option("--wave", help="Run one sealed wave_id from a batch spec whose waves exact-partition all runs")] = None,
+    min_credits: Annotated[float | None, typer.Option("--min-credits", help="OpenRouter credit floor for legacy specs. A sealed spec credit_guard fixes and overrides this value; a conflicting explicit value is rejected")] = None,
+    abort_on_low_credits: Annotated[bool | None, typer.Option("--abort-on-low-credits/--warn-on-low-credits", help="Legacy-spec low-balance behavior. Sealed credit_guard specs require abort and reject an explicit warn-only override")] = None,
     root: Annotated[Path | None, typer.Option("--root")] = None,
 ) -> None:
     """WP-12: orchestrate independent S0/S1/S2/control-pair-campaign runs in parallel subprocesses.
@@ -864,58 +875,283 @@ def run_batch_cmd(
 
     Credits preflight (incident 2026-07-06: an 11-run batch exhausted the
     OpenRouter balance mid-flight and 402s failed 8/11 runs): before
-    launching anything this command queries the OpenRouter credits endpoint,
-    prints the remaining balance, warns (or aborts, with
-    --abort-on-low-credits) below --min-credits, and records the pre-launch
-    balance in batch_manifest.json. An unreachable credits endpoint warns
-    and continues -- it never blocks the batch.
+    launching anything this command queries the OpenRouter credits endpoint
+    and records the pre-launch balance in batch_manifest.json. Legacy specs
+    retain the warn-only default. A spec-embedded sealed credit_guard requires
+    an available balance at or above its floor and aborts fail-closed before
+    launch when either condition is not met.
     """
     base = _root(root)
-
-    credits_preflight = check_openrouter_credits(api_key=os.getenv("OPENROUTER_API_KEY"))
-    if credits_preflight["status"] == "ok":
-        remaining = credits_preflight["remaining_credits"]
-        typer.echo(
-            f"OpenRouter credits remaining: {remaining:.2f} "
-            f"(total {credits_preflight['total_credits']:.2f} - usage {credits_preflight['total_usage']:.2f})"
-        )
-        if remaining < min_credits:
-            low_msg = (
-                f"remaining OpenRouter credits ({remaining:.2f}) are below --min-credits ({min_credits:.2f}); "
-                "an S2 40-tick run costs ~0.85-1.2 credits (more with a plus-tier customer model), so a "
-                "mid-batch 402 Insufficient credits failure is likely (this is exactly the 2026-07-06 incident)."
-            )
-            if abort_on_low_credits:
-                typer.echo(f"error: {low_msg} Aborting before any run launches (--abort-on-low-credits).", err=True)
-                raise typer.Exit(code=1)
-            typer.echo(f"warning: {low_msg} Continuing anyway (warn-only default; pass --abort-on-low-credits to block).", err=True)
-    else:
-        typer.echo(
-            f"warning: OpenRouter credits preflight {credits_preflight['status']}: "
-            f"{credits_preflight['detail']} -- continuing without a balance check.",
-            err=True,
-        )
-
-    if retry_failed is not None:
-        if batch_spec is None:
+    if batch_spec is None:
+        if retry_failed is not None:
             raise typer.BadParameter("--retry-failed requires --batch-spec (the same spec the failed batch used)")
-        manifest = load_batch_manifest(retry_failed.resolve())
-        original_spec = BatchSpec.from_dict(json.loads(batch_spec.resolve().read_text(encoding="utf-8")))
+        raise typer.BadParameter("--batch-spec is required (JSON file describing the batch; see module docstring)")
+
+    batch_spec_path = batch_spec.resolve()
+    try:
+        batch_spec_bytes = batch_spec_path.read_bytes()
+        batch_spec_payload = json.loads(batch_spec_bytes.decode("utf-8"))
+        full_spec = BatchSpec.from_dict(batch_spec_payload)
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError, BatchSpecError, TypeError, ValueError) as exc:
+        typer.echo(f"error: invalid batch spec: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    batch_spec_sha256 = hashlib.sha256(batch_spec_bytes).hexdigest()
+    try:
+        # Check the complete sealed run set before selecting a wave. Existing
+        # roots are intentionally deferred to the selected wave so completed
+        # earlier waves do not make later waves invalid.
+        validate_batch_spec(full_spec, base_dir=base, check_existing_roots=False)
+    except BatchSpecError as exc:
+        typer.echo(f"error: invalid full batch spec: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+    plan_sha256: str | None = None
+    plan_id: str | None = None
+    execution_git_commit: str | None = None
+    if full_spec.credit_guard is not None and plan is None:
+        typer.echo("error: a sealed credit_guard batch requires --plan", err=True)
+        raise typer.Exit(code=1)
+    if plan is not None:
+        plan_path = plan.resolve()
         try:
-            spec = build_retry_spec(manifest, original_spec=original_spec)
-        except BatchSpecError as exc:
-            typer.echo(f"error: {exc}", err=True)
+            plan_bytes = plan_path.read_bytes()
+            plan_payload = json.loads(plan_bytes.decode("utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            typer.echo(f"error: invalid plan: {exc}", err=True)
             raise typer.Exit(code=1) from exc
-        if delete_partial_roots_flag:
-            removed = delete_partial_roots(spec, base_dir=base)
-            for path in removed:
-                typer.echo(f"removed partial run_root: {path}")
-        target_batch_dir = (batch_dir or Path(manifest["batch_dir"])).resolve()
+        if not isinstance(plan_payload, dict) or plan_payload.get("schema_version") != "company_twin.loss_event_campaign_plan.v1":
+            typer.echo("error: --plan must use company_twin.loss_event_campaign_plan.v1", err=True)
+            raise typer.Exit(code=1)
+        raw_plan_id = plan_payload.get("plan_id")
+        raw_plan_batch = plan_payload.get("batch_spec")
+        if not isinstance(raw_plan_id, str) or not raw_plan_id.strip():
+            typer.echo("error: --plan requires a non-empty plan_id", err=True)
+            raise typer.Exit(code=1)
+        if not isinstance(raw_plan_batch, str) or not raw_plan_batch:
+            typer.echo("error: --plan requires a batch_spec path", err=True)
+            raise typer.Exit(code=1)
+        declared_batch_path = Path(raw_plan_batch)
+        declared_batch_path = (
+            declared_batch_path if declared_batch_path.is_absolute() else base / declared_batch_path
+        ).resolve()
+        if declared_batch_path != batch_spec_path:
+            typer.echo("error: --plan batch_spec path does not resolve to --batch-spec", err=True)
+            raise typer.Exit(code=1)
+        if plan_payload.get("batch_spec_sha256") != batch_spec_sha256:
+            typer.echo("error: --plan batch_spec_sha256 does not match the exact --batch-spec bytes", err=True)
+            raise typer.Exit(code=1)
+        if full_spec.credit_guard is not None:
+            campaign_role = plan_payload.get("campaign_role", "confirmatory")
+            expected_kind = (
+                "pre_execution_pilot_plan"
+                if campaign_role == "feasibility_pilot"
+                else "pre_execution_sealed_plan"
+                if campaign_role == "confirmatory"
+                else None
+            )
+            if expected_kind is None or plan_payload.get("kind") != expected_kind:
+                typer.echo(
+                    f"error: managed --plan kind must be {expected_kind!r} for campaign_role={campaign_role!r}",
+                    err=True,
+                )
+                raise typer.Exit(code=1)
+            if plan_payload.get("execution_authorized_by_this_file") is not True:
+                typer.echo("error: managed --plan execution_authorized_by_this_file must be true", err=True)
+                raise typer.Exit(code=1)
+            if campaign_role == "feasibility_pilot" and plan_payload.get("approval_granted_by_this_file") is not True:
+                typer.echo("error: feasibility pilot --plan approval_granted_by_this_file must be true", err=True)
+                raise typer.Exit(code=1)
+        plan_sha256 = hashlib.sha256(plan_bytes).hexdigest()
+        plan_id = raw_plan_id
+        if full_spec.credit_guard is not None:
+            try:
+                execution_git_commit = validate_managed_checkout(
+                    base,
+                    plan_path=plan_path,
+                    batch_spec_path=batch_spec_path,
+                )
+            except BatchSpecError as exc:
+                typer.echo(f"error: {exc}", err=True)
+                raise typer.Exit(code=1) from exc
+
+    prior_manifest: dict | None = None
+    prior_guard: dict | None = None
+    selected_wave_id: str | None = wave
+    if retry_failed is not None:
+        try:
+            prior_manifest = load_batch_manifest(retry_failed.resolve())
+        except (OSError, json.JSONDecodeError, BatchSpecError) as exc:
+            typer.echo(f"error: invalid retry manifest: {exc}", err=True)
+            raise typer.Exit(code=1) from exc
+        prior_hash = prior_manifest.get("batch_spec_sha256")
+        if prior_hash is not None and prior_hash != batch_spec_sha256:
+            typer.echo(
+                "error: retry batch spec SHA-256 does not match the original manifest "
+                f"({batch_spec_sha256} != {prior_hash})",
+                err=True,
+            )
+            raise typer.Exit(code=1)
+        prior_wave_id = prior_manifest.get("wave_id")
+        if wave is not None and wave != prior_wave_id:
+            typer.echo(
+                f"error: --wave {wave!r} conflicts with retry manifest wave_id {prior_wave_id!r}",
+                err=True,
+            )
+            raise typer.Exit(code=1)
+        selected_wave_id = prior_wave_id
+        raw_prior_guard = prior_manifest.get("credit_guard")
+        if raw_prior_guard is not None:
+            if not isinstance(raw_prior_guard, dict):
+                typer.echo("error: retry manifest credit_guard must be an object or null", err=True)
+                raise typer.Exit(code=1)
+            prior_guard = raw_prior_guard
+        if full_spec.credit_guard is not None:
+            if prior_hash is None:
+                typer.echo("error: sealed retry manifest is missing batch_spec_sha256 provenance", err=True)
+                raise typer.Exit(code=1)
+            if "wave_id" not in prior_manifest:
+                typer.echo("error: sealed retry manifest is missing wave_id provenance", err=True)
+                raise typer.Exit(code=1)
+            if prior_guard != full_spec.credit_guard.to_dict():
+                typer.echo("error: retry manifest credit_guard does not match the sealed batch spec", err=True)
+                raise typer.Exit(code=1)
+            if prior_manifest.get("plan_sha256") != plan_sha256 or prior_manifest.get("plan_id") != plan_id:
+                typer.echo("error: retry manifest plan provenance does not match --plan", err=True)
+                raise typer.Exit(code=1)
+            if prior_manifest.get("git_commit") != execution_git_commit:
+                typer.echo("error: retry manifest git_commit does not match the current managed checkout", err=True)
+                raise typer.Exit(code=1)
+
+    try:
+        if full_spec.waves:
+            if selected_wave_id is None:
+                raise BatchSpecError("batch spec declares waves; --wave is required for an initial run and inherited for a retry")
+            selected_full_spec = select_wave(full_spec, selected_wave_id)
+        else:
+            if selected_wave_id is not None:
+                raise BatchSpecError(f"batch spec does not declare waves; wave_id must be null, got {selected_wave_id!r}")
+            selected_full_spec = full_spec
+        if prior_manifest is not None:
+            validate_retry_manifest(
+                prior_manifest,
+                manifest_path=retry_failed.resolve(),
+                original_spec=selected_full_spec,
+                base_dir=base,
+            )
+            spec = build_retry_spec(prior_manifest, original_spec=selected_full_spec)
+        else:
+            spec = selected_full_spec
+    except BatchSpecError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+    sealed_guard = full_spec.credit_guard.to_dict() if full_spec.credit_guard is not None else None
+    if sealed_guard is not None:
+        if prior_manifest is not None:
+            if prior_manifest.get("batch_spec_sha256") is None:
+                typer.echo("error: sealed retry manifest is missing batch_spec_sha256 provenance", err=True)
+                raise typer.Exit(code=1)
+            if "wave_id" not in prior_manifest:
+                typer.echo("error: sealed retry manifest is missing wave_id provenance", err=True)
+                raise typer.Exit(code=1)
+            if prior_guard is None:
+                typer.echo("error: sealed retry manifest is missing credit_guard provenance", err=True)
+                raise typer.Exit(code=1)
+        if min_credits is not None and min_credits != sealed_guard["minimum_credits"]:
+            typer.echo(
+                f"error: explicit --min-credits {min_credits} conflicts with sealed credit_guard minimum "
+                f"{sealed_guard['minimum_credits']}",
+                err=True,
+            )
+            raise typer.Exit(code=1)
+        if abort_on_low_credits is False:
+            typer.echo("error: explicit --warn-on-low-credits conflicts with sealed credit_guard", err=True)
+            raise typer.Exit(code=1)
+        if prior_guard is not None and prior_guard != sealed_guard:
+            typer.echo("error: retry manifest credit_guard does not match the sealed batch spec", err=True)
+            raise typer.Exit(code=1)
+        if concurrency is not None and concurrency != full_spec.concurrency:
+            typer.echo(
+                f"error: explicit --concurrency {concurrency} conflicts with sealed batch spec value {full_spec.concurrency}",
+                err=True,
+            )
+            raise typer.Exit(code=1)
+        if stagger_seconds is not None and stagger_seconds != full_spec.stagger_seconds:
+            typer.echo(
+                "error: explicit --stagger-seconds "
+                f"{stagger_seconds} conflicts with sealed batch spec value {full_spec.stagger_seconds}",
+                err=True,
+            )
+            raise typer.Exit(code=1)
+        effective_credit_guard = sealed_guard
+    elif prior_guard is not None:
+        prior_minimum = prior_guard.get("minimum_credits")
+        prior_abort = prior_guard.get("abort_on_low_credits")
+        prior_require = prior_guard.get("require_available")
+        if (
+            set(prior_guard) != {"minimum_credits", "abort_on_low_credits", "require_available"}
+            or isinstance(prior_minimum, bool)
+            or not isinstance(prior_minimum, (int, float))
+            or not math.isfinite(float(prior_minimum))
+            or prior_minimum <= 0
+            or type(prior_abort) is not bool
+            or type(prior_require) is not bool
+        ):
+            typer.echo("error: retry manifest has an invalid credit_guard", err=True)
+            raise typer.Exit(code=1)
+        if min_credits is not None and min_credits != float(prior_minimum):
+            typer.echo("error: explicit --min-credits conflicts with retry manifest credit_guard", err=True)
+            raise typer.Exit(code=1)
+        if abort_on_low_credits is not None and abort_on_low_credits != prior_abort:
+            typer.echo("error: explicit low-credit mode conflicts with retry manifest credit_guard", err=True)
+            raise typer.Exit(code=1)
+        effective_credit_guard = {
+            "minimum_credits": float(prior_minimum),
+            "abort_on_low_credits": prior_abort,
+            "require_available": prior_require,
+        }
     else:
-        if batch_spec is None:
-            raise typer.BadParameter("--batch-spec is required (JSON file describing the batch; see module docstring)")
-        spec = BatchSpec.from_dict(json.loads(batch_spec.resolve().read_text(encoding="utf-8")))
+        effective_credit_guard = {
+            "minimum_credits": DEFAULT_MIN_CREDITS if min_credits is None else min_credits,
+            "abort_on_low_credits": False if abort_on_low_credits is None else abort_on_low_credits,
+            "require_available": False,
+        }
+
+    minimum_credits = effective_credit_guard["minimum_credits"]
+    if (
+        isinstance(minimum_credits, bool)
+        or not isinstance(minimum_credits, (int, float))
+        or not math.isfinite(float(minimum_credits))
+        or minimum_credits <= 0
+    ):
+        typer.echo("error: --min-credits must be a positive number", err=True)
+        raise typer.Exit(code=1)
+    effective_credit_guard["minimum_credits"] = float(minimum_credits)
+
+    if prior_manifest is not None:
+        prior_batch_dir = Path(prior_manifest["batch_dir"]).resolve()
+        if sealed_guard is not None:
+            if batch_dir is None:
+                typer.echo("error: a sealed retry requires an explicit, distinct --batch-dir", err=True)
+                raise typer.Exit(code=1)
+            target_batch_dir = batch_dir.resolve()
+            if target_batch_dir == prior_batch_dir:
+                typer.echo("error: a sealed retry --batch-dir must differ from the prior batch directory", err=True)
+                raise typer.Exit(code=1)
+        else:
+            target_batch_dir = (batch_dir or prior_batch_dir).resolve()
+    else:
         target_batch_dir = (batch_dir or make_run_root(base, "batch")).resolve()
+
+    if sealed_guard is not None:
+        try:
+            target_batch_dir.relative_to(base)
+        except ValueError as exc:
+            typer.echo("error: managed --batch-dir must stay within --root", err=True)
+            raise typer.Exit(code=1) from exc
+        if target_batch_dir.exists():
+            typer.echo("error: managed --batch-dir must not already exist", err=True)
+            raise typer.Exit(code=1)
 
     if concurrency is not None:
         spec.concurrency = concurrency
@@ -932,13 +1168,97 @@ def run_batch_cmd(
             err=True,
         )
 
-    try:
-        validate_batch_spec(spec, base_dir=base)
-    except BatchSpecError as exc:
-        typer.echo(f"error: {exc}", err=True)
-        raise typer.Exit(code=1) from exc
+    # The sealed guard is evaluated after all spec/manifest consistency checks
+    # but before destructive retry cleanup or any subprocess launch.
+    credits_preflight = check_openrouter_credits(api_key=os.getenv("OPENROUTER_API_KEY"))
+    if credits_preflight["status"] == "ok":
+        remaining = credits_preflight["remaining_credits"]
+        typer.echo(
+            f"OpenRouter credits remaining: {remaining:.2f} "
+            f"(total {credits_preflight['total_credits']:.2f} - usage {credits_preflight['total_usage']:.2f})"
+        )
+        if remaining < effective_credit_guard["minimum_credits"]:
+            low_msg = (
+                f"remaining OpenRouter credits ({remaining:.2f}) are below --min-credits "
+                f"({effective_credit_guard['minimum_credits']:.2f}); an S2 40-tick run costs ~0.85-1.2 "
+                "credits (more with a plus-tier customer model), so a mid-batch 402 Insufficient credits "
+                "failure is likely (this is exactly the 2026-07-06 incident)."
+            )
+            if effective_credit_guard["abort_on_low_credits"]:
+                typer.echo(f"error: {low_msg} Aborting before any run launches.", err=True)
+                raise typer.Exit(code=1)
+            typer.echo(f"warning: {low_msg} Continuing anyway (warn-only legacy policy).", err=True)
+    else:
+        unavailable_msg = (
+            f"OpenRouter credits preflight {credits_preflight['status']}: "
+            f"{credits_preflight['detail']}"
+        )
+        if effective_credit_guard["require_available"]:
+            typer.echo(f"error: {unavailable_msg} -- sealed credit_guard requires an available balance check.", err=True)
+            raise typer.Exit(code=1)
+        typer.echo(f"warning: {unavailable_msg} -- continuing without a balance check.", err=True)
 
-    manifest = run_batch(spec, base_dir=base, batch_dir=target_batch_dir, credits_preflight=credits_preflight)
+    wave_lease = None
+    if full_spec.credit_guard is not None:
+        state_wave_ids = [item.wave_id for item in full_spec.waves] or ["__unwaved__"]
+        state_wave_id = str(selected_wave_id) if selected_wave_id is not None else "__unwaved__"
+        try:
+            wave_lease = acquire_wave_execution_lease(
+                root=base,
+                batch_spec_sha256=batch_spec_sha256,
+                plan_sha256=str(plan_sha256),
+                plan_id=str(plan_id),
+                execution_git_commit=str(execution_git_commit),
+                ordered_wave_ids=state_wave_ids,
+                wave_id=state_wave_id,
+                retry_manifest_path=retry_failed,
+                retry_failed_run_ids=(
+                    list(prior_manifest["failed_run_ids"])
+                    if prior_manifest is not None
+                    else None
+                ),
+            )
+        except BatchSpecError as exc:
+            typer.echo(f"error: {exc}", err=True)
+            raise typer.Exit(code=1) from exc
+
+    try:
+        if prior_manifest is not None and delete_partial_roots_flag:
+            removed = delete_partial_roots(spec, base_dir=base)
+            for path in removed:
+                typer.echo(f"removed partial run_root: {path}")
+
+        try:
+            validate_batch_spec(spec, base_dir=base)
+        except BatchSpecError as exc:
+            typer.echo(f"error: {exc}", err=True)
+            raise typer.Exit(code=1) from exc
+
+        output_manifest_path = target_batch_dir / "batch_manifest.json"
+        if wave_lease is not None:
+            mark_wave_launch_started(wave_lease, output_manifest_path=output_manifest_path)
+        manifest = run_batch(
+            spec,
+            base_dir=base,
+            batch_dir=target_batch_dir,
+            credits_preflight=credits_preflight,
+            batch_spec_sha256=batch_spec_sha256,
+            wave_id=selected_wave_id,
+            credit_guard=effective_credit_guard,
+            plan_sha256=plan_sha256,
+            plan_id=plan_id,
+            managed_execution=full_spec.credit_guard is not None,
+            execution_git_commit=execution_git_commit,
+        )
+        if wave_lease is not None:
+            complete_wave_launch(
+                wave_lease,
+                output_manifest_path=output_manifest_path,
+                failed_run_ids=list(manifest["failed_run_ids"]),
+            )
+    finally:
+        if wave_lease is not None:
+            release_wave_execution_lease(wave_lease)
     _echo_json(manifest)
     if not manifest["passed"]:
         raise typer.Exit(code=1)
