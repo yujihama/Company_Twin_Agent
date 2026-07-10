@@ -668,11 +668,13 @@ def holdout_score(
 def loss_events_cmd(
     run_root: Annotated[Path, typer.Option("--run-root", help="Completed run bundle to scan for layer-1 loss events")],
 ) -> None:
-    """Loss-event oracle v1 (MASTER_DESIGN §17.26, approval #13): judge RISK
-    MATERIALIZATION in the proper sense — loss events (unapproved completion,
-    unconfirmed vulnerable sale, abandonment with complaint), not intermediate
-    symptoms. Judged against the experimenter-plane latent truths; writes
-    loss_events.json into the run bundle."""
+    """Structural loss-event oracle (output schema loss_events.v2).
+
+    Judges R1-R4 loss events in one completed run. Approval, customer contact,
+    and successful identity verification count only before the first completion.
+    Customer abandonment is reported separately under business-impact
+    indicators. This command writes loss_events.json; it does not aggregate a
+    campaign, compute detection-miss rates, or update readiness."""
     from .loss_oracle import loss_event_findings
 
     payload = loss_event_findings(run_root.resolve())
