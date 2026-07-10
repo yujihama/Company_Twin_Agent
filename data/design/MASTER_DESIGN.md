@@ -2045,10 +2045,43 @@ S0被覆行列は210→238行、デッキは38→39顧客(件数検査を§17.25
 (誤った顧客IDでの記録は照合漏れ=過大方向)を出力に明記する。従来の旧版引用・
 根拠整合検査は中間事象の指標として存続する。
 
-現時点のCLIは1 runの `loss_events.json` を書くところまでで、campaign発生率の集計、
-世界内モニタリングとの突合による検知漏れ率、acceptance/readinessへの接続は未実装。
-これらをM3文書変更ペアの封印前に実装・検証してから主要評価として使用する。
+`loss-events` は1 runの `loss_events.json` を書く。§17.27で同一runの世界内
+モニタリング信号との案件・時系列joinを追加した。campaign発生率/検知漏れ率の
+集計、封印済み検知policy、acceptance/readinessへの接続は引き続き未実装であり、
+M3文書変更ペアの封印前に実装・検証してから主要評価として使用する。
 テスト: `tests/test_loss_oracle.py`。
+
+### 17.27 損失事象×世界内モニタリングのrun単位join(2026-07-10)
+
+**目的と分離境界.** `src/company_twin/loss_monitoring.py` とCLI
+`loss-event-monitoring` は、persist済み `loss_events.v2` の各所見を、同じrunの
+最初の完了ledger行へ再固定し、`application_id` とledger ordinal/hashで
+世界可視の発見信号を突合する。既存 `oracles.detection_miss_rates()` は中間所見の
+種類別総数を `min()` で相殺するため、別案件の警報を当該案件の検知にできてしまう。
+損失事象には流用せず、出力を `company_twin.loss_event_monitoring.v1` として分離した。
+zero-loss runでも分母を失わないよう、R1/R2・R4は先行するprobe `customer_event`、
+R3は最初の完了を機会anchorとする `opportunities` inventoryを同じartifactへ保存する。
+これはraw inventoryであり、どの機会集合を主要発生率の分母にするかはM3封印policyで固定する。
+
+**現行世界の正直な被覆.** R1/R2の無接触完了とR3の状態機械バイパスには、
+当該損失事象を世界内で知らせる発見統制がない。R4の
+`approval_deadline_overrun` も「承認依頼の期限超過」を品質/監査席へ知らせるだけで、
+未承認完了そのものを識別しない。このためR1〜R4の**直接検知被覆は全て
+`uncovered`**とし、R4通知は `related_control_signal` としてのみ保存する。
+rawのkernelイベントだけでは世界内捕捉に数えず、同一案件の
+`inbox_delivered(kind=timed_notice, notice=approval_deadline_overrun)` が品質/監査役割へ
+配達され、対応する構造化origin行も存在する場合だけ関連信号にする。配達は読了・理解・
+損失認識の証明ではない。
+
+**fail-closedとpolicy境界.** `meta.json`/`config.json`/ledger run_id、全予定tickの
+`tick_committed`、ledger hash chain、loss schema/method/count、最初の完了anchorを
+検証し、persist済みloss reportを現在ledgerからのpure再計算と完全比較する。meta/config/
+loss/ledger/rule catalogのhashを出所として刻印する。別案件、ID前方一致、承認ID不一致、
+非品質席、rawイベントのみ、未知schema、完了後に現れた機会anchorはhit/分母にしない。
+同一tickの前後はtick値でなくledger ordinalで区別する。pre-event warningを主要捕捉に
+数えるか、post-event window、uncoveredをmiss分母へ含めるかはraw joinでは決めず、
+M3封印計画のpolicyとして固定する。campaign集計・readiness接続、新しい世界内検知
+通知の追加は本§の範囲外。テスト: `tests/test_loss_monitoring.py`。
 
 ## 18. WP-12 parallel world-run executor (並列実行、2026-07-05)
 

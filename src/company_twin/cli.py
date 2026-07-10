@@ -681,6 +681,30 @@ def loss_events_cmd(
     _echo_json(payload)
 
 
+@app.command("loss-event-monitoring")
+def loss_event_monitoring_cmd(
+    run_root: Annotated[Path, typer.Option("--run-root", help="Completed run bundle with a persisted loss_events.v2 report")],
+    rules_root: Annotated[Path | None, typer.Option("--rules-root", help="Optional repository root containing data/compiled_data/loss_monitoring_rules_v1.json")] = None,
+) -> None:
+    """Join loss events to world-visible monitoring signals for one run.
+
+    The command validates the completed ledger and writes
+    loss_event_monitoring.json.  It reports direct-discovery coverage and
+    related control signals separately; it does not decide campaign-level
+    miss-rate policy or update readiness.
+    """
+    from .loss_monitoring import write_loss_event_monitoring
+
+    try:
+        payload = write_loss_event_monitoring(
+            run_root.resolve(),
+            rules_root=rules_root.resolve() if rules_root is not None else None,
+        )
+    except (FileNotFoundError, ValueError) as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    _echo_json(payload)
+
+
 @app.command("action-replay")
 def action_replay_cmd(
     run_root: Annotated[Path, typer.Option("--run-root", help="Completed run bundle whose probe decision turn should be replayed")],

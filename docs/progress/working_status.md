@@ -1,6 +1,14 @@
 # 統制環境ツイン 作業状況メモ
 
-最終更新: 2026-07-10 — **枠組み精密化(承認#13): 3層RCM+run単位の損失事象オラクル(`loss_events.v2`)。E1判定=床は3系統横断。P-11実装・封印済み(実行待ち)**
+最終更新: 2026-07-10 — **M3測定経路: `loss_events.v2` と世界内通知の案件・時系列joinを実装。現行R1〜R4の直接発見被覆なし。campaign集計・検知policyが次工程**
+
+## 0-C. 損失事象×世界内モニタリングjoin(2026-07-10)
+
+- `loss-event-monitoring` は完走runの `loss_events.v2` を最初の完了ledger行へ再固定し、同一application・ledger ordinal/hashで世界可視通知を突合。出力は `loss_event_monitoring.v1`
+- 既存の中間所見用 `detection_miss_rates` は種類別総数の相殺で別案件を誤結合し得るため流用しない
+- 現行R1/R2・R3・R4には損失事象を直接識別する世界内発見統制がない。R4の `approval_deadline_overrun` は承認依頼の期限超過を知らせる関連信号で、未承認完了の検知には数えない
+- hash chain・全tick完走・schema/method/count・completion anchorをfail-closed検証。pre-event/時間窓/uncovered分母はraw joinで決めず、M3封印policyに残す
+- 次工程: campaign集計。新しい直接発見通知の追加は世界条件を変えるため、M3設計時のオーナー判断
 
 ## 0-B. 行動分布電池とD1b帰結実験(2026-07-09)
 
