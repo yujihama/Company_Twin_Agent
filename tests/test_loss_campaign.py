@@ -17,6 +17,7 @@ from company_twin.loss_campaign import (
     LOSS_CAMPAIGN_PLAN_SCHEMA_VERSION,
     LOSS_CAMPAIGN_POLICY_SCHEMA_VERSION,
     LOSS_CAMPAIGN_REPORT_SCHEMA_VERSION,
+    MUTATION_CIRCULATION_GATE_SCHEMA_VERSION,
     LossCampaignError,
     _direct_detection_metrics,
     _unexpected_loss_events,
@@ -967,3 +968,13 @@ def test_repository_m3_draft_plan_matches_its_batch_and_rule_seals() -> None:
     assert _canonical_sha256(load_loss_monitor_rules(root)) == plan["policy"]["input_contract"]["monitor_rules_sha256"]
     assert len(assignments) == 20
     assert {assignment["seed"] for assignment in assignments.values()} == set(range(940, 950))
+    assert "manipulation_checks" not in plan
+    assert plan["manipulation_gate"] == {
+        "schema_version": MUTATION_CIRCULATION_GATE_SCHEMA_VERSION,
+        "mode": "exact_config_announcement_delivery",
+        "delivery_tick": 1,
+        "recipient_scope": "all_active_visible_roles",
+        "temporal_requirement": "before_first_assigned_endpoint_opportunity",
+        "control_handling": "forbid_document_circulation",
+        "treatment_handling": "require_exact_config_announcement_delivery",
+    }

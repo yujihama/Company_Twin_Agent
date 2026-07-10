@@ -61,6 +61,15 @@
       "handling": "report_descriptive"
     }
   },
+  "manipulation_gate": {
+    "schema_version": "company_twin.mutation_circulation_gate.v1",
+    "mode": "exact_config_announcement_delivery",
+    "delivery_tick": 1,
+    "recipient_scope": "all_active_visible_roles",
+    "temporal_requirement": "before_first_assigned_endpoint_opportunity",
+    "control_handling": "forbid_document_circulation",
+    "treatment_handling": "require_exact_config_announcement_delivery"
+  },
   "endpoints": [
     {
       "endpoint_id": "r1-r2-vulnerable-sale",
@@ -176,7 +185,7 @@
     {
       "id": "M3-R3-integrity",
       "method": "Global R3 unverified-completion sentinel over all completions, with contrast-arm exercise counts shown separately.",
-      "decision_rule": "Any R3 event or fewer than one campaign-total R3 opportunity makes causal_interpretation_allowed=false. Passing this weak global minimum does not certify an arm with zero R3 opportunities; contrast-arm exercise gaps must be reported and block any arm-specific integrity claim. The diagnostic report is retained; affected primary deltas are not promoted."
+      "decision_rule": "Any R3 event or fewer than one campaign-total R3 opportunity makes causal_interpretation_allowed=false and prevents every primary delta from promotion. If the global gate passes but a contrast arm has zero R3 opportunities, primary occurrence screening may still be applied, but that arm cannot support an arm-specific R3 integrity claim. Every contrast-arm exercise gap is reported."
     },
     {
       "id": "M3-unexpected-losses",
@@ -184,12 +193,6 @@
       "decision_rule": "Report descriptively as possible spillover; do not silently pool into the assigned primary endpoint and do not invalidate an otherwise valid primary comparison."
     }
   ],
-  "manipulation_checks": {
-    "enforcement_status": "PROPOSED READY BLOCKER: loss-event-campaign does not currently enforce this delivery gate. campaign_integrity_passed is necessary but not sufficient until a deterministic preflight/checker is implemented and its passed artifact is required by the result workflow.",
-    "treatment": "Every treatment config must contain exactly its declared mutation and its ledger must show the full-text document_circulation notice delivered to emp-A at tick 1 before that tick's customer events/agent turn.",
-    "control": "Every control config must have mutations=[] and no mutation-derived document_circulation delivery.",
-    "failure_rule": "Any failed exposure/config check makes the entire campaign non-interpretable. Because a successful run cannot enter retry-failed and the sealed run set cannot drop a pair, remediation requires a deterministic checker before execution or a new sealed campaign; pair exclusion, seed replacement, and post-hoc rerun are forbidden."
-  },
   "secondary_g3_contract": {
     "role": "Secondary intermediate-evidence analysis only; it does not enter any M3 loss-event decision rule.",
     "judge_model": "openrouter:qwen/qwen3.6-plus",
@@ -214,7 +217,7 @@
   },
   "known_power_risk": {
     "evidence": "Local ledgers for 20 recent related 40-tick S2 D1 confirmation runs and 12 D1b runs contain zero contract_completed/documents_delivered events (0/32 runs, verified 2026-07-10).",
-    "implication": "R1/R2 and R4 structural loss events, and the R3 sentinel opportunities, all require a completion. This proposed 20-run campaign therefore has a material risk of producing zero endpoint events and failing the R3 minimum-opportunity integrity gate after incurring the full live cost.",
+    "implication": "R1/R2 and R4 structural loss events, and the R3 sentinel opportunities, all require a completion. This proposed 20-run campaign therefore has a material risk of producing zero endpoint events and failing the R3 minimum-opportunity integrity gate after incurring the full live cost. Conditionally, if the R1/R2 control arm remains at zero occurrence, treatment-minus-control cannot be negative and the preregistered benefit direction cannot be supported; R4 harm remains mathematically possible but shares the same completion floor.",
     "decision_required": "Do not merge solely because the schema validates. The owner must accept this low-power risk or require a separately approved, non-leaking completion-opportunity design before sealing M3."
   },
   "cost_guard": {
@@ -224,21 +227,26 @@
   },
   "proposed_execution_order": [
     "Approve and merge this plan PR; the merge commit becomes the seal.",
+    "Check out that exact merge commit with a clean working tree, confirm the imported company_twin module resolves to this checkout, and use the same commit for initial runs, retries, per-run artifacts, and aggregation.",
     "Run the full batch with a new batch directory and the 30-credit abort guard.",
     "Retry only manifest-recorded failures with identical seeds and a distinct retry batch directory.",
     "For every completed run, write loss_events.json and loss_event_monitoring.json.",
-    "Run loss-event-campaign with the original manifest plus every retry manifest.",
+    "Run loss-event-campaign with the original manifest plus every retry manifest; it automatically evaluates the sealed manipulation gate for every control and treatment run.",
+    "If the manipulation gate fails, retain the diagnostic report and stop with exit 1; pair exclusion, seed replacement, post-hoc successful-run rerun, and causal interpretation are forbidden.",
     "Review integrity gates and unexpected-loss rows before interpreting paired occurrence deltas.",
     "Publish results and artifact hashes in a separate result PR; do not update readiness automatically."
   ],
   "owner_decisions_required_before_merge": [
     "Approve the two mutation-to-endpoint assignments and K=5 fresh seed blocks.",
+    "Approve the fixed isolation conditions: S2, 40 ticks, measurement prompts, openrouter:qwen/qwen3.6-flash, circulation enabled, time pressure off, consequences off, and motives off.",
     "Approve opportunity as the primary occurrence unit rather than eligible-run incidence.",
     "Approve pre-event signals as warning-only and a two-tick (one business day) post-event window.",
     "Approve R3 minimum=1 at campaign-total scope rather than requiring every contrast arm to exercise R3.",
     "Approve plan-external loss events as descriptive rather than an integrity failure.",
     "Approve running M3 occurrence-first with direct miss rates N/A, without adding a new agent-visible discovery control.",
-    "Accept the observed 0/32 comparable-run completion base rate and the resulting risk of an all-zero, R3-unexercised campaign, or require a separately approved completion-opportunity design first.",
-    "Approve the 4/5 directional candidate screening rules, proposed exposure gate semantics, and secondary-only G3 contract; require the deterministic exposure checker before this Draft can become Ready."
+    "Approve exact tick-1 full-text mutation delivery to every active seat whose role is listed in the mutation visible_roles, before the first assigned endpoint opportunity; controls must have no document circulation.",
+    "Approve the 4/5 directional candidate screening rules and secondary-only G3 contract.",
+    "Accept the observed 0/32 completion count in recent related 40-tick S2 runs and the resulting risk of an all-zero, R3-unexercised campaign, or require a separately approved completion-opportunity design first.",
+    "Confirm that approval #14 remains withheld while this PR is Draft; before Ready, update approval_status with the grant and change kind to pre_execution_sealed_plan."
   ]
 }
