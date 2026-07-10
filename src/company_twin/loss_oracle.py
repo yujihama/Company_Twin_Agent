@@ -64,8 +64,8 @@ LOSS_RULES: dict[str, dict[str, str]] = {
 }
 
 
-def loss_event_findings(run_root: Path) -> dict[str, Any]:
-    """Scan one run bundle for layer-1 loss events."""
+def compute_loss_event_findings(run_root: Path) -> dict[str, Any]:
+    """Compute one run's layer-1 loss events without writing an artifact."""
     run_root = Path(run_root).resolve()
     ledger = read_jsonl(run_root / "world_ledger.jsonl")
 
@@ -177,5 +177,12 @@ def loss_event_findings(run_root: Path) -> dict[str, Any]:
             "contact matching accepts customer_id or application_id mention; fully mis-attributed contact records are missed (overstates findings)",
         ],
     }
+    return payload
+
+
+def loss_event_findings(run_root: Path) -> dict[str, Any]:
+    """Compute and persist one run bundle's layer-1 loss events."""
+    run_root = Path(run_root).resolve()
+    payload = compute_loss_event_findings(run_root)
     (run_root / "loss_events.json").write_text(json.dumps(payload, ensure_ascii=False, indent=1), encoding="utf-8")
     return payload
