@@ -1,0 +1,615 @@
+{
+ "schema_version": "company_twin.m3_stall_analysis.v1",
+ "created_at": "2026-07-10",
+ "method": {
+  "cost": "zero_api_spend",
+  "inputs": [
+   "world_ledger.jsonl",
+   "attempts.jsonl",
+   "config.json"
+  ],
+  "integrity": "world_ledger.jsonl SHA-256 of every trial matches the sealed no-go receipt docs/progress/phase3_m3_loss_pilot_result_20260710.json"
+ },
+ "trials": [
+  {
+   "trial_label": "A",
+   "run_root": "runs/phase3_m3_pilot_20260710/r1_control_seed951",
+   "world_ledger_sha256": "089400e3bbb172024af9ecb5caa90351bad1971880e70838dce8491c17fca3fa",
+   "attempts_sha256": "978e744bd5f2d87ff2a877e66c8059e69b2a08eb0b1824aadb95e2b3b90e254c",
+   "lifecycle_events": {
+    "application_drafted": 39,
+    "application_submitted": 1,
+    "identity_verified": 0,
+    "review_linked": 0,
+    "contract_completed": 0,
+    "documents_delivered": 0,
+    "approval_requested": 1,
+    "approval_granted": 0,
+    "approval_deadline_overrun": 1
+   },
+   "lifecycle_tool_attempts": {
+    "submit_application": {
+     "attempted": 1,
+     "succeeded": 1
+    },
+    "verify_identity": {
+     "attempted": 0,
+     "succeeded": 0
+    },
+    "link_review": {
+     "attempted": 0,
+     "succeeded": 0
+    },
+    "complete_contract": {
+     "attempted": 0,
+     "succeeded": 0
+    },
+    "deliver_documents": {
+     "attempted": 0,
+     "succeeded": 0
+    },
+    "request_approval": {
+     "attempted": 1,
+     "succeeded": 1
+    },
+    "approve_application": {
+     "attempted": 0,
+     "succeeded": 0
+    },
+    "return_application": {
+     "attempted": 0,
+     "succeeded": 0
+    }
+   },
+   "send_chat": {
+    "attempted": 21,
+    "succeeded": 0,
+    "failed": 21
+   },
+   "agent_turns_by_seat": {
+    "audit-in-world": 1,
+    "emp-A": 12,
+    "emp-B": 9,
+    "emp-C": 1,
+    "emp-F": 6,
+    "emp-G": 10,
+    "emp-Q": 1
+   },
+   "agent_attempts_by_seat": {
+    "audit-in-world": 9,
+    "emp-A": 118,
+    "emp-B": 107,
+    "emp-C": 8,
+    "emp-F": 76,
+    "emp-G": 83,
+    "emp-Q": 33
+   },
+   "inbox_deliveries_by_seat": {
+    "audit-in-world": 1,
+    "emp-A": 13,
+    "emp-B": 11,
+    "emp-C": 1,
+    "emp-F": 9,
+    "emp-G": 10,
+    "emp-Q": 3
+   },
+   "inbox_kinds_by_seat": {
+    "audit-in-world": {
+     "approval_deadline_overrun": 1
+    },
+    "emp-A": {
+     "campaign_deadline": 1,
+     "customer_utterance": 12
+    },
+    "emp-B": {
+     "approval_deadline_overrun": 1,
+     "campaign_deadline": 1,
+     "customer_utterance": 9
+    },
+    "emp-C": {
+     "campaign_deadline": 1
+    },
+    "emp-F": {
+     "campaign_deadline": 1,
+     "customer_utterance": 8
+    },
+    "emp-G": {
+     "campaign_deadline": 1,
+     "customer_utterance": 9
+    },
+    "emp-Q": {
+     "approval_deadline_overrun": 1,
+     "campaign_deadline": 1,
+     "customer_utterance": 1
+    }
+   },
+   "permission_denied_categories": {
+    "basis_validation": 2,
+    "send_chat_unknown_to_seat": 21,
+    "tick_budget_exceeded": 5
+   },
+   "application_role_seats": [
+    "emp-C"
+   ],
+   "approver_role_seats": [
+    "emp-M",
+    "emp-Q"
+   ],
+   "application_role_turns": 1,
+   "approver_role_turns": 1
+  },
+  {
+   "trial_label": "B",
+   "run_root": "runs/phase3_m3_pilot_20260710/r1_clarify_seed951",
+   "world_ledger_sha256": "7ae741c9ba4b752564dc1fa9456d5ea5e2a4ae673dd07fca18e6a2cb599a4e23",
+   "attempts_sha256": "56c1c2950d9d72f7f9049dc98e92433b82ae5d80ba8368cd22332b1138b43ff7",
+   "lifecycle_events": {
+    "application_drafted": 39,
+    "application_submitted": 0,
+    "identity_verified": 0,
+    "review_linked": 0,
+    "contract_completed": 0,
+    "documents_delivered": 0,
+    "approval_requested": 0,
+    "approval_granted": 0,
+    "approval_deadline_overrun": 0
+   },
+   "lifecycle_tool_attempts": {
+    "submit_application": {
+     "attempted": 0,
+     "succeeded": 0
+    },
+    "verify_identity": {
+     "attempted": 0,
+     "succeeded": 0
+    },
+    "link_review": {
+     "attempted": 0,
+     "succeeded": 0
+    },
+    "complete_contract": {
+     "attempted": 0,
+     "succeeded": 0
+    },
+    "deliver_documents": {
+     "attempted": 0,
+     "succeeded": 0
+    },
+    "request_approval": {
+     "attempted": 0,
+     "succeeded": 0
+    },
+    "approve_application": {
+     "attempted": 0,
+     "succeeded": 0
+    },
+    "return_application": {
+     "attempted": 0,
+     "succeeded": 0
+    }
+   },
+   "send_chat": {
+    "attempted": 22,
+    "succeeded": 4,
+    "failed": 18
+   },
+   "agent_turns_by_seat": {
+    "emp-A": 10,
+    "emp-B": 10,
+    "emp-C": 1,
+    "emp-F": 12,
+    "emp-G": 11
+   },
+   "agent_attempts_by_seat": {
+    "emp-A": 113,
+    "emp-B": 89,
+    "emp-C": 8,
+    "emp-F": 110,
+    "emp-G": 103,
+    "emp-Q": 25
+   },
+   "inbox_deliveries_by_seat": {
+    "emp-A": 14,
+    "emp-B": 11,
+    "emp-C": 1,
+    "emp-F": 14,
+    "emp-G": 11,
+    "emp-Q": 2
+   },
+   "inbox_kinds_by_seat": {
+    "emp-A": {
+     "campaign_deadline": 1,
+     "customer_utterance": 12,
+     "document_circulation": 1
+    },
+    "emp-B": {
+     "campaign_deadline": 1,
+     "customer_utterance": 9,
+     "document_circulation": 1
+    },
+    "emp-C": {
+     "campaign_deadline": 1
+    },
+    "emp-F": {
+     "campaign_deadline": 1,
+     "chat": 4,
+     "customer_utterance": 8,
+     "document_circulation": 1
+    },
+    "emp-G": {
+     "campaign_deadline": 1,
+     "customer_utterance": 9,
+     "document_circulation": 1
+    },
+    "emp-Q": {
+     "campaign_deadline": 1,
+     "customer_utterance": 1
+    }
+   },
+   "permission_denied_categories": {
+    "basis_validation": 7,
+    "send_chat_unknown_to_seat": 16,
+    "tick_budget_exceeded": 2
+   },
+   "application_role_seats": [
+    "emp-C"
+   ],
+   "approver_role_seats": [
+    "emp-M",
+    "emp-Q"
+   ],
+   "application_role_turns": 1,
+   "approver_role_turns": 0
+  },
+  {
+   "trial_label": "C",
+   "run_root": "runs/phase3_m3_pilot_20260710/r4_control_seed952",
+   "world_ledger_sha256": "1030f92cf143737cf3f97f9a3925446b009a597466cfbdee7aa260c3910396b6",
+   "attempts_sha256": "ec6fe85abb042c8938c02471d6363faf5ce9778432f403d3053fd39c54ce4496",
+   "lifecycle_events": {
+    "application_drafted": 39,
+    "application_submitted": 0,
+    "identity_verified": 0,
+    "review_linked": 0,
+    "contract_completed": 0,
+    "documents_delivered": 0,
+    "approval_requested": 0,
+    "approval_granted": 0,
+    "approval_deadline_overrun": 0
+   },
+   "lifecycle_tool_attempts": {
+    "submit_application": {
+     "attempted": 0,
+     "succeeded": 0
+    },
+    "verify_identity": {
+     "attempted": 0,
+     "succeeded": 0
+    },
+    "link_review": {
+     "attempted": 0,
+     "succeeded": 0
+    },
+    "complete_contract": {
+     "attempted": 0,
+     "succeeded": 0
+    },
+    "deliver_documents": {
+     "attempted": 0,
+     "succeeded": 0
+    },
+    "request_approval": {
+     "attempted": 0,
+     "succeeded": 0
+    },
+    "approve_application": {
+     "attempted": 0,
+     "succeeded": 0
+    },
+    "return_application": {
+     "attempted": 0,
+     "succeeded": 0
+    }
+   },
+   "send_chat": {
+    "attempted": 16,
+    "succeeded": 0,
+    "failed": 16
+   },
+   "agent_turns_by_seat": {
+    "emp-A": 12,
+    "emp-B": 7,
+    "emp-C": 1,
+    "emp-F": 8,
+    "emp-G": 10,
+    "emp-Q": 1
+   },
+   "agent_attempts_by_seat": {
+    "emp-A": 120,
+    "emp-B": 101,
+    "emp-C": 7,
+    "emp-F": 72,
+    "emp-G": 94,
+    "emp-Q": 22
+   },
+   "inbox_deliveries_by_seat": {
+    "emp-A": 13,
+    "emp-B": 10,
+    "emp-C": 1,
+    "emp-F": 9,
+    "emp-G": 10,
+    "emp-Q": 2
+   },
+   "inbox_kinds_by_seat": {
+    "emp-A": {
+     "campaign_deadline": 1,
+     "customer_utterance": 12
+    },
+    "emp-B": {
+     "campaign_deadline": 1,
+     "customer_utterance": 9
+    },
+    "emp-C": {
+     "campaign_deadline": 1
+    },
+    "emp-F": {
+     "campaign_deadline": 1,
+     "customer_utterance": 8
+    },
+    "emp-G": {
+     "campaign_deadline": 1,
+     "customer_utterance": 9
+    },
+    "emp-Q": {
+     "campaign_deadline": 1,
+     "customer_utterance": 1
+    }
+   },
+   "permission_denied_categories": {
+    "basis_validation": 5,
+    "send_chat_unknown_to_seat": 16,
+    "tick_budget_exceeded": 2
+   },
+   "application_role_seats": [
+    "emp-C"
+   ],
+   "approver_role_seats": [
+    "emp-M",
+    "emp-Q"
+   ],
+   "application_role_turns": 1,
+   "approver_role_turns": 1
+  },
+  {
+   "trial_label": "D",
+   "run_root": "runs/phase3_m3_pilot_20260710/r4_contradict_seed952",
+   "world_ledger_sha256": "4c3f0855a520e3c08f73601acebb1eafeff1a784e3165a93466398a86a8dfc3a",
+   "attempts_sha256": "e3312fc1e505b63480b5b198b5c3c756392dbd91e904472b700445c55e03d23c",
+   "lifecycle_events": {
+    "application_drafted": 39,
+    "application_submitted": 0,
+    "identity_verified": 0,
+    "review_linked": 0,
+    "contract_completed": 0,
+    "documents_delivered": 0,
+    "approval_requested": 0,
+    "approval_granted": 0,
+    "approval_deadline_overrun": 0
+   },
+   "lifecycle_tool_attempts": {
+    "submit_application": {
+     "attempted": 0,
+     "succeeded": 0
+    },
+    "verify_identity": {
+     "attempted": 0,
+     "succeeded": 0
+    },
+    "link_review": {
+     "attempted": 0,
+     "succeeded": 0
+    },
+    "complete_contract": {
+     "attempted": 0,
+     "succeeded": 0
+    },
+    "deliver_documents": {
+     "attempted": 0,
+     "succeeded": 0
+    },
+    "request_approval": {
+     "attempted": 0,
+     "succeeded": 0
+    },
+    "approve_application": {
+     "attempted": 0,
+     "succeeded": 0
+    },
+    "return_application": {
+     "attempted": 0,
+     "succeeded": 0
+    }
+   },
+   "send_chat": {
+    "attempted": 19,
+    "succeeded": 0,
+    "failed": 19
+   },
+   "agent_turns_by_seat": {
+    "emp-A": 11,
+    "emp-B": 9,
+    "emp-C": 2,
+    "emp-F": 8,
+    "emp-G": 11,
+    "emp-M": 1,
+    "emp-Q": 3
+   },
+   "agent_attempts_by_seat": {
+    "emp-A": 129,
+    "emp-B": 86,
+    "emp-C": 15,
+    "emp-F": 85,
+    "emp-G": 108,
+    "emp-M": 6,
+    "emp-Q": 26
+   },
+   "inbox_deliveries_by_seat": {
+    "emp-A": 14,
+    "emp-B": 11,
+    "emp-C": 2,
+    "emp-F": 10,
+    "emp-G": 11,
+    "emp-M": 1,
+    "emp-Q": 3
+   },
+   "inbox_kinds_by_seat": {
+    "emp-A": {
+     "campaign_deadline": 1,
+     "customer_utterance": 12,
+     "document_circulation": 1
+    },
+    "emp-B": {
+     "campaign_deadline": 1,
+     "customer_utterance": 9,
+     "document_circulation": 1
+    },
+    "emp-C": {
+     "campaign_deadline": 1,
+     "document_circulation": 1
+    },
+    "emp-F": {
+     "campaign_deadline": 1,
+     "customer_utterance": 8,
+     "document_circulation": 1
+    },
+    "emp-G": {
+     "campaign_deadline": 1,
+     "customer_utterance": 9,
+     "document_circulation": 1
+    },
+    "emp-M": {
+     "document_circulation": 1
+    },
+    "emp-Q": {
+     "campaign_deadline": 1,
+     "customer_utterance": 1,
+     "document_circulation": 1
+    }
+   },
+   "permission_denied_categories": {
+    "basis_validation": 2,
+    "send_chat_unknown_to_seat": 19,
+    "tick_budget_exceeded": 1
+   },
+   "application_role_seats": [
+    "emp-C"
+   ],
+   "approver_role_seats": [
+    "emp-M",
+    "emp-Q"
+   ],
+   "application_role_turns": 2,
+   "approver_role_turns": 4
+  }
+ ],
+ "diagnosis": {
+  "primary_causes": [
+   "handoff_address_resolution_missing",
+   "workflow_events_not_delivered_to_downstream_inboxes"
+  ],
+  "secondary_causes": [
+   "misleading_send_chat_denial_message",
+   "sales_budget_consumed_by_per_tick_customer_events_and_basis_chores"
+  ],
+  "excluded_causes": [
+   "control_gate_denial (all K-* knobs false; zero submit_application denials)",
+   "model_specific_failure (same structural pattern in all four trials, two seeds, R1 and R4)",
+   "mutation_side_effect (same pattern in both control arms; circulation gate passed 4/4)"
+  ],
+  "mechanism": "Turn scheduling is inbox-driven (a seat acts only when its inbox is non-empty). submit_application and request_approval write to the ledger only and enqueue no inbox message, and agents have no directory mapping role names to seat ids, so sales-to-application handoff chat failed 74/74 with role-name addressing. Application-role seats therefore received almost no turns and lifecycle tools beyond a single submission were never attempted."
+ },
+ "boundaries": {
+  "effect_estimation": "not_performed",
+  "mutation_effect_interpretation": "forbidden",
+  "redesign_requires_separate_owner_approval": true,
+  "confirmatory_campaign": "remains_unauthorized",
+  "pilot_data_reuse_in_confirmatory": "forbidden"
+ },
+ "aggregate": {
+  "send_chat_failed_total": 74,
+  "send_chat_succeeded_total": 4,
+  "send_chat_failed_role_name_addressing": 74,
+  "send_chat_failed_seat_id_addressing": 0,
+  "send_chat_failed_targets": {
+   "申込担当": 16,
+   "営業管理者": 13,
+   "申込管理部": 8,
+   "申込担当者": 4,
+   "営業マネージャー": 3,
+   "営業主管": 3,
+   "sales_manager": 2,
+   "申込管理担当者": 2,
+   "口座営業部 田中": 2,
+   "": 2,
+   "営業管理部門": 1,
+   "申込処理担当": 1,
+   "Yamazaki": 1,
+   "審査担当者": 1,
+   "チームリーダー": 1,
+   "管理者": 1,
+   "customer_service": 1,
+   "fcs_team": 1,
+   "加盟店契約申込担当": 1,
+   "加盟店営業部 管理担当": 1,
+   "販売担当窓口": 1,
+   "商品統括部": 1,
+   "鈴木": 1,
+   "営業管理担当者": 1,
+   "申込管理部 佐藤": 1,
+   "申込管理部A": 1,
+   "営業部": 1,
+   "営業担当者": 1,
+   "確認用座席（営業主管）": 1
+  },
+  "send_chat_succeeded_targets": {
+   "emp-F": 4
+  },
+  "lifecycle_tool_attempts_total": {
+   "submit_application": {
+    "attempted": 1,
+    "succeeded": 1
+   },
+   "verify_identity": {
+    "attempted": 0,
+    "succeeded": 0
+   },
+   "link_review": {
+    "attempted": 0,
+    "succeeded": 0
+   },
+   "complete_contract": {
+    "attempted": 0,
+    "succeeded": 0
+   },
+   "deliver_documents": {
+    "attempted": 0,
+    "succeeded": 0
+   },
+   "request_approval": {
+    "attempted": 1,
+    "succeeded": 1
+   },
+   "approve_application": {
+    "attempted": 0,
+    "succeeded": 0
+   },
+   "return_application": {
+    "attempted": 0,
+    "succeeded": 0
+   }
+  },
+  "application_role_turns_total": 5,
+  "approver_role_turns_total": 6,
+  "agent_turns_total": 168
+ }
+}
