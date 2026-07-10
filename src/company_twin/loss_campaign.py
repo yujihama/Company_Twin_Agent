@@ -25,7 +25,7 @@ import re
 import subprocess
 import tempfile
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Sequence
 
@@ -51,6 +51,8 @@ LOSS_CAMPAIGN_POLICY_SCHEMA_VERSION = "company_twin.loss_event_campaign_policy.v
 LOSS_CAMPAIGN_REPORT_SCHEMA_VERSION = "company_twin.loss_event_campaign.v1"
 MUTATION_CIRCULATION_GATE_SCHEMA_VERSION = "company_twin.mutation_circulation_gate.v1"
 MUTATION_CIRCULATION_GATE_REPORT_SCHEMA_VERSION = "company_twin.mutation_circulation_gate_report.v1"
+LOSS_FEASIBILITY_GATE_SCHEMA_VERSION = "company_twin.loss_event_feasibility_gate.v1"
+LOSS_FEASIBILITY_GATE_REPORT_SCHEMA_VERSION = "company_twin.loss_event_feasibility_gate_report.v1"
 
 _KNOWN_ENDPOINTS = {
     ("R1/R2", "unconfirmed_vulnerable_sale"),
@@ -102,6 +104,7 @@ def resolve_loss_campaign_runs(
     root = Path(root).resolve()
     plan_path = _resolve_input_path(root, plan_path, label="plan")
     plan = load_loss_campaign_plan(plan_path, root=root)
+    actual_plan_hash = _file_sha256(plan_path)
     batch_spec_path = _resolve_plan_path(root, str(plan["batch_spec"]), label="batch spec")
     actual_batch_hash = _file_sha256(batch_spec_path)
     if actual_batch_hash != plan["batch_spec_sha256"]:
@@ -114,10 +117,14 @@ def resolve_loss_campaign_runs(
     except (AttributeError, BatchSpecError, TypeError, ValueError) as exc:
         raise LossCampaignError(f"invalid sealed batch spec: {exc}") from exc
 
+    _validate_managed_execution_authorization(plan, batch_spec)
     assignments = _validate_sealed_batch_spec(plan, batch_spec, root=root)
     attempts_by_run, manifests = _load_manifest_chain(
         batch_manifest_paths,
         batch_spec=batch_spec,
+        batch_spec_sha256=actual_batch_hash,
+        plan_sha256=actual_plan_hash,
+        plan_id=str(plan["plan_id"]),
         root=root,
     )
     _validate_execution_seal(
@@ -194,60 +201,63 @@ def build_loss_event_campaign_report(
     }
     endpoints = {str(endpoint["endpoint_id"]): endpoint for endpoint in plan["endpoints"]}
     policy = plan["policy"]
+    campaign_role = str(plan.get("campaign_role") or "confirmatory")
+    is_feasibility_pilot = campaign_role == "feasibility_pilot"
 
     contrast_rows: list[dict[str, Any]] = []
-    for contrast in plan["contrasts"]:
-        contrast_id = str(contrast["contrast_id"])
-        contrast_runs = [run for run in runs if run.contrast_id == contrast_id]
-        endpoint_rows: list[dict[str, Any]] = []
-        for endpoint_id in contrast["endpoint_ids"]:
-            endpoint = endpoints[str(endpoint_id)]
-            control_runs = [run for run in contrast_runs if run.condition == "control"]
-            treatment_runs = [run for run in contrast_runs if run.condition == "treatment"]
-            coverage_status = coverage_by_endpoint[(str(endpoint["risk"]), str(endpoint["loss_class"]))]
-            endpoint_policy = policy["direct_detection"]["by_endpoint"][str(endpoint_id)]
-            arms = {
-                "control": _aggregate_arm(
-                    control_runs,
+    if not is_feasibility_pilot:
+        for contrast in plan["contrasts"]:
+            contrast_id = str(contrast["contrast_id"])
+            contrast_runs = [run for run in runs if run.contrast_id == contrast_id]
+            endpoint_rows: list[dict[str, Any]] = []
+            for endpoint_id in contrast["endpoint_ids"]:
+                endpoint = endpoints[str(endpoint_id)]
+                control_runs = [run for run in contrast_runs if run.condition == "control"]
+                treatment_runs = [run for run in contrast_runs if run.condition == "treatment"]
+                coverage_status = coverage_by_endpoint[(str(endpoint["risk"]), str(endpoint["loss_class"]))]
+                endpoint_policy = policy["direct_detection"]["by_endpoint"][str(endpoint_id)]
+                arms = {
+                    "control": _aggregate_arm(
+                        control_runs,
+                        endpoint=endpoint,
+                        coverage_status=coverage_status,
+                        endpoint_policy=endpoint_policy,
+                        occurrence_policy=policy["occurrence"],
+                    ),
+                    "treatment": _aggregate_arm(
+                        treatment_runs,
+                        endpoint=endpoint,
+                        coverage_status=coverage_status,
+                        endpoint_policy=endpoint_policy,
+                        occurrence_policy=policy["occurrence"],
+                    ),
+                }
+                paired = _paired_occurrence(
+                    contrast,
+                    runs=contrast_runs,
                     endpoint=endpoint,
-                    coverage_status=coverage_status,
-                    endpoint_policy=endpoint_policy,
-                    occurrence_policy=policy["occurrence"],
-                ),
-                "treatment": _aggregate_arm(
-                    treatment_runs,
-                    endpoint=endpoint,
-                    coverage_status=coverage_status,
-                    endpoint_policy=endpoint_policy,
-                    occurrence_policy=policy["occurrence"],
-                ),
-            }
-            paired = _paired_occurrence(
-                contrast,
-                runs=contrast_runs,
-                endpoint=endpoint,
-                primary_unit=str(policy["occurrence"]["primary_unit"]),
-                arms=arms,
-            )
-            endpoint_rows.append(
+                    primary_unit=str(policy["occurrence"]["primary_unit"]),
+                    arms=arms,
+                )
+                endpoint_rows.append(
+                    {
+                        "endpoint_id": endpoint_id,
+                        "role": endpoint["role"],
+                        "risk": endpoint["risk"],
+                        "loss_class": endpoint["loss_class"],
+                        "eligible_probe_ids": endpoint["eligible_probe_ids"],
+                        "catalog_direct_detection_coverage": coverage_status,
+                        "arms": arms,
+                        "paired_occurrence": paired,
+                    }
+                )
+            contrast_rows.append(
                 {
-                    "endpoint_id": endpoint_id,
-                    "role": endpoint["role"],
-                    "risk": endpoint["risk"],
-                    "loss_class": endpoint["loss_class"],
-                    "eligible_probe_ids": endpoint["eligible_probe_ids"],
-                    "catalog_direct_detection_coverage": coverage_status,
-                    "arms": arms,
-                    "paired_occurrence": paired,
+                    "contrast_id": contrast_id,
+                    "mutation_id": contrast["mutation_id"],
+                    "endpoint_results": endpoint_rows,
                 }
             )
-        contrast_rows.append(
-            {
-                "contrast_id": contrast_id,
-                "mutation_id": contrast["mutation_id"],
-                "endpoint_results": endpoint_rows,
-            }
-        )
 
     sentinel_endpoint = next(endpoint for endpoint in plan["endpoints"] if endpoint["role"] == "sentinel")
     sentinel = _aggregate_r3_sentinel(
@@ -257,25 +267,47 @@ def build_loss_event_campaign_report(
         minimum_opportunities=int(policy["r3_sentinel"]["minimum_opportunities"]),
         minimum_scope=str(policy["r3_sentinel"]["minimum_scope"]),
     )
+    sentinel_gate_passed = bool(sentinel["causal_interpretation_allowed"])
+    if is_feasibility_pilot:
+        sentinel_report = _pilot_r3_integrity_summary(sentinel)
+    else:
+        sentinel_report = sentinel
     unexpected = _unexpected_loss_events(runs, plan["endpoints"], plan["contrasts"])
+    unexpected_report: Any = unexpected
+    if is_feasibility_pilot:
+        unexpected_report = {
+            "status": "redacted_for_feasibility_pilot",
+            "details_exposed": False,
+            "interpretation_boundary": "integrity_evaluated_without_event_level_or_effect_output",
+        }
     manipulation_gate = _evaluate_manipulation_gate(plan, runs)
+    feasibility_gate = _evaluate_feasibility_gate(
+        plan,
+        runs,
+        manipulation_gate=manipulation_gate,
+    )
     unexpected_handling = str(policy["unexpected_loss_events"]["handling"])
     unexpected_gate_passed = not unexpected or unexpected_handling == "report_descriptive"
     manipulation_gate_passed = manipulation_gate is None or manipulation_gate["passed"]
     campaign_integrity_passed = (
-        sentinel["causal_interpretation_allowed"]
-        and unexpected_gate_passed
-        and manipulation_gate_passed
+        bool(feasibility_gate["passed"])
+        if is_feasibility_pilot and feasibility_gate is not None
+        else (
+            sentinel_gate_passed
+            and unexpected_gate_passed
+            and manipulation_gate_passed
+        )
     )
+    causal_interpretation_allowed = campaign_integrity_passed and not is_feasibility_pilot
     execution_commits = sorted({str(source["git_commit"]) for source in manifest_sources})
 
-    return {
+    report = {
         "schema_version": LOSS_CAMPAIGN_REPORT_SCHEMA_VERSION,
         "plan_id": plan["plan_id"],
         "campaign_integrity_passed": campaign_integrity_passed,
-        "causal_interpretation_allowed": campaign_integrity_passed,
+        "causal_interpretation_allowed": causal_interpretation_allowed,
         "integrity_gates": {
-            "r3_zero_event_sentinel": sentinel["causal_interpretation_allowed"],
+            "r3_zero_event_sentinel": sentinel_gate_passed,
             "unexpected_loss_events": unexpected_gate_passed,
             "unexpected_loss_event_handling": unexpected_handling,
             "manipulation_gate": None if manipulation_gate is None else manipulation_gate_passed,
@@ -288,8 +320,8 @@ def build_loss_event_campaign_report(
         },
         "policy": policy,
         "contrasts": contrast_rows,
-        "r3_sentinel": sentinel,
-        "unexpected_loss_events": unexpected,
+        "r3_sentinel": sentinel_report,
+        "unexpected_loss_events": unexpected_report,
         "manipulation_gate": manipulation_gate,
         "runs": [_run_provenance_row(run, root=root) for run in sorted(runs, key=lambda item: item.batch_run_id)],
         "sources": {
@@ -304,6 +336,17 @@ def build_loss_event_campaign_report(
             "aggregator_git": _git_state(root),
         },
     }
+    if is_feasibility_pilot:
+        report.update(
+            {
+                "campaign_role": campaign_role,
+                "effect_estimation_allowed": False,
+                "contrast_output_status": "suppressed_for_feasibility_pilot",
+                "feasibility_gate": feasibility_gate,
+            }
+        )
+        report["integrity_gates"]["feasibility_gate"] = bool(feasibility_gate and feasibility_gate["passed"])
+    return report
 
 
 def write_loss_event_campaign_report(
@@ -508,6 +551,15 @@ def _validate_plan(plan: dict[str, Any]) -> None:
     if referenced_primary != primary_ids:
         raise LossCampaignError(f"every primary endpoint must be referenced by a contrast: missing={sorted(primary_ids - referenced_primary)}")
     _validate_manipulation_gate_contract(plan.get("manipulation_gate"))
+    campaign_role = plan.get("campaign_role", "confirmatory")
+    if campaign_role not in {"confirmatory", "feasibility_pilot"}:
+        raise LossCampaignError("campaign_role must be 'confirmatory' or 'feasibility_pilot'")
+    if campaign_role == "feasibility_pilot":
+        _validate_pilot_gate_contract(plan.get("pilot_gate"))
+        if plan.get("manipulation_gate") is None:
+            raise LossCampaignError("feasibility_pilot requires a configured manipulation_gate")
+    elif "pilot_gate" in plan:
+        raise LossCampaignError("pilot_gate is allowed only when campaign_role='feasibility_pilot'")
 
 
 def _validate_policy(policy: dict[str, Any]) -> None:
@@ -601,6 +653,57 @@ def _validate_manipulation_gate_contract(gate: Any) -> None:
         raise LossCampaignError("manipulation_gate.delivery_tick must be a positive integer")
 
 
+def _validate_pilot_gate_contract(gate: Any) -> None:
+    expected = {
+        "schema_version": LOSS_FEASIBILITY_GATE_SCHEMA_VERSION,
+        "effect_estimation": "forbidden_exclude_from_confirmatory",
+        "minimum_assigned_endpoint_opportunities_per_run": 1,
+        "minimum_r3_opportunities_per_run": 1,
+        "maximum_r3_events": 0,
+        "require_manipulation_gate": True,
+    }
+    if not isinstance(gate, dict) or set(gate) != set(expected):
+        raise LossCampaignError("feasibility_pilot pilot_gate has missing or unknown fields")
+    for key, value in expected.items():
+        if gate.get(key) != value or type(gate.get(key)) is not type(value):
+            raise LossCampaignError(f"pilot_gate.{key} must be {value!r}")
+
+
+def _validate_managed_execution_authorization(
+    plan: dict[str, Any],
+    batch_spec: BatchSpec,
+) -> None:
+    managed_execution = bool(
+        getattr(batch_spec, "credit_guard", None) is not None
+        or list(getattr(batch_spec, "waves", []) or [])
+    )
+    if not managed_execution:
+        return
+    campaign_role = plan.get("campaign_role", "confirmatory")
+    if campaign_role == "feasibility_pilot":
+        if plan.get("kind") != "pre_execution_pilot_plan":
+            raise LossCampaignError(
+                "managed feasibility_pilot aggregation requires kind='pre_execution_pilot_plan'"
+            )
+        if plan.get("execution_authorized_by_this_file") is not True:
+            raise LossCampaignError(
+                "managed feasibility_pilot aggregation requires execution_authorized_by_this_file=true"
+            )
+        if plan.get("approval_granted_by_this_file") is not True:
+            raise LossCampaignError(
+                "managed feasibility_pilot aggregation requires approval_granted_by_this_file=true"
+            )
+        return
+    if plan.get("kind") != "pre_execution_sealed_plan":
+        raise LossCampaignError(
+            "managed confirmatory aggregation requires kind='pre_execution_sealed_plan'"
+        )
+    if plan.get("execution_authorized_by_this_file") is not True:
+        raise LossCampaignError(
+            "managed confirmatory aggregation requires execution_authorized_by_this_file=true"
+        )
+
+
 def _validate_sealed_batch_spec(
     plan: dict[str, Any],
     batch_spec: BatchSpec,
@@ -628,6 +731,28 @@ def _validate_sealed_batch_spec(
         if not isinstance(run.model, str) or not run.model:
             raise LossCampaignError(f"run {run.run_id!r} must seal an explicit model")
 
+    wave_by_run: dict[str, str] = {}
+    sealed_waves = list(getattr(batch_spec, "waves", []) or [])
+    if plan.get("campaign_role", "confirmatory") == "feasibility_pilot" and getattr(
+        batch_spec, "credit_guard", None
+    ) is None:
+        raise LossCampaignError("feasibility_pilot requires a fail-closed credit_guard")
+    if sealed_waves and getattr(batch_spec, "credit_guard", None) is None:
+        raise LossCampaignError("sealed wave execution requires a fail-closed credit_guard")
+    for wave in sealed_waves:
+        wave_id = str(wave.wave_id)
+        for run_id in wave.run_ids:
+            run_id = str(run_id)
+            if run_id in wave_by_run:
+                raise LossCampaignError(f"sealed batch run {run_id!r} is assigned to multiple waves")
+            wave_by_run[run_id] = wave_id
+    if sealed_waves and set(wave_by_run) != set(specs_by_id):
+        raise LossCampaignError(
+            "sealed batch waves must exactly partition the run set: "
+            f"missing={sorted(set(specs_by_id) - set(wave_by_run))}, "
+            f"extra={sorted(set(wave_by_run) - set(specs_by_id))}"
+        )
+
     assignments: dict[str, dict[str, Any]] = {}
     for contrast in plan["contrasts"]:
         for pair in contrast["pairs"]:
@@ -640,6 +765,12 @@ def _validate_sealed_batch_spec(
             seed = int(pair["seed"])
             if control.seed != seed or treatment.seed != seed:
                 raise LossCampaignError(f"pair {contrast['contrast_id']} seed drift for {seed}")
+            if sealed_waves and wave_by_run[control_id] != wave_by_run[treatment_id]:
+                raise LossCampaignError(
+                    f"pair {contrast['contrast_id']} seed {seed} is split across waves: "
+                    f"{control_id}={wave_by_run[control_id]!r}, "
+                    f"{treatment_id}={wave_by_run[treatment_id]!r}"
+                )
             if control.mutations:
                 raise LossCampaignError(f"control run {control_id!r} must have mutations=[]")
             if treatment.mutations != [str(contrast["mutation_id"])]:
@@ -666,6 +797,9 @@ def _load_manifest_chain(
     paths: Sequence[Path],
     *,
     batch_spec: BatchSpec,
+    batch_spec_sha256: str,
+    plan_sha256: str,
+    plan_id: str,
     root: Path,
 ) -> tuple[dict[str, list[dict[str, Any]]], list[dict[str, Any]]]:
     if not paths:
@@ -674,6 +808,10 @@ def _load_manifest_chain(
     path_hashes: set[str] = set()
     manifests: list[dict[str, Any]] = []
     expected_specs = {run.run_id: run for run in batch_spec.runs}
+    sealed_waves = list(getattr(batch_spec, "waves", []) or [])
+    sealed_credit_guard = getattr(batch_spec, "credit_guard", None)
+    managed_execution = bool(sealed_waves or sealed_credit_guard is not None)
+    expected_credit_guard = _credit_guard_payload(sealed_credit_guard)
     batch_dirs: set[Path] = set()
     commits: set[str] = set()
     for raw_path in paths:
@@ -692,6 +830,17 @@ def _load_manifest_chain(
             raise LossCampaignError(f"manifest concurrency drift in {path.name}")
         if payload.get("stagger_seconds") != batch_spec.stagger_seconds:
             raise LossCampaignError(f"manifest stagger_seconds drift in {path.name}")
+        if managed_execution:
+            if "wave_id" not in payload:
+                raise LossCampaignError(f"manifest wave_id is missing in {path.name}")
+            if payload.get("batch_spec_sha256") != batch_spec_sha256:
+                raise LossCampaignError(f"manifest batch_spec_sha256 drift in {path.name}")
+            if payload.get("plan_sha256") != plan_sha256:
+                raise LossCampaignError(f"manifest plan_sha256 drift in {path.name}")
+            if payload.get("plan_id") != plan_id:
+                raise LossCampaignError(f"manifest plan_id drift in {path.name}")
+            if payload.get("credit_guard") != expected_credit_guard:
+                raise LossCampaignError(f"manifest credit_guard drift in {path.name}")
         manifest_root_value = payload.get("root")
         if not isinstance(manifest_root_value, str) or not manifest_root_value or not Path(manifest_root_value).is_absolute():
             raise LossCampaignError(f"manifest root must be a non-empty absolute path in {path.name}")
@@ -715,6 +864,13 @@ def _load_manifest_chain(
         manifest_end = _parse_iso(payload.get("ended_at"), label=f"{path.name}.ended_at")
         if manifest_start > manifest_end:
             raise LossCampaignError(f"manifest times are reversed in {path.name}")
+        if managed_execution:
+            _validate_manifest_credits_preflight(
+                payload.get("credits_preflight"),
+                credit_guard=expected_credit_guard,
+                manifest_started_at=manifest_start,
+                label=path.name,
+            )
         rows = payload.get("runs")
         if not isinstance(rows, list) or not rows:
             raise LossCampaignError(f"manifest {path.name} requires non-empty runs")
@@ -782,6 +938,7 @@ def _load_manifest_chain(
                 "ended": manifest_end,
                 "run_ids": row_ids,
                 "failed_ids": set(failed_ids),
+                "wave_id": payload.get("wave_id"),
                 "rows": normalized_rows,
             }
         )
@@ -789,23 +946,16 @@ def _load_manifest_chain(
         raise LossCampaignError(f"all execution attempts must use one git commit, got {sorted(commits)}")
     manifests.sort(key=lambda item: item["started"])
     expected_ids = set(expected_specs)
-    if manifests[0]["run_ids"] != expected_ids:
-        raise LossCampaignError("the first/original manifest must preserve the complete sealed run set")
-    current_failed = set(manifests[0]["failed_ids"])
-    previous_end = manifests[0]["ended"]
-    for manifest in manifests[1:]:
-        if not current_failed:
-            raise LossCampaignError("retry manifest supplied after the campaign had already succeeded")
-        if manifest["started"] < previous_end:
-            raise LossCampaignError("retry manifest overlaps or precedes the prior attempt")
-        if manifest["run_ids"] != current_failed:
-            raise LossCampaignError(
-                f"retry manifest run set must exactly equal prior failures: expected={sorted(current_failed)}, got={sorted(manifest['run_ids'])}"
-            )
-        current_failed = set(manifest["failed_ids"])
-        previous_end = manifest["ended"]
-    if current_failed:
-        raise LossCampaignError(f"campaign still has failed runs after final retry: {sorted(current_failed)}")
+    if sealed_waves:
+        _validate_wave_manifest_chain(
+            manifests,
+            sealed_waves=sealed_waves,
+            expected_ids=expected_ids,
+        )
+    else:
+        if managed_execution and any(manifest["wave_id"] is not None for manifest in manifests):
+            raise LossCampaignError("an unwaved sealed batch requires manifest wave_id=null")
+        _validate_unwaved_manifest_chain(manifests, expected_ids=expected_ids)
 
     attempts_by_run: dict[str, list[dict[str, Any]]] = {run_id: [] for run_id in expected_ids}
     for manifest in manifests:
@@ -818,6 +968,150 @@ def _load_manifest_chain(
         ):
             raise LossCampaignError(f"attempt chain for {run_id} must be zero or more failures followed by one success")
     return attempts_by_run, manifests
+
+
+def _credit_guard_payload(credit_guard: Any) -> dict[str, Any] | None:
+    if credit_guard is None:
+        return None
+    if hasattr(credit_guard, "to_dict"):
+        payload = credit_guard.to_dict()
+    elif isinstance(credit_guard, dict):
+        payload = copy.deepcopy(credit_guard)
+    else:
+        payload = {
+            "minimum_credits": getattr(credit_guard, "minimum_credits", None),
+            "abort_on_low_credits": getattr(credit_guard, "abort_on_low_credits", None),
+            "require_available": getattr(credit_guard, "require_available", None),
+        }
+    expected_keys = {"minimum_credits", "abort_on_low_credits", "require_available"}
+    if not isinstance(payload, dict) or set(payload) != expected_keys:
+        raise LossCampaignError("sealed batch credit_guard has missing or unknown fields")
+    return payload
+
+
+def _validate_manifest_credits_preflight(
+    preflight: Any,
+    *,
+    credit_guard: dict[str, Any] | None,
+    manifest_started_at: datetime,
+    label: str,
+) -> None:
+    if credit_guard is None:
+        return
+    if not isinstance(preflight, dict) or preflight.get("status") != "ok":
+        raise LossCampaignError(f"manifest credits_preflight must be successful in {label}")
+    checked_at = _parse_iso(
+        preflight.get("checked_at"),
+        label=f"{label}.credits_preflight.checked_at",
+    )
+    if checked_at > manifest_started_at:
+        raise LossCampaignError(
+            f"manifest credits_preflight.checked_at is later than manifest started_at in {label}"
+        )
+    if manifest_started_at - checked_at > timedelta(minutes=5):
+        raise LossCampaignError(
+            f"manifest credits_preflight.checked_at is older than 5 minutes in {label}"
+        )
+    remaining = preflight.get("remaining_credits")
+    if isinstance(remaining, bool) or not isinstance(remaining, (int, float)) or not math.isfinite(float(remaining)):
+        raise LossCampaignError(f"manifest credits_preflight remaining_credits is invalid in {label}")
+    minimum = credit_guard["minimum_credits"]
+    if float(remaining) < float(minimum):
+        raise LossCampaignError(
+            f"manifest credits_preflight is below the sealed minimum in {label}: "
+            f"remaining={remaining}, minimum={minimum}"
+        )
+
+
+def _validate_unwaved_manifest_chain(
+    manifests: list[dict[str, Any]],
+    *,
+    expected_ids: set[str],
+) -> None:
+    if manifests[0]["run_ids"] != expected_ids:
+        raise LossCampaignError("the first/original manifest must preserve the complete sealed run set")
+    current_failed = set(manifests[0]["failed_ids"])
+    previous_end = manifests[0]["ended"]
+    for manifest in manifests[1:]:
+        if not current_failed:
+            raise LossCampaignError("retry manifest supplied after the campaign had already succeeded")
+        if manifest["started"] < previous_end:
+            raise LossCampaignError("retry manifest overlaps or precedes the prior attempt")
+        if manifest["run_ids"] != current_failed:
+            raise LossCampaignError(
+                f"retry manifest run set must exactly equal prior failures: "
+                f"expected={sorted(current_failed)}, got={sorted(manifest['run_ids'])}"
+            )
+        current_failed = set(manifest["failed_ids"])
+        previous_end = manifest["ended"]
+    if current_failed:
+        raise LossCampaignError(f"campaign still has failed runs after final retry: {sorted(current_failed)}")
+
+
+def _validate_wave_manifest_chain(
+    manifests: list[dict[str, Any]],
+    *,
+    sealed_waves: list[Any],
+    expected_ids: set[str],
+) -> None:
+    wave_ids = [str(wave.wave_id) for wave in sealed_waves]
+    wave_run_ids = {str(wave.wave_id): set(wave.run_ids) for wave in sealed_waves}
+    if len(set(wave_ids)) != len(wave_ids):
+        raise LossCampaignError("sealed batch waves contain duplicate wave_id values")
+    sealed_union: set[str] = set()
+    for wave_id in wave_ids:
+        overlap = sealed_union & wave_run_ids[wave_id]
+        if overlap:
+            raise LossCampaignError(f"sealed batch waves overlap for runs {sorted(overlap)}")
+        sealed_union.update(wave_run_ids[wave_id])
+    if sealed_union != expected_ids:
+        raise LossCampaignError(
+            "sealed batch waves must exactly partition the run set: "
+            f"missing={sorted(expected_ids - sealed_union)}, extra={sorted(sealed_union - expected_ids)}"
+        )
+
+    wave_index = 0
+    current_failed: set[str] | None = None
+    previous_end = None
+    observed_initial_union: set[str] = set()
+    for manifest in manifests:
+        if previous_end is not None and manifest["started"] < previous_end:
+            raise LossCampaignError("wave manifests overlap or precede the prior attempt")
+        if wave_index >= len(wave_ids):
+            raise LossCampaignError("manifest supplied after every sealed wave had already succeeded")
+        expected_wave_id = wave_ids[wave_index]
+        if manifest["wave_id"] != expected_wave_id:
+            raise LossCampaignError(
+                f"wave manifest order drift: expected wave_id={expected_wave_id!r}, "
+                f"got={manifest['wave_id']!r}"
+            )
+        if current_failed is None:
+            expected_wave_runs = wave_run_ids[expected_wave_id]
+            if manifest["run_ids"] != expected_wave_runs:
+                raise LossCampaignError(
+                    f"initial manifest for wave {expected_wave_id!r} must exactly equal its sealed run set: "
+                    f"expected={sorted(expected_wave_runs)}, got={sorted(manifest['run_ids'])}"
+                )
+            observed_initial_union.update(manifest["run_ids"])
+        elif manifest["run_ids"] != current_failed:
+            raise LossCampaignError(
+                f"retry manifest for wave {expected_wave_id!r} must exactly equal prior failures: "
+                f"expected={sorted(current_failed)}, got={sorted(manifest['run_ids'])}"
+            )
+        current_failed = set(manifest["failed_ids"])
+        previous_end = manifest["ended"]
+        if not current_failed:
+            wave_index += 1
+            current_failed = None
+
+    if current_failed:
+        raise LossCampaignError(
+            f"wave {wave_ids[wave_index]!r} still has failed runs after final retry: {sorted(current_failed)}"
+        )
+    if wave_index != len(wave_ids):
+        raise LossCampaignError(f"not all sealed waves are present: missing={wave_ids[wave_index:]}")
+    if observed_initial_union != expected_ids:
+        raise LossCampaignError("initial wave manifest union does not equal the complete sealed run set")
 
 
 def _load_and_validate_bundle(
@@ -1309,6 +1603,112 @@ def _aggregate_r3_sentinel(
     }
 
 
+def _pilot_r3_integrity_summary(sentinel: dict[str, Any]) -> dict[str, Any]:
+    """Expose only aggregate R3 integrity facts for a feasibility pilot."""
+    return {
+        "endpoint_id": sentinel["endpoint_id"],
+        "risk": sentinel["risk"],
+        "loss_class": sentinel["loss_class"],
+        "opportunity_count": sentinel["opportunity_count"],
+        "event_count": sentinel["event_count"],
+        "maximum_allowed_events": sentinel["maximum_allowed_events"],
+        "minimum_required_opportunities": sentinel["minimum_required_opportunities"],
+        "minimum_scope": sentinel["minimum_scope"],
+        "minimum_gate_passed": sentinel["minimum_gate_passed"],
+        "status": sentinel["status"],
+        "exercise_status": sentinel["exercise_status"],
+        "causal_interpretation_allowed": False,
+        "interpretation_boundary": "feasibility_only_aggregate_integrity_no_arm_or_run_effect_output",
+    }
+
+
+def _evaluate_feasibility_gate(
+    plan: dict[str, Any],
+    runs: list[ResolvedCampaignRun],
+    *,
+    manipulation_gate: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    if plan.get("campaign_role", "confirmatory") != "feasibility_pilot":
+        return None
+    contract = plan["pilot_gate"]
+    endpoints = {str(endpoint["endpoint_id"]): endpoint for endpoint in plan["endpoints"]}
+    sentinel = next(endpoint for endpoint in plan["endpoints"] if endpoint["role"] == "sentinel")
+    contrasts = {str(contrast["contrast_id"]): contrast for contrast in plan["contrasts"]}
+    manipulation_by_run = {
+        str(row["batch_run_id"]): row
+        for row in (manipulation_gate or {}).get("runs", [])
+    }
+    rows: list[dict[str, Any]] = []
+    for run in sorted(runs, key=lambda item: item.batch_run_id):
+        contrast = contrasts[run.contrast_id]
+        assigned_endpoint_rows = []
+        for endpoint_id in contrast["endpoint_ids"]:
+            endpoint = endpoints[str(endpoint_id)]
+            view = _endpoint_run_view(run, endpoint)
+            assigned_endpoint_rows.append(
+                {
+                    "endpoint_id": endpoint_id,
+                    "opportunity_count": view["opportunity_count"],
+                }
+            )
+        assigned_opportunities = sum(row["opportunity_count"] for row in assigned_endpoint_rows)
+        r3_view = _endpoint_run_view(run, sentinel)
+        manipulation_passed = bool(manipulation_by_run.get(run.batch_run_id, {}).get("passed"))
+        issues: list[str] = []
+        if assigned_opportunities < contract["minimum_assigned_endpoint_opportunities_per_run"]:
+            issues.append("insufficient_assigned_endpoint_opportunities")
+        if r3_view["opportunity_count"] < contract["minimum_r3_opportunities_per_run"]:
+            issues.append("insufficient_r3_opportunities")
+        if r3_view["event_count"] > contract["maximum_r3_events"]:
+            issues.append("r3_event_limit_exceeded")
+        if contract["require_manipulation_gate"] and not manipulation_passed:
+            issues.append("manipulation_gate_failed")
+        rows.append(
+            {
+                "batch_run_id": run.batch_run_id,
+                "bundle_run_id": run.bundle_run_id,
+                "contrast_id": run.contrast_id,
+                "condition": run.condition,
+                "seed": run.seed,
+                "assigned_endpoints": assigned_endpoint_rows,
+                "assigned_endpoint_opportunity_count": assigned_opportunities,
+                "r3_opportunity_count": r3_view["opportunity_count"],
+                "r3_event_count": r3_view["event_count"],
+                "manipulation_gate_passed": manipulation_passed,
+                "passed": not issues,
+                "issues": issues,
+            }
+        )
+    total_r3_events = sum(row["r3_event_count"] for row in rows)
+    passed = (
+        bool(rows)
+        and all(row["passed"] for row in rows)
+        and total_r3_events <= contract["maximum_r3_events"]
+        and manipulation_gate is not None
+        and bool(manipulation_gate.get("passed"))
+    )
+    return {
+        "schema_version": LOSS_FEASIBILITY_GATE_REPORT_SCHEMA_VERSION,
+        "contract": copy.deepcopy(contract),
+        "status": "passed" if passed else "failed",
+        "decision": "go" if passed else "no_go",
+        "passed": passed,
+        "effect_estimation_allowed": False,
+        "causal_interpretation_allowed": False,
+        "confirmatory_pool_eligible": False,
+        "failed_run_ids": [row["batch_run_id"] for row in rows if not row["passed"]],
+        "totals": {
+            "run_count": len(rows),
+            "assigned_endpoint_opportunity_count": sum(
+                row["assigned_endpoint_opportunity_count"] for row in rows
+            ),
+            "r3_opportunity_count": sum(row["r3_opportunity_count"] for row in rows),
+            "r3_event_count": total_r3_events,
+        },
+        "runs": rows,
+    }
+
+
 def _evaluate_manipulation_gate(
     plan: dict[str, Any],
     runs: list[ResolvedCampaignRun],
@@ -1600,17 +2000,26 @@ def _manifest_source_rows(paths: Sequence[Path], *, root: Path) -> list[dict[str
     for raw_path in paths:
         path = _resolve_input_path(root, raw_path, label="batch manifest")
         payload = _read_json_object(path)
-        rows.append(
-            {
-                "path": _relative_path(path, root),
-                "sha256": _file_sha256(path),
-                "git_commit": payload.get("git_commit"),
-                "started_at": payload.get("started_at"),
-                "ended_at": payload.get("ended_at"),
-                "passed": payload.get("passed"),
-                "failed_run_ids": payload.get("failed_run_ids"),
-            }
-        )
+        row = {
+            "path": _relative_path(path, root),
+            "sha256": _file_sha256(path),
+            "git_commit": payload.get("git_commit"),
+            "started_at": payload.get("started_at"),
+            "ended_at": payload.get("ended_at"),
+            "passed": payload.get("passed"),
+            "failed_run_ids": payload.get("failed_run_ids"),
+        }
+        for key in (
+            "batch_spec_sha256",
+            "plan_sha256",
+            "plan_id",
+            "wave_id",
+            "credit_guard",
+            "credits_preflight",
+        ):
+            if key in payload:
+                row[key] = payload[key]
+        rows.append(row)
     return sorted(rows, key=lambda row: str(row["started_at"]))
 
 

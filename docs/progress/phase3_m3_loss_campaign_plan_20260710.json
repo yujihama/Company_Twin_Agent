@@ -3,10 +3,13 @@
   "status": "sealed",
   "plan_id": "phase3-m3-document-mutation-loss-campaign-20260710",
   "created_at": "2026-07-10",
-  "kind": "pre_execution_plan_pending_owner_approval",
-  "approval_status": "Owner approval #14 candidate; not granted while this PR is Draft.",
-  "seal_method": "The file describes the proposed sealed state. It is not sealed or authorized for execution until this Draft PR is approved, marked ready, and merged; the merge commit is the seal.",
-  "question": "Do a sales-only elderly-understanding clarification and a circulated provisional-chat-approval contradiction change their corresponding R1/R2 and R4 structural loss-event occurrence rates in fresh same-seed S2 pairs?",
+  "kind": "pre_registered_confirmatory_template_pending_pilot",
+  "campaign_role": "confirmatory",
+  "approval_status": "Confirmatory owner approval #14 is not granted. This PR may freeze the template hash but cannot authorize confirmatory execution.",
+  "approval_granted_by_this_file": false,
+  "execution_authorized_by_this_file": false,
+  "seal_method": "The pilot PR merge freezes this confirmatory template against outcome-driven adaptation but is not its execution seal. Only after a passing pilot result may a separate confirmatory-only PR record approval #14, change kind to pre_execution_sealed_plan, set approval_granted_by_this_file and execution_authorized_by_this_file to true, and merge; that later merge commit is the confirmatory execution seal.",
+  "question": "After an independent feasibility pilot passes, do a sales-only elderly-understanding clarification and a circulated provisional-chat-approval contradiction change their corresponding R1/R2 and R4 structural loss-event occurrence rates in fresh same-seed S2 pairs?",
   "measurement_boundary": {
     "primary": "Opportunity-level structural loss-event occurrence for the endpoint assigned to each contrast.",
     "direct_detection": "Current R1-R4 catalog is uncovered, so direct miss count/rate/interval are N/A; uncovered event counts and related signals are reported separately.",
@@ -14,7 +17,30 @@
     "readiness": "This experiment and its report do not update acceptance or readiness."
   },
   "batch_spec": "docs/progress/phase3_m3_loss_campaign_batch_20260710.json",
-  "batch_spec_sha256": "0ae033c446bed27f002f0a2714042ef3adfbc01a05895679bc545fbb90355c90",
+  "batch_spec_sha256": "66b0868e009fdf9b202abc51088bd6dd0a5e7e4dc526977f36e0dfd0bf0db798",
+  "pilot_prerequisite": {
+    "plan_id": "phase3-m3-document-mutation-feasibility-pilot-20260710",
+    "plan_path": "docs/progress/phase3_m3_loss_pilot_plan_20260710.json",
+    "plan_sha256": "5f9215381cc455dd2f37e26f129d72d4f20e3e6fbce8da6f48d40ec2ed4743fc",
+    "required_result": "pilot_gate.passed=true",
+    "required_campaign_role": "feasibility_pilot",
+    "required_pilot_kind_at_execution_seal": "pre_execution_pilot_plan",
+    "template_hash_refresh_required_before_pilot_merge": true,
+    "result_commit_must_precede_confirmatory_seal": true,
+    "pilot_data_excluded_from_confirmatory": true,
+    "execution_without_passing_result": "forbidden"
+  },
+  "wave_execution_policy": {
+    "mode": "fixed_order_complete_waves",
+    "ordered_wave_ids": ["wave-1", "wave-2", "wave-3", "wave-4", "wave-5"],
+    "runs_per_wave": 4,
+    "pair_content": "Each wave contains one complete R1 control/treatment pair and one complete R4 control/treatment pair.",
+    "credit_check": "Apply the batch-sealed fail-closed seven-credit guard before every wave launch.",
+    "continue_basis": "Proceed only after the prior wave and its infrastructure retries complete and required integrity artifacts validate.",
+    "integrity_checkpoint_enforcement": "Pre-spend order, duplicate-launch, commit, plan, batch, credit, and retry controls are machine-enforced. Post-run loss/monitoring/manipulation integrity before the next wave remains procedural in this Draft template; before confirmatory execution approval, add a machine-validated integrity receipt or explicitly approve the manual checkpoint as a residual risk.",
+    "outcome_peeking": "Effect direction, arm rates, paired deltas, and significance must not be computed or used between waves.",
+    "stopping_rule": "Stop for unavailable/insufficient credits, unresolved infrastructure failure, or integrity failure; never stop or continue because of an observed treatment effect."
+  },
   "policy": {
     "schema_version": "company_twin.loss_event_campaign_policy.v1",
     "input_contract": {
@@ -210,34 +236,40 @@
     "time_pressure": false,
     "consequences": "off",
     "motives": false,
+    "concurrency": 2,
+    "wave_ids": ["wave-1", "wave-2", "wave-3", "wave-4", "wave-5"],
     "seeds": [940, 941, 942, 943, 944, 945, 946, 947, 948, 949],
     "seeds_note": "No seed 940-949 appears in tracked experiment plans/specs or local run meta files as of 2026-07-10.",
     "no_reseeding_rule": "Infrastructure failures retry the same run ID and seed after explicit partial-root deletion; outcome-based replacement is forbidden.",
-    "retry_manifest_rule": "Preserve the original full batch manifest. Every retry must use a new --batch-dir and its manifest must contain exactly the prior failed run IDs."
+    "retry_manifest_rule": "For each wave, preserve its initial four-run manifest. Every retry must use a new --batch-dir, retain that wave_id, and contain exactly the prior failed run IDs. Supply the complete ordered wave/retry manifest chain to aggregation."
   },
   "known_power_risk": {
     "evidence": "Local ledgers for 20 recent related 40-tick S2 D1 confirmation runs and 12 D1b runs contain zero contract_completed/documents_delivered events (0/32 runs, verified 2026-07-10).",
-    "implication": "R1/R2 and R4 structural loss events, and the R3 sentinel opportunities, all require a completion. This proposed 20-run campaign therefore has a material risk of producing zero endpoint events and failing the R3 minimum-opportunity integrity gate after incurring the full live cost. Conditionally, if the R1/R2 control arm remains at zero occurrence, treatment-minus-control cannot be negative and the preregistered benefit direction cannot be supported; R4 harm remains mathematically possible but shares the same completion floor.",
-    "decision_required": "Do not merge solely because the schema validates. The owner must accept this low-power risk or require a separately approved, non-leaking completion-opportunity design before sealing M3."
+    "implication": "R1/R2 and R4 structural loss events, and the R3 sentinel opportunities, all require a completion. A separately sealed four-run pilot now tests that floor before any confirmatory run, and the confirmatory campaign is split into five fixed waves. The pilot reduces avoidable spend but does not increase statistical power or remove the risk of sparse confirmatory outcomes. Conditionally, if the R1/R2 control arm remains at zero occurrence, treatment-minus-control cannot be negative and the preregistered benefit direction cannot be supported; R4 harm remains mathematically possible but shares the same completion floor.",
+    "decision_required": "Do not seal or run this confirmatory plan unless the independent pilot report passes its preregistered feasibility gate. A passing pilot authorizes only consideration of this separately sealed K=5 plan; pilot effects are forbidden and cannot justify changing the confirmatory design."
   },
   "cost_guard": {
-    "minimum_openrouter_credits": 30,
-    "rule": "Run with --min-credits 30 --abort-on-low-credits. This uses the conservative observed upper sizing of 1.5 credits x 20 S2 runs; refresh the live balance immediately before execution.",
+    "minimum_openrouter_credits_per_wave": 7,
+    "abort_on_low_credits": true,
+    "require_available": true,
+    "rule": "The sealed batch guard is authoritative and is reapplied before each four-run wave. Abort before launching a wave when available balance cannot be read or is below 7 credits. This is a launch floor, not a total campaign budget or spending cap.",
     "execution_authorized_by_this_file": false
   },
   "proposed_execution_order": [
-    "Approve and merge this plan PR; the merge commit becomes the seal.",
-    "Check out that exact merge commit with a clean working tree, confirm the imported company_twin module resolves to this checkout, and use the same commit for initial runs, retries, per-run artifacts, and aggregation.",
-    "Run the full batch with a new batch directory and the 30-credit abort guard.",
-    "Retry only manifest-recorded failures with identical seeds and a distinct retry batch directory.",
+    "Review this Draft as the pilot execution PR: the pilot plan may be approved and sealed here, while this confirmatory artifact remains a hash-frozen, non-executable template. Run the pilot at the exact merge commit and publish a result proving pilot_gate.passed=true; a failed or missing pilot result is a hard no-go.",
+    "After the passing pilot result exists, approve and merge this confirmatory plan separately; its later merge commit becomes the confirmatory seal. Pilot artifacts and seeds remain excluded.",
+    "Check out that exact confirmatory merge commit with a clean working tree, confirm the imported company_twin module resolves to this checkout, and use the same commit for all five waves, retries, per-run artifacts, and aggregation.",
+    "Run wave-1 through wave-5 in the sealed order. Invoke run-batch with --batch-spec, --plan, and --wave plus a distinct batch directory for each wave; exact clean-HEAD bytes, authorization metadata, persistent wave state, and the seven-credit fail-closed guard are checked before every launch.",
+    "After each wave, retry only manifest-recorded infrastructure failures with identical run IDs/seeds and a distinct retry batch directory. Validate required per-run artifacts and integrity before the next wave, but do not compute or inspect effect direction, arm rates, paired deltas, or significance.",
     "For every completed run, write loss_events.json and loss_event_monitoring.json.",
-    "Run loss-event-campaign with the original manifest plus every retry manifest; it automatically evaluates the sealed manipulation gate for every control and treatment run.",
+    "After every sealed wave completes, run loss-event-campaign with all initial wave manifests and retries in exact wave order; it automatically evaluates the sealed manipulation gate for every control and treatment run.",
     "If the manipulation gate fails, retain the diagnostic report and stop with exit 1; pair exclusion, seed replacement, post-hoc successful-run rerun, and causal interpretation are forbidden.",
     "Review integrity gates and unexpected-loss rows before interpreting paired occurrence deltas.",
     "Publish results and artifact hashes in a separate result PR; do not update readiness automatically."
   ],
-  "owner_decisions_required_before_merge": [
-    "Approve the two mutation-to-endpoint assignments and K=5 fresh seed blocks.",
+  "owner_decisions_required_before_confirmatory_execution_merge": [
+    "Approve the independent four-run feasibility pilot as a hard prerequisite, its separate merge seal, and permanent exclusion of pilot seeds/results from K=5.",
+    "Approve the two mutation-to-endpoint assignments and K=5 fresh confirmatory seed blocks.",
     "Approve the fixed isolation conditions: S2, 40 ticks, measurement prompts, openrouter:qwen/qwen3.6-flash, circulation enabled, time pressure off, consequences off, and motives off.",
     "Approve opportunity as the primary occurrence unit rather than eligible-run incidence.",
     "Approve pre-event signals as warning-only and a two-tick (one business day) post-event window.",
@@ -246,7 +278,9 @@
     "Approve running M3 occurrence-first with direct miss rates N/A, without adding a new agent-visible discovery control.",
     "Approve exact tick-1 full-text mutation delivery to every active seat whose role is listed in the mutation visible_roles, before the first assigned endpoint opportunity; controls must have no document circulation.",
     "Approve the 4/5 directional candidate screening rules and secondary-only G3 contract.",
-    "Accept the observed 0/32 completion count in recent related 40-tick S2 runs and the resulting risk of an all-zero, R3-unexercised campaign, or require a separately approved completion-opportunity design first.",
-    "Confirm that approval #14 remains withheld while this PR is Draft; before Ready, update approval_status with the grant and change kind to pre_execution_sealed_plan."
+    "Approve the fixed five-wave order, four runs per wave, concurrency two, seven-credit fail-closed check before every wave, and the ban on outcome-based early stopping or continuation.",
+    "Before confirmatory execution approval, choose and seal either a machine-validated per-wave integrity receipt or an explicitly owned manual integrity checkpoint; runner subprocess success alone is not evidence that loss/monitoring/manipulation artifacts passed.",
+    "Accept that a passing feasibility pilot reduces avoidable spend but does not remove sparse-outcome or low-power risk in the confirmatory campaign.",
+    "Confirm that approval #14 remains withheld for this template; only after a passing pilot result may a separate confirmatory-only PR update approval_status, change kind to pre_execution_sealed_plan, and set both approval/execution booleans=true."
   ]
 }

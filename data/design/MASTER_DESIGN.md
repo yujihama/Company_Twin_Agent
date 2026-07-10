@@ -2121,6 +2121,24 @@ fresh seed/K、主要分母、pre-event、post-event window、R3最小opportunit
 エージェントが見る世界条件を変えるため、採用時は別の承認・実装を経る。
 readiness/acceptanceへの昇格効果はない。テスト: `tests/test_loss_campaign.py`。
 
+**M3の費用分割とpilot境界(2026-07-10 Draft).** 既知の関連S2 40-tick runで
+completionが0/32だったため、confirmatory K=5を一括起動しない。seed 951/952の独立
+4-run feasibility pilotを先に別PRで封印し、全runでassigned endpoint opportunity>=1、
+R3 opportunity>=1、R3 event=0、exact mutation-circulation gate通過を要求する。
+pilotは`campaign_role=feasibility_pilot`であり、effect推定・方向確認・confirmatoryへの
+poolingを禁止する。通過結果だけが後続planを封印可能にするが、統計的powerを保証しない。
+後続20 runは5つの固定waveへ分け、各waveはR1とR4のcontrol/treatment pair各1組、
+concurrency=2とする。sealed `credit_guard`は各wave前にavailable balanceを取得でき、かつ
+7 credits以上であることをfail closedで要求する。wave間ではinfra retryとintegrityだけを
+確認し、arm率・paired delta・効果方向を停止/継続判断へ使わない。pilotとconfirmatoryは
+別々のmerge commitをsealとし、いずれのDraftもlive実行を許可しない。sealed実行では
+`--plan`を必須とし、plan/batchのexact HEAD bytes、clean worktree、実行用kindと明示approval
+booleanを起動前に検証する。`runs/.wave_state`のatomic lock/stateはwave順、失敗時のexact
+retry、同時・重複起動を費用発生前に拒否し、manifestと最終集計でも同じ契約を再検証する。
+ただしstateのwave完了はworld subprocess成功で進むため、次wave前のloss/monitoring/manipulation
+integrityは現Draftでは手続統制である。confirmatory実行承認前に、機械receiptを追加するか、
+manual checkpointの残余リスクと責任者を明示承認する。
+
 ## 18. WP-12 parallel world-run executor (並列実行、2026-07-05)
 
 Phase-3 experiments run batches of independent S0/S1/S2/control-pair worlds

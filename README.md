@@ -100,6 +100,38 @@ assigned endpoint opportunity; any mismatch makes the CLI exit non-zero.
 For the current R1-R4 catalog, direct detection coverage is `uncovered`, so
 direct miss rates are N/A rather than 100%; occurrence rates remain estimable.
 
+Sealed live batches may fix a fail-closed `credit_guard` and an exact ordered
+`waves` partition. A sealed guard cannot be weakened from the CLI: unreadable
+balance or balance below its floor aborts before launch. Run one wave at a
+time with a fresh batch directory, for example:
+
+```powershell
+python -m company_twin.cli run-batch `
+  --batch-spec docs\progress\phase3_m3_loss_campaign_batch_20260710.json `
+  --plan docs\progress\phase3_m3_loss_campaign_plan_20260710.json `
+  --wave wave-1 `
+  --batch-dir runs\phase3_m3_batches\wave-1
+```
+
+For a sealed guard, `--plan` is mandatory. The runner verifies the exact plan
+and batch bytes at a clean Git `HEAD`, requires executable kind/approval flags,
+and persists an atomic wave lock/state under `runs/.wave_state`; out-of-order,
+concurrent, duplicate, or wrong-retry launches fail before spend.
+The state advances on successful world subprocess completion. Confirmatory
+plans must separately seal how loss/monitoring/manipulation integrity is
+approved before the next wave; the current M3 template records that checkpoint
+as a pre-confirmatory decision rather than claiming it is already automated.
+
+The M3 proposal uses five fixed four-run waves with concurrency two and a
+seven-credit preflight before every wave. Wave boundaries limit avoidable
+spend; they are not sequential effect-analysis checkpoints, so treatment
+direction, rates, and deltas must not drive stopping or continuation. Its
+separate four-run `campaign_role=feasibility_pilot` must first pass per-run
+assigned-endpoint and R3 opportunity gates, zero R3 events, and exact exposure.
+Pilot effects are suppressed and pilot runs never enter confirmatory K=5.
+Pilot and confirmatory plans require separate merge seals. Draft/template
+files carry false authorization flags and cannot be launched or aggregated.
+
 ## Full-World Evidence Boundary
 
 For a full-world claim, run a live campaign with S2 and then verify both gates:

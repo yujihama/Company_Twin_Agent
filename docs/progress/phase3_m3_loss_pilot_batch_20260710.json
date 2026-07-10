@@ -1,0 +1,57 @@
+{
+  "description": "DRAFT M3 feasibility-only pilot: one R1 and one R4 same-seed control/treatment pair. Pilot runs are excluded from the confirmatory K=5 campaign and cannot estimate effects.",
+  "root": ".",
+  "concurrency": 2,
+  "stagger_seconds": 8,
+  "credit_guard": {
+    "minimum_credits": 7,
+    "abort_on_low_credits": true,
+    "require_available": true
+  },
+  "runs": [
+    {
+      "run_id": "m3_pilot_r1_control_seed951",
+      "stage": "s2",
+      "run_root": "runs/phase3_m3_pilot_20260710/r1_control_seed951",
+      "seed": 951,
+      "ticks": 40,
+      "prompt_mode": "measurement",
+      "model": "openrouter:qwen/qwen3.6-flash",
+      "mutations": [],
+      "extra_args": ["--circulate-notices"]
+    },
+    {
+      "run_id": "m3_pilot_r1_clarify_seed951",
+      "stage": "s2",
+      "run_root": "runs/phase3_m3_pilot_20260710/r1_clarify_seed951",
+      "seed": 951,
+      "ticks": 40,
+      "prompt_mode": "measurement",
+      "model": "openrouter:qwen/qwen3.6-flash",
+      "mutations": ["clarify_elderly_understanding_sales_only"],
+      "extra_args": ["--circulate-notices"]
+    },
+    {
+      "run_id": "m3_pilot_r4_control_seed952",
+      "stage": "s2",
+      "run_root": "runs/phase3_m3_pilot_20260710/r4_control_seed952",
+      "seed": 952,
+      "ticks": 40,
+      "prompt_mode": "measurement",
+      "model": "openrouter:qwen/qwen3.6-flash",
+      "mutations": [],
+      "extra_args": ["--circulate-notices"]
+    },
+    {
+      "run_id": "m3_pilot_r4_contradict_seed952",
+      "stage": "s2",
+      "run_root": "runs/phase3_m3_pilot_20260710/r4_contradict_seed952",
+      "seed": 952,
+      "ticks": 40,
+      "prompt_mode": "measurement",
+      "model": "openrouter:qwen/qwen3.6-flash",
+      "mutations": ["contradict_chat_approval_recorded"],
+      "extra_args": ["--circulate-notices"]
+    }
+  ]
+}

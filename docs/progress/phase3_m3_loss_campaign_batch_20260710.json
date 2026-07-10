@@ -1,8 +1,60 @@
 {
-  "description": "DRAFT M3 document-mutation loss campaign: two delta-one contrasts x K=5 fresh same-seed pairs. Becomes sealed only when the companion plan PR is approved and merged.",
+  "description": "DRAFT M3 confirmatory document-mutation loss campaign: five fixed four-run waves, each containing one R1 and one R4 same-seed control/treatment pair. The independent feasibility pilot must pass before this batch can be separately approved and merged.",
   "root": ".",
-  "concurrency": 4,
+  "concurrency": 2,
   "stagger_seconds": 8,
+  "credit_guard": {
+    "minimum_credits": 7,
+    "abort_on_low_credits": true,
+    "require_available": true
+  },
+  "waves": [
+    {
+      "wave_id": "wave-1",
+      "run_ids": [
+        "m3_r1_control_seed940",
+        "m3_r1_clarify_seed940",
+        "m3_r4_control_seed945",
+        "m3_r4_contradict_seed945"
+      ]
+    },
+    {
+      "wave_id": "wave-2",
+      "run_ids": [
+        "m3_r1_control_seed941",
+        "m3_r1_clarify_seed941",
+        "m3_r4_control_seed946",
+        "m3_r4_contradict_seed946"
+      ]
+    },
+    {
+      "wave_id": "wave-3",
+      "run_ids": [
+        "m3_r1_control_seed942",
+        "m3_r1_clarify_seed942",
+        "m3_r4_control_seed947",
+        "m3_r4_contradict_seed947"
+      ]
+    },
+    {
+      "wave_id": "wave-4",
+      "run_ids": [
+        "m3_r1_control_seed943",
+        "m3_r1_clarify_seed943",
+        "m3_r4_control_seed948",
+        "m3_r4_contradict_seed948"
+      ]
+    },
+    {
+      "wave_id": "wave-5",
+      "run_ids": [
+        "m3_r1_control_seed944",
+        "m3_r1_clarify_seed944",
+        "m3_r4_control_seed949",
+        "m3_r4_contradict_seed949"
+      ]
+    }
+  ],
   "runs": [
     {
       "run_id": "m3_r1_control_seed940",

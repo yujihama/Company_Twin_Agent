@@ -14,6 +14,7 @@ from typer.testing import CliRunner
 
 from company_twin.cli import app
 from company_twin.loss_campaign import (
+    LOSS_FEASIBILITY_GATE_SCHEMA_VERSION,
     LOSS_CAMPAIGN_PLAN_SCHEMA_VERSION,
     LOSS_CAMPAIGN_POLICY_SCHEMA_VERSION,
     LOSS_CAMPAIGN_REPORT_SCHEMA_VERSION,
@@ -269,6 +270,12 @@ def _write_manifest(
     statuses: dict[str, str],
     started: str,
     ended: str,
+    batch_spec_sha256: str | None = None,
+    plan_sha256: str | None = None,
+    plan_id: str | None = None,
+    wave_id: str | None = None,
+    credit_guard: dict[str, Any] | None = None,
+    credits_preflight: dict[str, Any] | None = None,
 ) -> Path:
     batch_dir = path.parent.resolve()
     rows = [
@@ -276,23 +283,31 @@ def _write_manifest(
         for spec in specs
     ]
     failed = [row["run_id"] for row in rows if row["status"] == "failed"]
-    _write_json(
-        path,
-        {
-            "schema_version": BATCH_MANIFEST_SCHEMA_VERSION,
-            "batch_dir": str(batch_dir),
-            "root": str(root.resolve()),
-            "git_commit": commit,
-            "concurrency": 2,
-            "stagger_seconds": 0.0,
-            "started_at": started,
-            "ended_at": ended,
-            "credits_preflight": None,
-            "runs": rows,
-            "failed_run_ids": failed,
-            "passed": not failed,
-        },
-    )
+    payload = {
+        "schema_version": BATCH_MANIFEST_SCHEMA_VERSION,
+        "batch_dir": str(batch_dir),
+        "root": str(root.resolve()),
+        "git_commit": commit,
+        "concurrency": 2,
+        "stagger_seconds": 0.0,
+        "started_at": started,
+        "ended_at": ended,
+        "credits_preflight": credits_preflight,
+        "runs": rows,
+        "failed_run_ids": failed,
+        "passed": not failed,
+    }
+    if batch_spec_sha256 is not None:
+        payload.update(
+            {
+                "batch_spec_sha256": batch_spec_sha256,
+                "plan_sha256": plan_sha256,
+                "plan_id": plan_id,
+                "wave_id": wave_id,
+                "credit_guard": credit_guard,
+            }
+        )
+    _write_json(path, payload)
     return path
 
 
@@ -308,6 +323,10 @@ def _campaign_fixture(
     unexpected_handling: str = "fail_integrity_gate",
     r3_minimum_scope: str = "campaign_total",
     manipulation_gate: str | None = None,
+    seeds: tuple[int, ...] = (11,),
+    wave_execution: bool = False,
+    credit_guard: dict[str, Any] | None = None,
+    feasibility_pilot: bool = False,
 ) -> dict[str, Any]:
     root = tmp_path / "repo"
     root.mkdir(parents=True)
@@ -316,29 +335,30 @@ def _campaign_fixture(
 
     run_dicts = [
         {
-            "run_id": "r4-control-seed11",
+            "run_id": f"r4-{condition}-seed{seed}",
             "stage": "s2",
-            "run_root": "runs/bundle_r4_control_seed11",
-            "seed": 11,
+            "run_root": f"runs/bundle_r4_{condition}_seed{seed}",
+            "seed": seed,
             "ticks": 2,
             "prompt_mode": "measurement",
             "model": MODEL,
-            "mutations": [],
+            "mutations": [] if condition == "control" else [MUTATION],
             "extra_args": ["--circulate-notices"],
-        },
-        {
-            "run_id": "r4-treatment-seed11",
-            "stage": "s2",
-            "run_root": "runs/bundle_r4_treatment_seed11",
-            "seed": 11,
-            "ticks": 2,
-            "prompt_mode": "measurement",
-            "model": MODEL,
-            "mutations": [MUTATION],
-            "extra_args": ["--circulate-notices"],
-        },
+        }
+        for seed in seeds
+        for condition in ("control", "treatment")
     ]
     batch_spec = {"root": ".", "concurrency": 2, "stagger_seconds": 0.0, "runs": run_dicts}
+    if credit_guard is not None:
+        batch_spec["credit_guard"] = copy.deepcopy(credit_guard)
+    if wave_execution:
+        batch_spec["waves"] = [
+            {
+                "wave_id": f"wave-{index}",
+                "run_ids": [f"r4-control-seed{seed}", f"r4-treatment-seed{seed}"],
+            }
+            for index, seed in enumerate(seeds, start=1)
+        ]
     batch_spec_path = root / "plans" / "batch_spec.json"
     _write_json(batch_spec_path, batch_spec)
     plan = {
@@ -407,14 +427,45 @@ def _campaign_fixture(
                 "endpoint_ids": ["r4-primary"],
                 "pairs": [
                     {
-                        "seed": 11,
-                        "control_run_id": "r4-control-seed11",
-                        "treatment_run_id": "r4-treatment-seed11",
+                        "seed": seed,
+                        "control_run_id": f"r4-control-seed{seed}",
+                        "treatment_run_id": f"r4-treatment-seed{seed}",
                     }
+                    for seed in seeds
                 ],
             }
         ],
     }
+    if feasibility_pilot:
+        plan.update(
+            {
+                "campaign_role": "feasibility_pilot",
+                "pilot_gate": {
+                    "schema_version": "company_twin.loss_event_feasibility_gate.v1",
+                    "effect_estimation": "forbidden_exclude_from_confirmatory",
+                    "minimum_assigned_endpoint_opportunities_per_run": 1,
+                    "minimum_r3_opportunities_per_run": 1,
+                    "maximum_r3_events": 0,
+                    "require_manipulation_gate": True,
+                },
+            }
+        )
+    if credit_guard is not None or wave_execution:
+        if feasibility_pilot:
+            plan.update(
+                {
+                    "kind": "pre_execution_pilot_plan",
+                    "execution_authorized_by_this_file": True,
+                    "approval_granted_by_this_file": True,
+                }
+            )
+        else:
+            plan.update(
+                {
+                    "kind": "pre_execution_sealed_plan",
+                    "execution_authorized_by_this_file": True,
+                }
+            )
     if manipulation_gate is not None:
         plan["manipulation_gate"] = {
             "schema_version": "company_twin.mutation_circulation_gate.v1",
@@ -434,39 +485,109 @@ def _campaign_fixture(
     commit = _git(root, "rev-parse", "HEAD")
 
     specs = [RunSpec.from_dict(item) for item in run_dicts]
-    _build_bundle(
-        root,
-        root / specs[0].run_root,
-        seed=11,
-        mutations=[],
-        approved=True,
-        completion=control_completion,
-        bundle_id="wrong-control-id" if bundle_id_mismatch else None,
-        circulation_message="unexpected control circulation" if manipulation_gate == "control-delivery" else None,
-    )
-    _build_bundle(
-        root,
-        root / specs[1].run_root,
-        seed=11,
-        mutations=[MUTATION],
-        approved=False,
-        completion=treatment_completion,
-        unverified=treatment_unverified,
-        related_notice=True,
-        unexpected_r1=unexpected_treatment,
-        circulation_message="full treatment circulation" if manipulation_gate is not None else None,
-        deliver_circulation=manipulation_gate not in {"missing-treatment-delivery", "bool-tick"},
-        circulation_fault=(
-            manipulation_gate
-            if manipulation_gate
-            in {"wrong-mode", "wrong-kind", "wrong-message-tick", "wrong-detail", "late-delivery", "bool-tick"}
-            else None
-        ),
+    for index, seed in enumerate(seeds):
+        control_spec = specs[index * 2]
+        treatment_spec = specs[index * 2 + 1]
+        _build_bundle(
+            root,
+            root / control_spec.run_root,
+            seed=seed,
+            mutations=[],
+            approved=True,
+            completion=control_completion,
+            bundle_id="wrong-control-id" if bundle_id_mismatch and index == 0 else None,
+            circulation_message="unexpected control circulation" if manipulation_gate == "control-delivery" else None,
+        )
+        _build_bundle(
+            root,
+            root / treatment_spec.run_root,
+            seed=seed,
+            mutations=[MUTATION],
+            approved=False,
+            completion=treatment_completion,
+            unverified=treatment_unverified,
+            related_notice=True,
+            unexpected_r1=unexpected_treatment,
+            circulation_message="full treatment circulation" if manipulation_gate is not None else None,
+            deliver_circulation=manipulation_gate not in {"missing-treatment-delivery", "bool-tick"},
+            circulation_fault=(
+                manipulation_gate
+                if manipulation_gate
+                in {"wrong-mode", "wrong-kind", "wrong-message-tick", "wrong-detail", "late-delivery", "bool-tick"}
+                else None
+            ),
+        )
+
+    successful_preflight = (
+        {
+            "status": "ok",
+            "remaining_credits": float(credit_guard["minimum_credits"]) + 10.0,
+            "total_credits": 100.0,
+            "total_usage": 50.0,
+            "detail": None,
+            "checked_at": "2026-07-10T00:00:00+00:00",
+        }
+        if credit_guard is not None
+        else None
     )
 
+    def preflight_at(started: str) -> dict[str, Any] | None:
+        if successful_preflight is None:
+            return None
+        payload = copy.deepcopy(successful_preflight)
+        payload["checked_at"] = started
+        return payload
+
+    batch_hash = _sha256(batch_spec_path) if credit_guard is not None or wave_execution else None
+    plan_hash = _sha256(plan_path) if batch_hash is not None else None
+    manifest_plan_id = str(plan["plan_id"]) if batch_hash is not None else None
     original_path = root / "batch" / "attempt-1" / "batch_manifest.json"
     manifest_paths: list[Path]
-    if retry_control:
+    if wave_execution:
+        manifest_paths = []
+        for index, seed in enumerate(seeds, start=1):
+            wave_specs = specs[(index - 1) * 2:index * 2]
+            wave_id = f"wave-{index}"
+            wave_started = f"2026-07-10T0{index}:00:00+00:00"
+            wave_path = root / "batch" / wave_id / "attempt-1" / "batch_manifest.json"
+            statuses = {spec.run_id: "succeeded" for spec in wave_specs}
+            if retry_control and index == 1:
+                statuses[wave_specs[0].run_id] = "failed"
+            _write_manifest(
+                wave_path,
+                root=root,
+                commit=commit,
+                specs=wave_specs,
+                statuses=statuses,
+                started=wave_started,
+                ended=f"2026-07-10T0{index}:10:00+00:00",
+                batch_spec_sha256=batch_hash,
+                plan_sha256=plan_hash,
+                plan_id=manifest_plan_id,
+                wave_id=wave_id,
+                credit_guard=credit_guard,
+                credits_preflight=preflight_at(wave_started),
+            )
+            manifest_paths.append(wave_path)
+            if retry_control and index == 1:
+                retry_path = root / "batch" / wave_id / "attempt-2" / "batch_manifest.json"
+                _write_manifest(
+                    retry_path,
+                    root=root,
+                    commit=commit,
+                    specs=[wave_specs[0]],
+                    statuses={wave_specs[0].run_id: "succeeded"},
+                    started="2026-07-10T01:11:00+00:00",
+                    ended="2026-07-10T01:15:00+00:00",
+                    batch_spec_sha256=batch_hash,
+                    plan_sha256=plan_hash,
+                    plan_id=manifest_plan_id,
+                    wave_id=wave_id,
+                    credit_guard=credit_guard,
+                    credits_preflight=preflight_at("2026-07-10T01:11:00+00:00"),
+                )
+                manifest_paths.append(retry_path)
+    elif retry_control:
         _write_manifest(
             original_path,
             root=root,
@@ -475,6 +596,11 @@ def _campaign_fixture(
             statuses={specs[0].run_id: "failed", specs[1].run_id: "succeeded"},
             started="2026-07-10T00:00:00+00:00",
             ended="2026-07-10T00:10:00+00:00",
+            batch_spec_sha256=batch_hash,
+            plan_sha256=plan_hash,
+            plan_id=manifest_plan_id,
+            credit_guard=credit_guard,
+            credits_preflight=preflight_at("2026-07-10T00:00:00+00:00"),
         )
         retry_path = root / "batch" / "attempt-2" / "batch_manifest.json"
         _write_manifest(
@@ -485,6 +611,11 @@ def _campaign_fixture(
             statuses={specs[0].run_id: "succeeded"},
             started="2026-07-10T00:11:00+00:00",
             ended="2026-07-10T00:15:00+00:00",
+            batch_spec_sha256=batch_hash,
+            plan_sha256=plan_hash,
+            plan_id=manifest_plan_id,
+            credit_guard=credit_guard,
+            credits_preflight=preflight_at("2026-07-10T00:11:00+00:00"),
         )
         manifest_paths = [original_path, retry_path]
     else:
@@ -496,6 +627,11 @@ def _campaign_fixture(
             statuses={spec.run_id: "succeeded" for spec in specs},
             started="2026-07-10T00:00:00+00:00",
             ended="2026-07-10T00:10:00+00:00",
+            batch_spec_sha256=batch_hash,
+            plan_sha256=plan_hash,
+            plan_id=manifest_plan_id,
+            credit_guard=credit_guard,
+            credits_preflight=preflight_at("2026-07-10T00:00:00+00:00"),
         )
         manifest_paths = [original_path]
     return {
@@ -536,6 +672,241 @@ def test_campaign_aggregates_occurrence_and_keeps_uncovered_detection_na(tmp_pat
     assert detection["related_control_signal_event_count"] == 1
     assert report["r3_sentinel"]["status"] == "observed_zero"
     assert report["r3_sentinel"]["exercise_status"] == "fully_exercised"
+    assert "campaign_role" not in report
+    assert "effect_estimation_allowed" not in report
+    assert "feasibility_gate" not in report
+
+
+def test_feasibility_pilot_reports_only_go_no_go_and_never_effects(tmp_path: Path) -> None:
+    guard = {"minimum_credits": 6.0, "abort_on_low_credits": True, "require_available": True}
+    fixture = _campaign_fixture(
+        tmp_path,
+        manipulation_gate="valid",
+        feasibility_pilot=True,
+        credit_guard=guard,
+    )
+
+    report = _build(fixture)
+
+    assert report["campaign_role"] == "feasibility_pilot"
+    assert report["campaign_integrity_passed"] is True
+    assert report["effect_estimation_allowed"] is False
+    assert report["causal_interpretation_allowed"] is False
+    assert report["r3_sentinel"]["causal_interpretation_allowed"] is False
+    serialized_report = json.dumps(report, sort_keys=True)
+    assert '"causal_interpretation_allowed": true' not in serialized_report
+    for forbidden_key in (
+        "arms",
+        "paired_occurrence",
+        "treatment_minus_control",
+        "mean_paired_delta",
+        "pooled_rate_difference",
+        "event_rate",
+        "contrast_arms",
+        "hit_runs",
+    ):
+        assert f'"{forbidden_key}":' not in serialized_report
+    assert report["contrast_output_status"] == "suppressed_for_feasibility_pilot"
+    assert report["contrasts"] == []
+    assert "paired_occurrence" not in json.dumps(report["contrasts"])
+    assert set(report["r3_sentinel"]) == {
+        "endpoint_id",
+        "risk",
+        "loss_class",
+        "opportunity_count",
+        "event_count",
+        "maximum_allowed_events",
+        "minimum_required_opportunities",
+        "minimum_scope",
+        "minimum_gate_passed",
+        "status",
+        "exercise_status",
+        "causal_interpretation_allowed",
+        "interpretation_boundary",
+    }
+    assert {"event_rate", "contrast_arms", "hit_runs"}.isdisjoint(report["r3_sentinel"])
+    assert report["unexpected_loss_events"] == {
+        "status": "redacted_for_feasibility_pilot",
+        "details_exposed": False,
+        "interpretation_boundary": "integrity_evaluated_without_event_level_or_effect_output",
+    }
+    gate = report["feasibility_gate"]
+    assert gate["schema_version"] == "company_twin.loss_event_feasibility_gate_report.v1"
+    assert gate["contract"]["schema_version"] == LOSS_FEASIBILITY_GATE_SCHEMA_VERSION
+    assert gate["status"] == "passed"
+    assert gate["decision"] == "go"
+    assert gate["confirmatory_pool_eligible"] is False
+    assert gate["failed_run_ids"] == []
+    assert all(
+        set(endpoint) == {"endpoint_id", "opportunity_count"}
+        for row in gate["runs"]
+        for endpoint in row["assigned_endpoints"]
+    )
+    assert all(row["assigned_endpoint_opportunity_count"] >= 1 for row in gate["runs"])
+    assert all(row["r3_opportunity_count"] >= 1 for row in gate["runs"])
+    assert all(row["r3_event_count"] == 0 for row in gate["runs"])
+    assert all(row["manipulation_gate_passed"] for row in gate["runs"])
+    source = report["sources"]["batch_manifests"][0]
+    assert source["batch_spec_sha256"] == _sha256(fixture["batch_spec_path"])
+    assert source["plan_sha256"] == _sha256(fixture["plan_path"])
+    assert source["plan_id"] == "unit-r4-campaign"
+    assert source["credit_guard"] == guard
+    assert source["credits_preflight"]["status"] == "ok"
+
+
+def test_feasibility_pilot_redacts_materialized_unexpected_event_details(tmp_path: Path) -> None:
+    guard = {"minimum_credits": 6.0, "abort_on_low_credits": True, "require_available": True}
+    fixture = _campaign_fixture(
+        tmp_path,
+        unexpected_treatment=True,
+        manipulation_gate="valid",
+        feasibility_pilot=True,
+        credit_guard=guard,
+    )
+
+    report = _build(fixture)
+    serialized = json.dumps(report, sort_keys=True)
+
+    assert report["unexpected_loss_events"]["status"] == "redacted_for_feasibility_pilot"
+    assert report["unexpected_loss_events"]["details_exposed"] is False
+    assert "APP-P-01" not in serialized
+    assert "loss_event_id" not in report["unexpected_loss_events"]
+
+
+def test_feasibility_pilot_no_go_is_preserved_without_causal_output(tmp_path: Path) -> None:
+    guard = {"minimum_credits": 6.0, "abort_on_low_credits": True, "require_available": True}
+    fixture = _campaign_fixture(
+        tmp_path,
+        control_completion=False,
+        manipulation_gate="valid",
+        feasibility_pilot=True,
+        credit_guard=guard,
+    )
+
+    report = _build(fixture)
+
+    assert report["campaign_integrity_passed"] is False
+    assert report["effect_estimation_allowed"] is False
+    assert report["causal_interpretation_allowed"] is False
+    assert report["contrasts"] == []
+    gate = report["feasibility_gate"]
+    assert gate["decision"] == "no_go"
+    assert gate["failed_run_ids"] == ["r4-control-seed11"]
+    failed = next(row for row in gate["runs"] if not row["passed"])
+    assert failed["assigned_endpoint_opportunity_count"] >= 1
+    assert "insufficient_r3_opportunities" in failed["issues"]
+
+
+@pytest.mark.parametrize("drift", ["unknown-field", "bool-minimum", "missing-manipulation"])
+def test_feasibility_pilot_contract_is_exact(tmp_path: Path, drift: str) -> None:
+    fixture = _campaign_fixture(tmp_path, manipulation_gate="valid")
+    plan = json.loads(fixture["plan_path"].read_text(encoding="utf-8"))
+    plan["campaign_role"] = "feasibility_pilot"
+    plan["pilot_gate"] = {
+        "schema_version": LOSS_FEASIBILITY_GATE_SCHEMA_VERSION,
+        "effect_estimation": "forbidden_exclude_from_confirmatory",
+        "minimum_assigned_endpoint_opportunities_per_run": 1,
+        "minimum_r3_opportunities_per_run": 1,
+        "maximum_r3_events": 0,
+        "require_manipulation_gate": True,
+    }
+    if drift == "unknown-field":
+        plan["pilot_gate"]["unknown"] = True
+    elif drift == "bool-minimum":
+        plan["pilot_gate"]["minimum_r3_opportunities_per_run"] = True
+    else:
+        plan.pop("manipulation_gate")
+    _write_json(fixture["plan_path"], plan)
+
+    with pytest.raises(LossCampaignError, match="pilot_gate|manipulation_gate"):
+        load_loss_campaign_plan(fixture["plan_path"], root=fixture["root"])
+
+
+@pytest.mark.parametrize(
+    ("drift", "message"),
+    [
+        ("kind", "pre_execution_sealed_plan"),
+        ("missing-kind", "pre_execution_sealed_plan"),
+        ("authorization-false", "execution_authorized_by_this_file=true"),
+        ("authorization-missing", "execution_authorized_by_this_file=true"),
+        ("authorization-integer", "execution_authorized_by_this_file=true"),
+    ],
+)
+def test_managed_confirmatory_aggregation_requires_authorized_plan_metadata(
+    tmp_path: Path,
+    drift: str,
+    message: str,
+) -> None:
+    guard = {"minimum_credits": 6.0, "abort_on_low_credits": True, "require_available": True}
+    fixture = _campaign_fixture(tmp_path, credit_guard=guard)
+    plan = json.loads(fixture["plan_path"].read_text(encoding="utf-8"))
+    if drift == "kind":
+        plan["kind"] = "pre_execution_plan_pending_owner_approval"
+    elif drift == "missing-kind":
+        plan.pop("kind")
+    elif drift == "authorization-false":
+        plan["execution_authorized_by_this_file"] = False
+    elif drift == "authorization-missing":
+        plan.pop("execution_authorized_by_this_file")
+    else:
+        plan["execution_authorized_by_this_file"] = 1
+    _write_json(fixture["plan_path"], plan)
+
+    with pytest.raises(LossCampaignError, match=message):
+        _build(fixture)
+
+
+@pytest.mark.parametrize(
+    ("drift", "message"),
+    [
+        ("kind", "pre_execution_pilot_plan"),
+        ("authorization-false", "execution_authorized_by_this_file=true"),
+        ("authorization-missing", "execution_authorized_by_this_file=true"),
+        ("approval-false", "approval_granted_by_this_file=true"),
+        ("approval-missing", "approval_granted_by_this_file=true"),
+        ("approval-integer", "approval_granted_by_this_file=true"),
+    ],
+)
+def test_managed_pilot_aggregation_requires_authorized_and_approved_plan_metadata(
+    tmp_path: Path,
+    drift: str,
+    message: str,
+) -> None:
+    guard = {"minimum_credits": 6.0, "abort_on_low_credits": True, "require_available": True}
+    fixture = _campaign_fixture(
+        tmp_path,
+        credit_guard=guard,
+        manipulation_gate="valid",
+        feasibility_pilot=True,
+    )
+    plan = json.loads(fixture["plan_path"].read_text(encoding="utf-8"))
+    if drift == "kind":
+        plan["kind"] = "pre_execution_pilot_plan_pending_separate_approval"
+    elif drift == "authorization-false":
+        plan["execution_authorized_by_this_file"] = False
+    elif drift == "authorization-missing":
+        plan.pop("execution_authorized_by_this_file")
+    elif drift == "approval-false":
+        plan["approval_granted_by_this_file"] = False
+    elif drift == "approval-missing":
+        plan.pop("approval_granted_by_this_file")
+    else:
+        plan["approval_granted_by_this_file"] = 1
+    _write_json(fixture["plan_path"], plan)
+
+    with pytest.raises(LossCampaignError, match=message):
+        _build(fixture)
+
+
+def test_feasibility_pilot_requires_a_sealed_fail_closed_credit_guard(tmp_path: Path) -> None:
+    fixture = _campaign_fixture(
+        tmp_path,
+        manipulation_gate="valid",
+        feasibility_pilot=True,
+    )
+
+    with pytest.raises(LossCampaignError, match="feasibility_pilot requires a fail-closed credit_guard"):
+        _build(fixture)
 
 
 def test_declared_mutation_circulation_gate_passes_exact_delivery(tmp_path: Path) -> None:
@@ -617,6 +988,172 @@ def test_retry_chain_preserves_failed_attempt_provenance(tmp_path: Path) -> None
     assert len(control["superseded_failed_attempts"]) == 1
     assert control["successful_attempt"]["status"] == "succeeded"
     assert len(report["sources"]["batch_manifests"]) == 2
+
+
+def test_sealed_waves_require_ordered_complete_initials_and_exact_retries(tmp_path: Path) -> None:
+    guard = {"minimum_credits": 6.0, "abort_on_low_credits": True, "require_available": True}
+    fixture = _campaign_fixture(
+        tmp_path,
+        seeds=(11, 12),
+        wave_execution=True,
+        retry_control=True,
+        credit_guard=guard,
+    )
+
+    report = _build(fixture)
+
+    sources = report["sources"]["batch_manifests"]
+    assert [source["wave_id"] for source in sources] == ["wave-1", "wave-1", "wave-2"]
+    assert all(source["batch_spec_sha256"] == _sha256(fixture["batch_spec_path"]) for source in sources)
+    assert all(source["credit_guard"] == guard for source in sources)
+    retried = next(row for row in report["runs"] if row["batch_run_id"] == "r4-control-seed11")
+    assert len(retried["superseded_failed_attempts"]) == 1
+    assert len(report["runs"]) == 4
+
+
+@pytest.mark.parametrize(
+    ("drift", "message"),
+    [
+        ("missing-wave", "not all sealed waves"),
+        ("wave-order", "wave manifest order drift"),
+        ("wave-subset", "must exactly equal its sealed run set"),
+        ("batch-hash", "batch_spec_sha256 drift"),
+        ("plan-hash", "plan_sha256 drift"),
+        ("missing-plan-hash", "plan_sha256 drift"),
+        ("plan-id", "plan_id drift"),
+        ("missing-plan-id", "plan_id drift"),
+        ("credit-guard", "credit_guard drift"),
+        ("preflight-unavailable", "credits_preflight must be successful"),
+        ("preflight-low", "below the sealed minimum"),
+        ("preflight-missing-time", "must be an ISO timestamp"),
+        ("preflight-naive-time", "must include a timezone"),
+        ("preflight-stale", "older than 5 minutes"),
+        ("preflight-future", "later than manifest started_at"),
+    ],
+)
+def test_sealed_wave_manifest_drift_fails_closed(
+    tmp_path: Path,
+    drift: str,
+    message: str,
+) -> None:
+    guard = {"minimum_credits": 6.0, "abort_on_low_credits": True, "require_available": True}
+    fixture = _campaign_fixture(
+        tmp_path,
+        seeds=(11, 12),
+        wave_execution=True,
+        credit_guard=guard,
+    )
+    if drift == "missing-wave":
+        fixture["manifest_paths"] = fixture["manifest_paths"][:1]
+    else:
+        manifest_path = fixture["manifest_paths"][0 if drift != "wave-order" else 1]
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        if drift == "wave-order":
+            manifest["wave_id"] = "wave-1"
+        elif drift == "wave-subset":
+            manifest["runs"] = manifest["runs"][:1]
+        elif drift == "batch-hash":
+            manifest["batch_spec_sha256"] = "0" * 64
+        elif drift == "plan-hash":
+            manifest["plan_sha256"] = "1" * 64
+        elif drift == "missing-plan-hash":
+            manifest.pop("plan_sha256")
+        elif drift == "plan-id":
+            manifest["plan_id"] = "wrong-plan"
+        elif drift == "missing-plan-id":
+            manifest.pop("plan_id")
+        elif drift == "credit-guard":
+            manifest["credit_guard"]["minimum_credits"] = 7.0
+        elif drift == "preflight-unavailable":
+            manifest["credits_preflight"]["status"] = "unavailable"
+        elif drift == "preflight-low":
+            manifest["credits_preflight"]["remaining_credits"] = 5.9
+        elif drift == "preflight-missing-time":
+            manifest["credits_preflight"].pop("checked_at")
+        elif drift == "preflight-naive-time":
+            manifest["credits_preflight"]["checked_at"] = "2026-07-10T00:59:00"
+        elif drift == "preflight-stale":
+            manifest["credits_preflight"]["checked_at"] = "2026-07-10T00:54:59+00:00"
+        else:
+            manifest["credits_preflight"]["checked_at"] = "2026-07-10T01:00:01+00:00"
+        _write_json(manifest_path, manifest)
+
+    with pytest.raises(LossCampaignError, match=message):
+        _build(fixture)
+
+
+def test_control_treatment_pair_cannot_be_split_across_waves(tmp_path: Path) -> None:
+    fixture = _campaign_fixture(tmp_path, seeds=(11, 12))
+    raw = json.loads(fixture["batch_spec_path"].read_text(encoding="utf-8"))
+    raw["credit_guard"] = {
+        "minimum_credits": 6.0,
+        "abort_on_low_credits": True,
+        "require_available": True,
+    }
+    raw["waves"] = [
+        {
+            "wave_id": "wave-1",
+            "run_ids": ["r4-control-seed11", "r4-control-seed12"],
+        },
+        {
+            "wave_id": "wave-2",
+            "run_ids": ["r4-treatment-seed11", "r4-treatment-seed12"],
+        },
+    ]
+    batch = BatchSpec.from_dict(raw)
+    plan = load_loss_campaign_plan(fixture["plan_path"], root=fixture["root"])
+
+    with pytest.raises(LossCampaignError, match="split across waves"):
+        _validate_sealed_batch_spec(plan, batch, root=fixture["root"])
+
+
+@pytest.mark.parametrize(
+    ("drift", "message"),
+    [
+        ("missing-wave-id", "wave_id is missing"),
+        ("batch-hash", "batch_spec_sha256 drift"),
+        ("plan-hash", "plan_sha256 drift"),
+        ("missing-plan-hash", "plan_sha256 drift"),
+        ("plan-id", "plan_id drift"),
+        ("missing-plan-id", "plan_id drift"),
+        ("credit-guard", "credit_guard drift"),
+        ("preflight-unavailable", "credits_preflight must be successful"),
+    ],
+)
+def test_unwaved_sealed_credit_guard_is_also_fail_closed(
+    tmp_path: Path,
+    drift: str,
+    message: str,
+) -> None:
+    guard = {"minimum_credits": 6.0, "abort_on_low_credits": True, "require_available": True}
+    fixture = _campaign_fixture(
+        tmp_path,
+        credit_guard=guard,
+        manipulation_gate="valid",
+        feasibility_pilot=True,
+    )
+    path = fixture["manifest_paths"][0]
+    manifest = json.loads(path.read_text(encoding="utf-8"))
+    if drift == "missing-wave-id":
+        manifest.pop("wave_id")
+    elif drift == "batch-hash":
+        manifest["batch_spec_sha256"] = "f" * 64
+    elif drift == "plan-hash":
+        manifest["plan_sha256"] = "e" * 64
+    elif drift == "missing-plan-hash":
+        manifest.pop("plan_sha256")
+    elif drift == "plan-id":
+        manifest["plan_id"] = "wrong-plan"
+    elif drift == "missing-plan-id":
+        manifest.pop("plan_id")
+    elif drift == "credit-guard":
+        manifest["credit_guard"]["require_available"] = False
+    else:
+        manifest["credits_preflight"]["status"] = "unavailable"
+    _write_json(path, manifest)
+
+    with pytest.raises(LossCampaignError, match=message):
+        _build(fixture)
 
 
 def test_execution_commit_must_contain_the_current_plan(tmp_path: Path) -> None:
@@ -938,6 +1475,37 @@ def test_cli_exits_one_and_preserves_manipulation_gate_failure(tmp_path: Path) -
     assert payload["integrity_gates"]["manipulation_gate"] is False
 
 
+def test_cli_preserves_feasibility_no_go_report_and_exits_one(tmp_path: Path) -> None:
+    guard = {"minimum_credits": 6.0, "abort_on_low_credits": True, "require_available": True}
+    fixture = _campaign_fixture(
+        tmp_path,
+        control_completion=False,
+        manipulation_gate="valid",
+        feasibility_pilot=True,
+        credit_guard=guard,
+    )
+    args = [
+        "loss-event-campaign",
+        "--root",
+        str(fixture["root"]),
+        "--plan",
+        "plans/loss_campaign_plan.json",
+        "--output",
+        "reports/pilot.json",
+    ]
+    for path in fixture["manifest_paths"]:
+        args.extend(["--batch-manifest", str(path.relative_to(fixture["root"]))])
+
+    result = CliRunner().invoke(app, args)
+
+    assert result.exit_code == 1, result.output
+    payload = json.loads((fixture["root"] / "reports" / "pilot.json").read_text(encoding="utf-8"))
+    assert payload["feasibility_gate"]["decision"] == "no_go"
+    assert payload["effect_estimation_allowed"] is False
+    assert payload["causal_interpretation_allowed"] is False
+    assert payload["contrasts"] == []
+
+
 def test_report_write_is_byte_deterministic(tmp_path: Path) -> None:
     fixture = _campaign_fixture(tmp_path)
     output = Path("reports/loss_event_campaign.json")
@@ -959,13 +1527,27 @@ def test_repository_m3_draft_plan_matches_its_batch_and_rule_seals() -> None:
     root = Path(__file__).resolve().parents[1]
     plan_path = root / "docs" / "progress" / "phase3_m3_loss_campaign_plan_20260710.json"
     batch_path = root / "docs" / "progress" / "phase3_m3_loss_campaign_batch_20260710.json"
+    pilot_plan_path = root / "docs" / "progress" / "phase3_m3_loss_pilot_plan_20260710.json"
     plan = load_loss_campaign_plan(plan_path, root=root)
     batch = BatchSpec.from_dict(json.loads(batch_path.read_text(encoding="utf-8")))
 
     assignments = _validate_sealed_batch_spec(plan, batch, root=root)
 
     assert _sha256(batch_path) == plan["batch_spec_sha256"]
+    assert _sha256(pilot_plan_path) == plan["pilot_prerequisite"]["plan_sha256"]
     assert _canonical_sha256(load_loss_monitor_rules(root)) == plan["policy"]["input_contract"]["monitor_rules_sha256"]
+    assert plan["kind"] == "pre_registered_confirmatory_template_pending_pilot"
+    assert plan["execution_authorized_by_this_file"] is False
+    assert plan["cost_guard"]["execution_authorized_by_this_file"] is False
+    assert plan["pilot_prerequisite"]["execution_without_passing_result"] == "forbidden"
+    assert batch.credit_guard is not None
+    assert batch.credit_guard.to_dict() == {
+        "minimum_credits": 7.0,
+        "abort_on_low_credits": True,
+        "require_available": True,
+    }
+    assert [wave.wave_id for wave in batch.waves] == [f"wave-{index}" for index in range(1, 6)]
+    assert all(len(wave.run_ids) == 4 for wave in batch.waves)
     assert len(assignments) == 20
     assert {assignment["seed"] for assignment in assignments.values()} == set(range(940, 950))
     assert "manipulation_checks" not in plan
@@ -978,3 +1560,35 @@ def test_repository_m3_draft_plan_matches_its_batch_and_rule_seals() -> None:
         "control_handling": "forbid_document_circulation",
         "treatment_handling": "require_exact_config_announcement_delivery",
     }
+
+
+def test_repository_m3_pilot_plan_is_feasibility_only_and_sealed_to_four_runs() -> None:
+    root = Path(__file__).resolve().parents[1]
+    plan_path = root / "docs" / "progress" / "phase3_m3_loss_pilot_plan_20260710.json"
+    batch_path = root / "docs" / "progress" / "phase3_m3_loss_pilot_batch_20260710.json"
+    plan = load_loss_campaign_plan(plan_path, root=root)
+    batch = BatchSpec.from_dict(json.loads(batch_path.read_text(encoding="utf-8")))
+
+    assignments = _validate_sealed_batch_spec(plan, batch, root=root)
+
+    assert _sha256(batch_path) == plan["batch_spec_sha256"]
+    assert plan["campaign_role"] == "feasibility_pilot"
+    assert plan["execution_authorized_by_this_file"] is False
+    assert plan["approval_granted_by_this_file"] is False
+    assert plan["pilot_gate"] == {
+        "schema_version": LOSS_FEASIBILITY_GATE_SCHEMA_VERSION,
+        "effect_estimation": "forbidden_exclude_from_confirmatory",
+        "minimum_assigned_endpoint_opportunities_per_run": 1,
+        "minimum_r3_opportunities_per_run": 1,
+        "maximum_r3_events": 0,
+        "require_manipulation_gate": True,
+    }
+    assert batch.credit_guard is not None
+    assert batch.credit_guard.to_dict() == {
+        "minimum_credits": 7.0,
+        "abort_on_low_credits": True,
+        "require_available": True,
+    }
+    assert batch.waves == []
+    assert len(assignments) == 4
+    assert {assignment["seed"] for assignment in assignments.values()} == {951, 952}
