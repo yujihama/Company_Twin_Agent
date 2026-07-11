@@ -195,6 +195,7 @@ def s1(
     time_pressure: Annotated[bool, typer.Option("--time-pressure/--no-time-pressure", help="D1 phase-3 condition: compress the world horizon, deadlines, and seat tick budgets; default off and recorded in config.json")] = False,
     consequences: Annotated[str, typer.Option("--consequences", help="D1b consequence layer (MASTER_DESIGN §17.23, approval #10): off | delay | speed | both; default off and recorded in config.json")] = "off",
     motives: Annotated[bool, typer.Option("--motives/--no-motives", help="E2 motive layer (MASTER_DESIGN §17.24, approval #11): sales-target/progress/summary notices + recurring follow-ups with churn (consequence layer v2); default off and recorded in config.json")] = False,
+    workflow_support: Annotated[bool, typer.Option("--workflow-support/--no-workflow-support", help="M3 minimal world fix (MASTER_DESIGN §17.29, approval #14): internal contact directory in the turn prompt + factual workflow handoff notices; default off and recorded in config.json")] = False,
     absence_off_probe: Annotated[list[str] | None, typer.Option("--absence-off-probe", help="Valve-open control (MASTER_DESIGN §17.25): remove the named probe's DERIVED manager absence (repeatable); everything else identical. Recorded in config.json")] = None,
 ) -> None:
     """Run one live S1 multi-seat episode."""
@@ -204,7 +205,7 @@ def s1(
     corpus, applied_mutations = _corpus_with_mutations(base, design, mutation)
     knobs = {"K-completion-gate": strict_completion, "K-material-picker": strict_material}
     target_root = (run_root or make_run_root(base, f"s1_{probe}")).resolve()
-    result = run_s1_episode(design=design, corpus=corpus, probe_id=probe, run_root=target_root, model=model, customer_model=customer_model, knobs=knobs, seed=seed, ticks=ticks, prompt_mode=prompt_mode, model_bindings=_seat_model_bindings(seat_model), scc_switch_tick=scc_switch_tick, mutations=applied_mutations, circulate_notices=circulate_notices, time_pressure=time_pressure, consequences=consequences, motives=motives, absence_off_probes=absence_off_probe)  # type: ignore[arg-type]
+    result = run_s1_episode(design=design, corpus=corpus, probe_id=probe, run_root=target_root, model=model, customer_model=customer_model, knobs=knobs, seed=seed, ticks=ticks, prompt_mode=prompt_mode, model_bindings=_seat_model_bindings(seat_model), scc_switch_tick=scc_switch_tick, mutations=applied_mutations, circulate_notices=circulate_notices, time_pressure=time_pressure, consequences=consequences, motives=motives, workflow_support=workflow_support, absence_off_probes=absence_off_probe)  # type: ignore[arg-type]
     write_triage(target_root)
     _echo_json(result)
 
@@ -226,6 +227,7 @@ def s2(
     time_pressure: Annotated[bool, typer.Option("--time-pressure/--no-time-pressure", help="D1 phase-3 condition: compress the world horizon, deadlines, and seat tick budgets; default off and recorded in config.json")] = False,
     consequences: Annotated[str, typer.Option("--consequences", help="D1b consequence layer (MASTER_DESIGN §17.23, approval #10): off | delay | speed | both; default off and recorded in config.json")] = "off",
     motives: Annotated[bool, typer.Option("--motives/--no-motives", help="E2 motive layer (MASTER_DESIGN §17.24, approval #11): sales-target/progress/summary notices + recurring follow-ups with churn (consequence layer v2); default off and recorded in config.json")] = False,
+    workflow_support: Annotated[bool, typer.Option("--workflow-support/--no-workflow-support", help="M3 minimal world fix (MASTER_DESIGN §17.29, approval #14): internal contact directory in the turn prompt + factual workflow handoff notices; default off and recorded in config.json")] = False,
     absence_off_probe: Annotated[list[str] | None, typer.Option("--absence-off-probe", help="Valve-open control (MASTER_DESIGN §17.25): remove the named probe's DERIVED manager absence (repeatable); everything else identical. Recorded in config.json")] = None,
 ) -> None:
     """Run one live S2 world (full deck)."""
@@ -234,7 +236,7 @@ def s2(
     design = load_design(base)
     corpus, applied_mutations = _corpus_with_mutations(base, design, mutation)
     target_root = (run_root or make_run_root(base, "anchor_s2" if anchor else "s2")).resolve()
-    result = run_s2_world(design=design, corpus=corpus, run_root=target_root, model=model, customer_model=customer_model, knobs={}, seed=seed, ticks=ticks, anchor=anchor, prompt_mode=prompt_mode, model_bindings=_seat_model_bindings(seat_model), scc_switch_tick=scc_switch_tick, mutations=applied_mutations, circulate_notices=circulate_notices, time_pressure=time_pressure, consequences=consequences, motives=motives, absence_off_probes=absence_off_probe)  # type: ignore[arg-type]
+    result = run_s2_world(design=design, corpus=corpus, run_root=target_root, model=model, customer_model=customer_model, knobs={}, seed=seed, ticks=ticks, anchor=anchor, prompt_mode=prompt_mode, model_bindings=_seat_model_bindings(seat_model), scc_switch_tick=scc_switch_tick, mutations=applied_mutations, circulate_notices=circulate_notices, time_pressure=time_pressure, consequences=consequences, motives=motives, workflow_support=workflow_support, absence_off_probes=absence_off_probe)  # type: ignore[arg-type]
     write_triage(target_root)
     _echo_json(result)
 
