@@ -45,6 +45,8 @@ CONSEQUENCES_STALL_AFTER_TICKS = 3
 MOTIVE_LAYER_VERSION = "motive_layer_v1"
 MOTIVE_SALES_TARGET = 4
 
+WORKFLOW_SUPPORT_VERSION = "workflow_support_v1"
+
 
 def _normalize_consequences_mode(value: str | None) -> str:
     mode = str(value or "off").strip().lower()
@@ -62,6 +64,23 @@ def _motives_schedule(enabled: bool) -> dict[str, Any]:
         "enabled": bool(enabled),
         "version": MOTIVE_LAYER_VERSION,
         "sales_target": MOTIVE_SALES_TARGET,
+    }
+
+
+def _workflow_schedule(enabled: bool) -> dict[str, Any]:
+    """M3 minimal world fix (MASTER_DESIGN §17.29, approval #14): default-off.
+    When enabled, the turn prompt carries a fixed internal contact directory
+    (role label -> chat address, machine-generated from the seat table) and
+    the kernel delivers factual workflow routing notices (submission,
+    approval request, intermediate transitions) to the seats that own the
+    next step -- the §17.24 "kernel-tallied facts only" discipline. Both are
+    arm-symmetric world conditions stamped into the config snapshot like
+    every other experimental condition."""
+    return {
+        "enabled": bool(enabled),
+        "version": WORKFLOW_SUPPORT_VERSION,
+        "notices": bool(enabled),
+        "contact_directory": bool(enabled),
     }
 
 
@@ -104,6 +123,7 @@ def build_world_config(
     time_pressure: bool = False,
     consequences: str = "off",
     motives: bool = False,
+    workflow_support: bool = False,
     absence_off_probes: list[str] | None = None,
 ) -> dict[str, Any]:
     normalized_knobs = {**DEFAULT_KNOBS, **(knobs or {})}
@@ -260,6 +280,7 @@ def build_world_config(
                 "time_pressure": pressure_schedule,
                 "consequences": _consequences_schedule(consequences, recurrence=bool(motives)),
                 "motives": _motives_schedule(motives),
+                "workflow": _workflow_schedule(workflow_support),
             },
             "seeds": {
                 "retrieval": seed,
@@ -277,6 +298,7 @@ def build_world_config(
             "time_pressure": bool(time_pressure),
             "consequences": _normalize_consequences_mode(consequences),
             "motives": bool(motives),
+            "workflow_support": bool(workflow_support),
             "absence_off_probes": sorted({str(p) for p in (absence_off_probes or [])}),
         },
         "model": {

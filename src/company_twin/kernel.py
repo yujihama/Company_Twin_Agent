@@ -102,6 +102,7 @@ class KernelProfile:
     followup_recurrence: bool = False  # E2 v2 (§17.24): recurring follow-ups + churn
     motives_enabled: bool = False  # E2 motive layer (§17.24, approval #11)
     sales_target: int = 4
+    workflow_notices_enabled: bool = False  # M3 minimal world fix (§17.29, approval #14)
 
     def enabled(self, knob: str) -> bool:
         return bool(self.knobs.get(knob, False))
@@ -352,6 +353,23 @@ class WorldKernel:
                     ),
                 })
 
+    # ------------------------------------------------------------------
+    # M3 minimal world fix (MASTER_DESIGN §17.29, owner approval #14,
+    # 2026-07-12): default-off. Ordinary ERP workflow routing notices --
+    # factual, fixed wording, kernel-tallied only (the §17.24 discipline) --
+    # so the seat that owns the NEXT lifecycle step actually receives an
+    # inbox message and, under inbox-driven turn scheduling, a turn. The
+    # pilot no-go root cause was the absence of exactly these notices
+    # (application-role seats: 5 turns in 160 ticks, zero lifecycle-tool
+    # attempts past a single submission).
+    # ------------------------------------------------------------------
+
+    def _notify_workflow(self, *, roles: set[str], notice: str, detail: str) -> None:
+        if not self.profile.workflow_notices_enabled:
+            return
+        recipients = {seat_id for seat_id, role in self.profile.seat_roles.items() if role in roles}
+        self._deliver_timed_notice_to(self.recorder.tick, recipients, notice=notice, detail=detail)
+
     def _fire_speed_consequences(self, tick: int) -> None:
         for app_id, app in sorted(self.applications.items()):
             progressed_tick = app.get("progressed_tick")
@@ -399,7 +417,17 @@ class WorldKernel:
 
     def send_chat(self, seat_id: str, to_seat: str, channel: str, body: str) -> dict[str, Any]:
         if self.profile.seat_roles and to_seat not in self.profile.seat_roles:
-            return self._denied(seat_id, "send_chat", {"to_seat": to_seat, "channel": channel}, "send_chat is seat-to-seat only; use record_customer_contact for customer communication")
+            # M3 minimal world fix (§17.29, approval #14): state the ACTUAL
+            # failure. The pilot's 74/74 handoff failures were all role-name
+            # addressing, and the old wording ("use record_customer_contact")
+            # misdirected every retry toward customer contact instead of a
+            # valid seat address.
+            return self._denied(
+                seat_id,
+                "send_chat",
+                {"to_seat": to_seat, "channel": channel},
+                f"宛先 '{to_seat}' は座席一覧に存在しません。社内連絡は社内連絡先一覧の宛先ID(例: emp-C)を指定してください。顧客への連絡はrecord_customer_contactを使用してください。",
+            )
         self.recorder.record_chat(from_seat=seat_id, to_seat=to_seat, channel=channel, body=body)
         self.enqueue_inbox(to_seat, {"kind": "chat", "tick": self.recorder.tick, "from": seat_id, "channel": channel, "body": body})
         self.recorder.record_attempt(seat_id=seat_id, tool="send_chat", args={"to_seat": to_seat, "channel": channel}, success=True, result={"sent": True})
@@ -449,6 +477,11 @@ class WorldKernel:
         app["approvals"].append(payload)
         self.recorder.append_ledger("approval_requested", payload)
         self.recorder.record_attempt(seat_id=seat_id, tool="request_approval", args=_without_basis(payload), success=True, result=_without_basis(payload))
+        self._notify_workflow(
+            roles={"manager", "second_line"},
+            notice="approval_request_notice",
+            detail=f"案件 {application_id} の承認依頼（{approval_id}）が提出されています。期限は{render_tick_as_date(due_tick)}です。ご確認のうえ対応をお願いします。",
+        )
         self._touch_application(application_id)
         return payload
 
@@ -515,6 +548,11 @@ class WorldKernel:
         payload = {"application_id": application_id, "customer_id": customer_id, "product": product, "evidence": evidence, "status": app["status"], "action_id": action_id}
         self.recorder.append_ledger("application_submitted", _without_basis(payload))
         self.recorder.record_attempt(seat_id=seat_id, tool="submit_application", args=_without_basis(payload), success=True, result=_without_basis(payload))
+        self._notify_workflow(
+            roles={"application"},
+            notice="application_received_notice",
+            detail=f"申込 {application_id} を受け付けました。本人確認以降の手続をお願いします。",
+        )
         return payload
 
     def verify_identity(self, seat_id: str, application_id: str, ekyc_completed: bool, sanctions_non_hit: bool, consent_log_id: str, basis: dict[str, Any]) -> dict[str, Any]:
@@ -533,6 +571,11 @@ class WorldKernel:
         payload = {"application_id": application_id, "status": app["status"], "action_id": action_id}
         self.recorder.append_ledger("identity_verified", payload)
         self.recorder.record_attempt(seat_id=seat_id, tool="verify_identity", args=payload, success=True, result=payload)
+        self._notify_workflow(
+            roles={"application"},
+            notice="identity_verified_notice",
+            detail=f"案件 {application_id} の本人確認が完了しました。審査連携の手続をお願いします。",
+        )
         return payload
 
     def link_review(self, seat_id: str, application_id: str, review_ticket_id: str, basis: dict[str, Any]) -> dict[str, Any]:
@@ -551,6 +594,11 @@ class WorldKernel:
         payload = {"application_id": application_id, "review_ticket_id": review_ticket_id, "status": app["status"], "action_id": action_id}
         self.recorder.append_ledger("review_linked", payload)
         self.recorder.record_attempt(seat_id=seat_id, tool="link_review", args=payload, success=True, result=payload)
+        self._notify_workflow(
+            roles={"application"},
+            notice="review_linked_notice",
+            detail=f"案件 {application_id} の審査連携が完了しました。契約手続をお願いします。",
+        )
         return payload
 
     def complete_contract(self, seat_id: str, application_id: str, contract_id: str, basis: dict[str, Any]) -> dict[str, Any]:
@@ -568,6 +616,11 @@ class WorldKernel:
         payload = {"application_id": application_id, "contract_id": contract_id, "status": app["status"], "action_id": action_id}
         self.recorder.append_ledger("contract_completed", payload)
         self.recorder.record_attempt(seat_id=seat_id, tool="complete_contract", args=payload, success=True, result=payload)
+        self._notify_workflow(
+            roles={"application"},
+            notice="contract_completed_notice",
+            detail=f"案件 {application_id} の契約が完了しました。書面交付をお願いします。",
+        )
         return payload
 
     def deliver_documents(self, seat_id: str, application_id: str, delivery_id: str, basis: dict[str, Any]) -> dict[str, Any]:
