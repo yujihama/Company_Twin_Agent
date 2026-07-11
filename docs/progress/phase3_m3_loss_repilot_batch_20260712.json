@@ -1,0 +1,73 @@
+{
+  "description": "DRAFT M3 feasibility-only pilot re-run: one new-world R1 pair and one new-world R4 pair for the same-seed control/treatment contrast. Execution is blocked until explicit owner authorization in a follow-up commit; this file is non-executable draft metadata only.",
+  "root": ".",
+  "concurrency": 2,
+  "stagger_seconds": 8,
+  "credit_guard": {
+    "minimum_credits": 7,
+    "abort_on_low_credits": true,
+    "require_available": true
+  },
+  "runs": [
+    {
+      "run_id": "m3_repilot_r1_control_seed953",
+      "stage": "s2",
+      "run_root": "runs/phase3_m3_repilot_20260712/r1_control_seed953",
+      "seed": 953,
+      "ticks": 40,
+      "prompt_mode": "measurement",
+      "model": "openrouter:qwen/qwen3.6-flash",
+      "mutations": [],
+      "extra_args": [
+        "--circulate-notices",
+        "--workflow-support"
+      ]
+    },
+    {
+      "run_id": "m3_repilot_r1_clarify_seed953",
+      "stage": "s2",
+      "run_root": "runs/phase3_m3_repilot_20260712/r1_clarify_seed953",
+      "seed": 953,
+      "ticks": 40,
+      "prompt_mode": "measurement",
+      "model": "openrouter:qwen/qwen3.6-flash",
+      "mutations": [
+        "clarify_elderly_understanding_sales_only"
+      ],
+      "extra_args": [
+        "--circulate-notices",
+        "--workflow-support"
+      ]
+    },
+    {
+      "run_id": "m3_repilot_r4_control_seed954",
+      "stage": "s2",
+      "run_root": "runs/phase3_m3_repilot_20260712/r4_control_seed954",
+      "seed": 954,
+      "ticks": 40,
+      "prompt_mode": "measurement",
+      "model": "openrouter:qwen/qwen3.6-flash",
+      "mutations": [],
+      "extra_args": [
+        "--circulate-notices",
+        "--workflow-support"
+      ]
+    },
+    {
+      "run_id": "m3_repilot_r4_contradict_seed954",
+      "stage": "s2",
+      "run_root": "runs/phase3_m3_repilot_20260712/r4_contradict_seed954",
+      "seed": 954,
+      "ticks": 40,
+      "prompt_mode": "measurement",
+      "model": "openrouter:qwen/qwen3.6-flash",
+      "mutations": [
+        "contradict_chat_approval_recorded"
+      ],
+      "extra_args": [
+        "--circulate-notices",
+        "--workflow-support"
+      ]
+    }
+  ]
+}
