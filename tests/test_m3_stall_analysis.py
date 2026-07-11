@@ -108,7 +108,7 @@ def test_redesign_proposal_exists_and_does_not_authorize_execution() -> None:
         root / "docs" / "progress" / "phase3_m3_redesign_proposal_20260710.md"
     ).read_text(encoding="utf-8")
 
-    assert "オーナー承認待ち" in proposal
+    assert "承認#14" in proposal
     assert "未実装・未封印" in proposal
     assert "本文書は何も実行を許可しない" in proposal
     assert "別途の封印planと実行承認" in proposal
