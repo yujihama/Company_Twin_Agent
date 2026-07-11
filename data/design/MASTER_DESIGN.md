@@ -2146,6 +2146,35 @@ confirmatoryは未実行のまま停止する。なおstateのwave完了はworld
 confirmatory実行承認前に、機械receiptを追加するか、manual checkpointの残余リスクと責任者を
 明示承認する。
 
+### 17.29 M3パイロットno-go原因診断と最小世界修正(2026-07-12、プロジェクトオーナー承認 #14)
+
+**経緯.** §17.28のpilot no-go(completion由来R3 opportunity 0/4 run)を受け、追加API支出
+ゼロの既存記録分析(封印済みreceiptのworld_ledgerハッシュと照合)で原因を切り分けた
+(`docs/progress/phase3_m3_stall_analysis_20260710.md` / 同`.json`)。完了ゼロの主因は
+世界機構の2欠陥: (a) 引き継ぎ宛先の解決手段がない——役割名→座席IDの名簿が世界の
+どこにも与えられず、営業→申込担当のsend_chatが4試行合計74/74失敗(全て役割名宛先)、
+拒否文言も宛先不明ではなく顧客連絡の誤用と誤誘導、(b) `submit_application`・
+`request_approval` がledger記録のみで下流座席の受信箱通知を生まず、受信箱駆動の
+ターン配分の下で申込担当役は160 tick中5ターン、verify_identity以降の試行0回。
+統制ゲート起因(K-*全て無効・submit拒否0件)、モデル固有(2シード・R1/R4・両腕で同型)、
+変異副作用(control腕でも同型・circulation gate 4/4合格)は除外した。
+
+**承認内容(#14).** 両腕対称の最小世界修正3点
+(`docs/progress/phase3_m3_redesign_proposal_20260710.md`):
+(1) ターンプロンプトへの社内連絡先名簿(役割名→座席ID、世界設定の座席表から機械生成・
+固定文言)、(2) kernelのワークフロー事実通知——application_submittedで申込担当役全席、
+approval_requestedで承認権者役全席、中間遷移(identity_verified/review_linked/
+contract_completed)で次工程担当へ、§17.24の「kernel集計の事実通知のみ」の流儀に従う
+timed_notice配送、(3) send_chat拒否文言の実因化(宛先座席不明を明示)。役割名宛先の
+kernel側自動解決・顧客イベント率の変更・行動指示の強化は不採用。
+
+**境界.** 本承認は実装と費用ゼロ検証(単体テスト+LLMなしのスクリプト駆動end-to-endで
+完了経路がcompletion由来R3 opportunityを生むことの確認)までを許可する。live再pilotは
+別途の封印planと実行承認、confirmatoryはさらに別承認を要し、現在も実行不可。本修正は
+エージェントが見る世界条件の変更であるため新世界世代とし、旧pilot 4試行との比較・
+poolingを行わない。§17.28で凍結した旧confirmatory templateは旧世代のものとなるため、
+再pilot通過後に新世代で作り直す。
+
 ## 18. WP-12 parallel world-run executor (並列実行、2026-07-05)
 
 Phase-3 experiments run batches of independent S0/S1/S2/control-pair worlds
