@@ -1,6 +1,6 @@
 # 引き継ぎ文書: 統制環境ツイン — 経緯・思想・運用の全体像
 
-作成日: 2026-07-07 / 最終更新: 2026-07-10(フェーズ3中盤・M3汎用集計経路実装後、実験封印前)
+作成日: 2026-07-07 / 最終更新: 2026-07-12(フェーズ3中盤・M3小規模パイロットno-go→原因診断→最小世界修正(承認#14)実装完了、再パイロット封印待ち)
 対象読者: 本プロジェクトを引き継ぐ開発者・研究者(経緯を知らない前提)
 
 ---
@@ -14,7 +14,7 @@
 
 構図はソフトウェアfuzzingの移植(`data/design/FUZZING_HARNESS_DESIGN.md` §0の対応表)。**主対象リスクはR1〜R4に限定**(法令違反級=不適合販売・高齢者手続不履行・本人確認不備契約/内部管理違反級=未承認取引。旧R6苦情・失注は損失事象でなく業務影響指標、旧R7証跡不全は潜在エクスポージャ——`data/design/RCM.md` 参照)。
 
-現在地: フェーズ1(環境構築)・フェーズ2(較正、11/11合格 2026-07-07)完了。フェーズ3は D1時間圧の封印確認実験 → 行動分布電池 → D1b帰結実験 → E1モデル異種混成 → P-11実装 まで完了。**P-11弁閉じジレンマ実験が封印済み・実行待ち**(PR #75、クレジット要チャージ)。次の本線M3について、run単位の `loss_events.v2`、世界内信号join `loss_event_monitoring.v1`、封印plan駆動のcampaign集計器まで実装・synthetic検証した。ただしM3 planは未封印、live M3は未実行、結果はない。現行R1〜R4は直接発見被覆がないため、発生率は集計可能だが直接検知漏れ率はN/Aである。次は実験条件と検知policyをオーナー判断のうえ封印する。確認済み所見2件+フェーズ3所見群(§3-b)。
+現在地: フェーズ1(環境構築)・フェーズ2(較正、11/11合格 2026-07-07)完了。フェーズ3は D1時間圧の封印確認実験 → 行動分布電池 → D1b帰結実験 → E1モデル異種混成 → P-11実装 まで完了。**P-11弁閉じジレンマ実験が封印済み・実行待ち**(PR #75、クレジット要チャージ)。本線M3は、run単位の `loss_events.v2`・世界内信号join `loss_event_monitoring.v1`・封印plan駆動のcampaign集計器を実装したのち、4試行の小規模確認パイロットを封印・実行した(PR #83、実行2026-07-10)。結果は**no_go**: 4試行とも予定の40 tickを完走し案内回覧は4/4合格したが、完了まで進んだ案件が0件で、本人確認順序を点検できる案件を作れなかった(費用約3.38クレジット。受領書 `docs/progress/phase3_m3_loss_pilot_result_20260710.md`、PR #84)。費用ゼロの原因分析(PR #85)で、世界機構の2つの構造欠陥——(a) 役割名→座席IDの引き継ぎ宛先名簿がなく、営業→申込担当のsend_chatが4試行合計**74/74失敗**、(b) `submit_application`/`request_approval`が受信箱通知を生まず、受信箱駆動のターン配分の下で申込担当席は**160 tick中5ターン**しか行動機会を得られない——と特定した(統制ゲート・モデル固有・変異副作用は除外)。オーナー承認#14(2026-07-12、`MASTER_DESIGN.md` §17.29)で両腕対称の最小世界修正3点(社内連絡先名簿・ワークフロー事実通知・send_chat拒否文言の実因化)を承認し、既定オフの `--workflow-support` 条件として実装した(PR #86)。オフ時のプロンプトはバイト同一(action-replay忠実性を保全)、費用ゼロ検証(スクリプト駆動end-to-endで完了経路がR3 opportunity 1件・R3 event 0を生成)に通過、全体テスト766件合格。この修正は新世界世代の境界であり、旧パイロット4試行のデータは新世代のrunと比較・合算しない(封印済みの旧confirmatoryテンプレートも旧世代となるため、再パイロット通過後に新世代で作り直す)。次は4-run再パイロットの封印plan(前回同型・fresh seed、概算3.4クレジット)を作成し、オーナーの実行承認を別途得ること。confirmatory 20-runは引き続き未承認・未実行。確認済み所見2件+フェーズ3所見群(§3-b)。
 
 ## 2. 中核思想(これだけは壊さないでほしいもの)
 
@@ -52,14 +52,16 @@
 
 **枠組み精密化**(PR #76/#77/#79、承認#13): オーナーとの議論で「リスク=損失事象」の3層整理へ。構造判定器 `structural-v1` がrun単位の `loss_events.v2` としてR1〜R4を判定し、後付けの承認・顧客接触・本人確認では所見を消さない。案件・時系列join `loss_event_monitoring.v1` とcampaign集計器は、現行R1〜R4の直接被覆が全て `uncovered` で、R4期限超過通知も関連信号に留まることを保持したまま、機会分母・arm・seed・出所をfail closedで集計する。これは測定器の実装完了であり、M3実験の実施・結果・readinessを意味しない。直接検知漏れ率は現状N/A。**教訓: 級(単件で重大か、率で管理する指標か、状態か)を混同するとオーナーに正される**。
 
+**M3小規模確認パイロットno-go→原因診断→最小世界修正**(PR #83/#84/#85/#86、承認#14): 文書変更ペアの4-run pilotを封印・実行(2026-07-10)。4試行とも40 tick完走・案内回覧4/4合格だが、完了まで進んだ案件が0件で不合格(費用約3.38クレジット、受領書 `phase3_m3_loss_pilot_result_20260710.md`)。費用ゼロの原因分析(既存記録のみ、API支出なし)で、(1) 役割名→座席IDの引き継ぎ宛先名簿がなく営業→申込担当のsend_chatが**74/74失敗**、(2) `submit_application`/`request_approval`が下流座席の受信箱通知を生まず、受信箱駆動のターン配分の下で申込担当席が**160 tick中5ターン**しか行動機会を得られない、という2つの世界機構欠陥と特定(統制ゲート・モデル固有・変異副作用は除外)。オーナー承認#14(2026-07-12)で両腕対称の最小世界修正3点(社内連絡先名簿・ワークフロー事実通知・send_chat拒否文言の実因化)を承認、既定オフの `--workflow-support` 条件として実装。オフ時プロンプトはバイト同一、費用ゼロ検証(スクリプト駆動end-to-endでR3 opportunity 1件・R3 event 0)通過、全体テスト766件合格。**新世界世代の境界のため、旧パイロット4試行のデータは新世代のrunと混合しない**。4-run再パイロットの封印・実行は別途オーナー承認が必要。
+
 ## 4. リポジトリ地図(フェーズ3で増えた分を含む)
 
 | 場所 | 内容 |
 |---|---|
-| `src/company_twin/kernel.py` | カーネル(状態機械・承認・受信箱・時限イベント・**帰結機構§17.23・動機通知§17.24**) |
-| `harness.py` / `agents.py` | 稼働ループ・DeepAgentシート(コマ間で会話状態なし=リプレイ可能性の根拠)・生成ガード |
+| `src/company_twin/kernel.py` | カーネル(状態機械・承認・受信箱・時限イベント・**帰結機構§17.23・動機通知§17.24・ワークフロー事実通知§17.29**) |
+| `harness.py` / `agents.py` | 稼働ループ・DeepAgentシート(コマ間で会話状態なし=リプレイ可能性の根拠)・生成ガード・**社内連絡先名簿§17.29**(既定オフ、ターンプロンプトへ機械生成) |
 | `deck.py` / `customer_agent.py` | 顧客イベント表(**39名+プローブ11種**)・督促/離脱発話(follow_up)・状況設定文 |
-| `world_config.py` | 実行設定刻印。時間圧§17.21・帰結・動機・**弁開き対照(--absence-off-probe)**のスケジュール構築 |
+| `world_config.py` | 実行設定刻印。時間圧§17.21・帰結・動機・**弁開き対照(--absence-off-probe)**・**ワークフロー支援(--workflow-support、既定オフ、§17.29)**のスケジュール構築 |
 | `action_replay.py` | **行動分布電池§17.22**(忠実性3点機械検査・分類器v2) |
 | `loss_oracle.py` | **損失事象オラクル§17.26**(構造判定`structural-v1`・出力`loss_events.v2`・初回完了より前の統制証跡だけを採用・run単位) |
 | `loss_monitoring.py` | **損失事象の世界内捕捉join§17.27**(同一案件+ledger順序、直接検知と関連信号を分離、出力`loss_event_monitoring.v1`) |
@@ -67,7 +69,7 @@
 | `oracles.py` / `semantic_grounding.py` | 中間事象検査(L0/L1)・G3判定(v3契約: 切り詰め条件を刻印) |
 | `parallel_runner.py` | 並列バッチ+**クレジット事前確認**(PR #58) |
 | `evidence_manifest.py` / `readiness.py` | 証拠台帳+**パッケージ出所ガード**(PR #59)・二段階解禁 |
-| `data/design/MASTER_DESIGN.md` | 正本+§17履歴(承認13件)。§14「してはいけないこと」必読 |
+| `data/design/MASTER_DESIGN.md` | 正本+§17履歴(承認14件)。§14「してはいけないこと」必読 |
 | `data/design/RCM.md` | **3層地図(リスクR1-R4・統制・規程欠陥12箇所・検出二層)**——実験メニューの基準表 |
 | `data/design/FUZZING_HARNESS_DESIGN.md` | fuzzing対応表・変異空間M1〜M5・三段ハーネス(S0/S1/S2) |
 | `scripts/` | 封印判定の機械適用(phase3_d1_analysis / d1b_analysis / replay_analysis) |
@@ -75,7 +77,7 @@
 
 ## 5. 運用手順(実務)
 
-**フェーズ3の実験サイクル**: 計画JSON+バッチ仕様を作成 → **PRマージ=封印** → `run-batch`(並列4、`--min-credits N --abort-on-low-credits`)→ 完走確認(失敗はマニフェスト経由 `--retry-failed --delete-partial-roots`、同一シードのみ。retryは元manifestを上書きしない別 `--batch-dir` 必須)→ `triage` → 正式G3(`COMPANY_TWIN_G3_CITED_TEXT_MAX_CHARS=2200`固定)→ 各runに `loss-events` → `loss-event-monitoring` → 封印planで `loss-event-campaign` → `action-replay`(必要時)→ scripts/ の封印判定スクリプト → 結果メモ+証拠ハッシュをPR。M3では次のplanマージが封印点であり、汎用集計器の実装自体は実験封印でも実行でもない
+**フェーズ3の実験サイクル**: 計画JSON+バッチ仕様を作成 → **PRマージ=封印** → `run-batch`(並列4、`--min-credits N --abort-on-low-credits`)→ 完走確認(失敗はマニフェスト経由 `--retry-failed --delete-partial-roots`、同一シードのみ。retryは元manifestを上書きしない別 `--batch-dir` 必須)→ `triage` → 正式G3(`COMPANY_TWIN_G3_CITED_TEXT_MAX_CHARS=2200`固定)→ 各runに `loss-events` → `loss-event-monitoring` → 封印planで `loss-event-campaign` → `action-replay`(必要時)→ scripts/ の封印判定スクリプト → 結果メモ+証拠ハッシュをPR。M3では次のplanマージが封印点であり、汎用集計器の実装自体は実験封印でも実行でもない。**M3再パイロットのrunはバッチ仕様の`extra_args`に`--workflow-support`を付与する**(既定オフ条件を明示的に有効化)。これは世界条件の変更であり新世界世代を生成するため、旧パイロット(`--workflow-support`なし)のrunとは別世代として扱い、比較・混合しない
 
 **落とし穴集(全部実際に踏んだもの。旧版の項目も全て現役)**:
 - `pip install -e` を別作業コピーで実行するとメインの実行コードが差し替わる(現在はreadiness系に出所ガードあり。実行前 `python -c "import company_twin; print(company_twin.__file__)"`)
@@ -87,7 +89,7 @@
 - bashの引用衝突・cp932コンソールの文字化けが多発する——複雑なパッチはスクリプトファイルに書いて実行、日本語出力はファイル経由で読む
 - 長時間ジョブは追跡可能な形で起動(完了通知)。git: **mainに直接コミットしない**(ブランチ→PR。1敗あり、即復旧)
 
-**PR・承認の運用**: 1 WP=1 PR、base=main。通常PRはClaudeが検証・マージ可。**測定方式の変更・判定基準の緩和・データ削除・対外公開・世界(デッキ/統制)の変更はオーナー承認必須**。承認は#1〜#13まで§17に日付つきで記録済み。
+**PR・承認の運用**: 1 WP=1 PR、base=main。通常PRはClaudeが検証・マージ可。**測定方式の変更・判定基準の緩和・データ削除・対外公開・世界(デッキ/統制)の変更はオーナー承認必須**。承認は#1〜#14まで§17に日付つきで記録済み。
 
 ## 6. 既知の限界(対外主張時は必ず明記)
 
@@ -96,7 +98,7 @@
 3. 記録実在性評価はAI代行。人間SME評価が対外要件(未実施)
 4. 損失事象オラクルは出力スキーマv2でも構造判定のみ(確認記録の意味的十分性は未判定で、導入前に別途較正が必要)。誤った顧客IDでの記録は照合漏れ=所見過大方向。現行R1〜R4には損失事象を直接識別する世界内発見統制がなく、R4期限超過通知も関連信号のみ
 5. 生成テキストの言語不良3〜5%・凍結デッキの統計的規則性は解消不能の床
-6. 世代の脚注: 偽督促(#26前)・刺激未配達(#37前)・通達未回覧(#47/#49前)・pre-fix D1(G3契約前)・デッキ38顧客世代(P-11前)——各世代の観察は該当脚注つきで扱う
+6. 世代の脚注: 偽督促(#26前)・刺激未配達(#37前)・通達未回覧(#47/#49前)・pre-fix D1(G3契約前)・デッキ38顧客世代(P-11前)・**ワークフロー支援導入前(§17.29前。M3小規模パイロット4試行はこの脚注に該当)**——各世代の観察は該当脚注つきで扱う
 7. リプレイ電池は行動傾向であり行動ではない。また単一ターン窓は受信箱混雑の影響を受ける(D1bで実測——分類器v2のany-case欄で緩和)
 
 ## 7. 文書の所在
@@ -104,20 +106,21 @@
 | 文書 | 用途 |
 |---|---|
 | `docs/progress/research_progress_report.md` | 会社向け報告(枠組み精密化まで反映済み) |
-| `docs/progress/working_status.md` | 内部状況メモ(最新: 2026-07-10) |
+| `docs/progress/working_status.md` | 内部状況メモ(最新: 2026-07-12) |
 | `docs/progress/phase3_roadmap.md` | ロードマップ(§4-b梯子・§4-c主要評価の変更) |
 | `data/design/RCM.md` | 3層地図(主対象R1〜R4) |
-| 封印計画 | `phase3_d1_plan_20260708.json` / `phase3_d1b_plan_20260709.json` / `phase3_d1_replay_plan_20260709.json` / `e1_model_heterogeneity_plan_20260709.json` / **`p11_plan_20260710.json`(未実行)** |
-| 結果 | `phase3_d1_confirmation_results_20260709.md` / `phase3_d1_replay_results_20260709.md` / `phase3_d1b_results_20260709.md` / `e1_summary_20260710.json` |
-| 設計案 | `e2_motive_layer_design_20260709.md`(実装済み) / `dilemma_probe_design_20260709.md`(実装済み) |
+| 封印計画 | `phase3_d1_plan_20260708.json` / `phase3_d1b_plan_20260709.json` / `phase3_d1_replay_plan_20260709.json` / `e1_model_heterogeneity_plan_20260709.json` / **`p11_plan_20260710.json`(未実行)** / **`phase3_m3_loss_pilot_plan_20260710.json`(実行済み・no_go)** / `phase3_m3_loss_campaign_plan_20260710.json`(confirmatory template、旧世代・再パイロット通過後に作り直し) |
+| 結果 | `phase3_d1_confirmation_results_20260709.md` / `phase3_d1_replay_results_20260709.md` / `phase3_d1b_results_20260709.md` / `e1_summary_20260710.json` / **`phase3_m3_loss_pilot_result_20260710.md`(M3パイロットno_go)** |
+| 原因分析 | `phase3_m3_stall_analysis_20260710.md`(費用ゼロ・M3パイロットno-go原因の2構造欠陥) |
+| 設計案 | `e2_motive_layer_design_20260709.md`(実装済み) / `dilemma_probe_design_20260709.md`(実装済み) / `phase3_m3_redesign_proposal_20260710.md`(承認#14・実装済み) |
 | `docs/g3_calibration.md` | 採点者較正(v3契約の経緯含む) |
 
 ## 8. 引き継ぎ時点の未決事項
 
 1. **P-11実験の実行判断**: 封印済み(PR #75)。実行にはチャージ(≥35)が必要。黒い逸脱分枝の完結オプション——実行しない場合も「弁開き状態までの負の結果連鎖」として報告可能
-2. **M3文書変更ペアの封印設計(次の重大判断)**: 汎用campaign集計器は実装済み、M3は未封印・未実行。対象mutation/probe、control/treatment、fresh seed/K、主要機会分母、pre-event lookback、post-event window、R3最小opportunityと適用scope、plan外損失の扱い、および直接発見統制を新設するかをオーナー確認する。現行uncoveredの直接検知漏れ率はN/A。新設する場合は世界条件の別承認・実装後にM3を封印する
+2. **M3再パイロットの封印・実行判断(次の重大判断)**: 小規模確認パイロットはno_go(完了案件0件)。原因(引き継ぎ宛先名簿の欠如・ワークフロー進行の受信箱通知欠如)は特定済みで、最小世界修正(社内連絡先名簿・ワークフロー事実通知・send_chat拒否文言の実因化)はオーナー承認#14のもと既定オフの`--workflow-support`条件として実装・費用ゼロ検証済み。次は4-run再パイロットの封印plan(前回同型・fresh seed、概算3.4クレジット)を作成し、オーナーの実行承認を得ること。合格して初めてconfirmatory 20-runの封印設計(対象mutation/probe、control/treatment、K、主要機会分母、pre-event lookback、post-event window、R3最小opportunityと適用scope、plan外損失の扱い、直接発見統制を新設するか)に進める。封印済みのconfirmatory template(`phase3_m3_loss_campaign_plan_20260710.json`)は旧世代のため、再パイロット通過後に新世代で作り直す。現行uncoveredの直接検知漏れ率はN/A
 3. **M2候補**: 未済管理の単独有効性検証(D1bで顧客督促と束ねた効果の分離)/検印(処理ごと役席レビュー)の実装と捕捉率測定(「記録の形骸化」観察の前提)
 4. 人間SME評価1回(対外要件)・確認済み所見のカード化(フェーズ4)は未着手
-5. 残高: 2026-07-10時点で約12クレジット
+5. 残高: 約10クレジット(2026-07-10時点、M3小規模パイロット実行後)
 
 以上
