@@ -29,9 +29,9 @@ def test_stall3_analysis_rules_out_time_budget() -> None:
     analysis = _load("phase3_m3_stall3_analysis_20260713.json")
 
     timing = analysis["gate_timing_data"]
-    assert timing["submissions_with_sufficient_remaining_ticks"] == 20
-    assert timing["submissions_with_insufficient_remaining_ticks"] == 0
-    assert timing["submissions_at_or_after_scc_switch"] == 0
+    assert str(timing["submissions_with_sufficient_remaining_ticks"]).startswith("20/20")
+    assert str(timing["submissions_with_insufficient_remaining_ticks"]).startswith("0/20")
+    assert str(timing["submissions_at_or_after_scc_switch"]).startswith("0/20")
 
     # every submission left at least 13 ticks; none happened at/after tick 30
     for run in analysis["per_run"].values():
