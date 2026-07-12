@@ -1,0 +1,343 @@
+{
+  "schema_version": "company_twin.m3_stall2_analysis.v1",
+  "created_at": "2026-07-12",
+  "method": {
+    "cost": "zero_api_spend",
+    "inputs": [
+      "runs/phase3_m3_repilot_20260712/*/attempts.jsonl",
+      "runs/phase3_m3_repilot_20260712/*/world_ledger.jsonl",
+      "runs/phase3_m3_repilot_20260712/*/chat_channel.jsonl",
+      "runs/phase3_m3_repilot_20260712/*/config.json",
+      "src/company_twin/harness.py (_turn_prompt, _render_inbox_message)",
+      "src/company_twin/tools.py (ROLE_TOOL_BUNDLES, build_role_tools)",
+      "src/company_twin/kernel.py (WorldKernel.submit_application, _denied, fire_timed_events)"
+    ],
+    "note_on_attempts_jsonl_args_redaction": "WorldKernel._denied() logs only the small 'args' dict its caller passes in, not the full call arguments. For submit_application this means every DENIED attempt's logged args show only application_id, regardless of what customer_id/product were actually supplied; only the denial_reason text (e.g. 'missing required fields: customer_id, product') gives direct proof of emptiness for a given call. The SUCCESS path logs the full payload including customer_id and product. This analysis relies on denial_reason text, not redacted args, wherever it asserts a field was empty.",
+    "run_labels": {
+      "A": "r1_control_seed953",
+      "B": "r1_clarify_seed953",
+      "C": "r4_control_seed954",
+      "D": "r4_contradict_seed954"
+    }
+  },
+  "trials": [
+    {
+      "trial_label": "A",
+      "run_id": "r1_control_seed953",
+      "run_root": "runs/phase3_m3_repilot_20260712/r1_control_seed953",
+      "application_drafted_count": 39,
+      "handoff_chats_to_application_role": {
+        "delivered_send_chat_success_to_emp_C": 26,
+        "cross_check_chat_channel_jsonl_to_emp_C": 26,
+        "with_application_id_APP_pattern": 25,
+        "with_customer_id_CUS_pattern": 0,
+        "with_customer_id_CUST_pattern": 0,
+        "with_product_name_literal_match": 17,
+        "distinct_application_ids_mentioned": 15
+      },
+      "application_role_seat_emp_C": {
+        "agent_response_turns": 14,
+        "tool_attempt_counts": {
+          "llm_invoke": 20,
+          "search_corpus": 50,
+          "read_document": 24,
+          "recall_notes": 14,
+          "send_chat": 18,
+          "llm_response": 14,
+          "note_to_self": 8,
+          "defer_or_hold": 5,
+          "record_interpretation_basis": 1
+        },
+        "tool_success_counts": {
+          "llm_invoke": 17,
+          "search_corpus": 50,
+          "read_document": 24,
+          "recall_notes": 14,
+          "send_chat": 18,
+          "llm_response": 14,
+          "note_to_self": 8,
+          "defer_or_hold": 5,
+          "record_interpretation_basis": 1
+        },
+        "defer_or_hold_count": 5,
+        "verify_identity_attempts": 0,
+        "link_review_attempts": 0,
+        "return_application_attempts": 0
+      },
+      "submit_application_attempts_all_seats": [
+        {
+          "seat_id": "emp-B",
+          "tick": 19,
+          "args": {
+            "application_id": "APP-R18"
+          },
+          "success": false,
+          "denied_reason": "basis.retrieved must be a non-empty list"
+        },
+        {
+          "seat_id": "emp-B",
+          "tick": 19,
+          "args": {
+            "action_id": "SUBMIT-000021",
+            "application_id": "APP-R18",
+            "customer_id": "APP-R18",
+            "evidence": {
+              "consent": "顧客が手続き希望を表明し、給与明書による本人確認手続きの同意を得た。希望期限4/16。",
+              "contact_action_id": "CONTACT-000019",
+              "event_id": "EVT-000022"
+            },
+            "product": "保険相談",
+            "status": "application_received"
+          },
+          "success": true,
+          "denied_reason": null
+        }
+      ]
+    },
+    {
+      "trial_label": "B",
+      "run_id": "r1_clarify_seed953",
+      "run_root": "runs/phase3_m3_repilot_20260712/r1_clarify_seed953",
+      "application_drafted_count": 39,
+      "handoff_chats_to_application_role": {
+        "delivered_send_chat_success_to_emp_C": 39,
+        "cross_check_chat_channel_jsonl_to_emp_C": 39,
+        "with_application_id_APP_pattern": 38,
+        "with_customer_id_CUS_pattern": 0,
+        "with_customer_id_CUST_pattern": 0,
+        "with_product_name_literal_match": 23,
+        "distinct_application_ids_mentioned": 22
+      },
+      "application_role_seat_emp_C": {
+        "agent_response_turns": 22,
+        "tool_attempt_counts": {
+          "llm_invoke": 26,
+          "search_corpus": 78,
+          "read_document": 37,
+          "recall_notes": 20,
+          "send_chat": 28,
+          "defer_or_hold": 12,
+          "llm_response": 22,
+          "record_interpretation_basis": 1,
+          "note_to_self": 7
+        },
+        "tool_success_counts": {
+          "llm_invoke": 24,
+          "search_corpus": 76,
+          "read_document": 35,
+          "recall_notes": 20,
+          "send_chat": 25,
+          "defer_or_hold": 10,
+          "llm_response": 22,
+          "record_interpretation_basis": 1,
+          "note_to_self": 6
+        },
+        "defer_or_hold_count": 10,
+        "verify_identity_attempts": 0,
+        "link_review_attempts": 0,
+        "return_application_attempts": 0
+      },
+      "submit_application_attempts_all_seats": []
+    },
+    {
+      "trial_label": "C",
+      "run_id": "r4_control_seed954",
+      "run_root": "runs/phase3_m3_repilot_20260712/r4_control_seed954",
+      "application_drafted_count": 39,
+      "handoff_chats_to_application_role": {
+        "delivered_send_chat_success_to_emp_C": 38,
+        "cross_check_chat_channel_jsonl_to_emp_C": 38,
+        "with_application_id_APP_pattern": 38,
+        "with_customer_id_CUS_pattern": 0,
+        "with_customer_id_CUST_pattern": 0,
+        "with_product_name_literal_match": 26,
+        "distinct_application_ids_mentioned": 26
+      },
+      "application_role_seat_emp_C": {
+        "agent_response_turns": 16,
+        "tool_attempt_counts": {
+          "llm_invoke": 24,
+          "search_corpus": 71,
+          "recall_notes": 19,
+          "read_document": 47,
+          "send_chat": 21,
+          "defer_or_hold": 7,
+          "llm_response": 16,
+          "record_interpretation_basis": 5,
+          "note_to_self": 3,
+          "submit_application": 6
+        },
+        "tool_success_counts": {
+          "llm_invoke": 20,
+          "search_corpus": 71,
+          "recall_notes": 19,
+          "read_document": 47,
+          "send_chat": 20,
+          "defer_or_hold": 7,
+          "llm_response": 16,
+          "record_interpretation_basis": 4,
+          "note_to_self": 2
+        },
+        "defer_or_hold_count": 7,
+        "verify_identity_attempts": 0,
+        "link_review_attempts": 0,
+        "return_application_attempts": 0
+      },
+      "submit_application_attempts_all_seats": [
+        {
+          "seat_id": "emp-C",
+          "tick": 31,
+          "args": {
+            "application_id": "APP-P-10"
+          },
+          "success": false,
+          "denied_reason": "basis citation_handle version mismatch: read:DFH-SAL-024:v1.1"
+        },
+        {
+          "seat_id": "emp-C",
+          "tick": 31,
+          "args": {
+            "application_id": "APP-P-10"
+          },
+          "success": false,
+          "denied_reason": "basis citation_handle version mismatch: read:DFH-SAL-024:v1.1"
+        },
+        {
+          "seat_id": "emp-C",
+          "tick": 31,
+          "args": {
+            "application_id": "APP-P-10"
+          },
+          "success": false,
+          "denied_reason": "basis citation_handle was not read before action: DFH-SAL-024"
+        },
+        {
+          "seat_id": "emp-C",
+          "tick": 31,
+          "args": {
+            "application_id": "APP-P-10"
+          },
+          "success": false,
+          "denied_reason": "basis citation_handle version mismatch: read:DFH-SAL-024:v1.1"
+        },
+        {
+          "seat_id": "emp-C",
+          "tick": 31,
+          "args": {
+            "application_id": "APP-P-10"
+          },
+          "success": false,
+          "denied_reason": "basis citation_handle version mismatch: read:DFH-SAL-024:v1.1"
+        },
+        {
+          "seat_id": "emp-C",
+          "tick": 31,
+          "args": {
+            "application_id": "APP-P-10"
+          },
+          "success": false,
+          "denied_reason": "missing completion evidence: consent_log_id, material_version, recording_id"
+        }
+      ]
+    },
+    {
+      "trial_label": "D",
+      "run_id": "r4_contradict_seed954",
+      "run_root": "runs/phase3_m3_repilot_20260712/r4_contradict_seed954",
+      "application_drafted_count": 39,
+      "handoff_chats_to_application_role": {
+        "delivered_send_chat_success_to_emp_C": 46,
+        "cross_check_chat_channel_jsonl_to_emp_C": 46,
+        "with_application_id_APP_pattern": 44,
+        "with_customer_id_CUS_pattern": 0,
+        "with_customer_id_CUST_pattern": 0,
+        "with_product_name_literal_match": 28,
+        "distinct_application_ids_mentioned": 29
+      },
+      "application_role_seat_emp_C": {
+        "agent_response_turns": 16,
+        "tool_attempt_counts": {
+          "llm_invoke": 28,
+          "search_corpus": 81,
+          "recall_notes": 21,
+          "read_document": 41,
+          "note_to_self": 14,
+          "llm_response": 16,
+          "send_chat": 24,
+          "defer_or_hold": 8,
+          "record_interpretation_basis": 3,
+          "submit_application": 1
+        },
+        "tool_success_counts": {
+          "llm_invoke": 22,
+          "search_corpus": 80,
+          "recall_notes": 21,
+          "read_document": 41,
+          "note_to_self": 14,
+          "llm_response": 16,
+          "send_chat": 24,
+          "defer_or_hold": 8,
+          "record_interpretation_basis": 3
+        },
+        "defer_or_hold_count": 8,
+        "verify_identity_attempts": 0,
+        "link_review_attempts": 0,
+        "return_application_attempts": 0
+      },
+      "submit_application_attempts_all_seats": [
+        {
+          "seat_id": "emp-C",
+          "tick": 10,
+          "args": {
+            "application_id": "APP-R08"
+          },
+          "success": false,
+          "denied_reason": "missing required fields: customer_id, product"
+        }
+      ]
+    }
+  ],
+  "aggregate": {
+    "application_drafted_total": 156,
+    "handoff_chats_to_application_role_total": 149,
+    "handoff_with_application_id_total": 145,
+    "handoff_with_customer_id_total": 0,
+    "handoff_with_product_total": 94,
+    "application_role_turns_total": 68,
+    "application_role_defer_or_hold_total": 30,
+    "submit_application_attempts_total": 9,
+    "submit_application_succeeded_total": 1,
+    "lifecycle_tools_beyond_submit_attempted_total": 0,
+    "record_customer_contact_customer_id_field_content": {
+      "total_calls_all_seats_4_runs": 145,
+      "used_application_id_string_as_customer_id": 92,
+      "used_genuine_CUS_prefixed_id": 3,
+      "used_other_placeholder_or_fabricated_string": 50,
+      "note": "customer_id argument value observed in attempts.jsonl for tool record_customer_contact (both success and denial paths preserve this field; see method note). Common 'other' values include agent-fabricated strings such as CUST-APP-R25, CUST-APP-P-04, C-R13, and literal placeholders 'unknown' / uncertain-kanji / 'CUST-????'."
+    }
+  },
+  "diagnosis": {
+    "primary_causes": [
+      "customer_id_never_rendered_to_any_seat_prompt: _render_inbox_message (harness.py) renders the customer_utterance inbox line as an application-id-and-product business record for the sales seat and never includes customer_id, even though customer_id is present in the same message payload; the chat-kind branch renders only sender/channel/free-text body. No seat, sales included, ever sees a literal customer_id string in its natural-language prompt.",
+      "no_lookup_tool_exists: grep of src/company_twin/tools.py and kernel.py shows no tool that resolves customer_id from application_id or queries any customer registry/CRM; ROLE_TOOL_BUNDLES gives both the sales role and the application role the submit_application tool, but neither role has a way to look up a real customer_id it was not already handed.",
+      "handoff_chat_is_free_text_only: chat-kind inbox messages are rendered from body text with no structured fields; across 149 successful send_chat deliveries to emp-C in the 4 runs, 0 contain a CUS-prefixed id (customer_id), while 145 (97.3 percent) contain an application id and 94 (63.1 percent) name a product.",
+      "consequence_observed_at_the_tool_call: the r4_contradict (trial D) single submit_application attempt by emp-C was denied with the kernel's own reason string 'missing required fields: customer_id, product', which is direct proof (via WorldKernel.submit_application's own required-field check) that both fields were empty at that call; the r1_control (trial A) sole success was placed by the sales seat that owned the customer event (emp-B, primary_seat of APP-R18) submitting directly rather than via emp-C, and even then the customer_id value it supplied was 'APP-R18' (the application id, not the real customer id 'CUS-R18') because submit_application performs no existence/correctness check on customer_id, only a non-empty check."
+    ],
+    "excluded_causes": [
+      "control_gate_denial: all five K-* knobs are False in config.json for all 4 runs at run start; the only control gate that ever fired against submit_application in these runs is K-completion-gate, which the world profile itself switches on mid-run at tick 30 in all 4 runs (kernel.py fire_timed_events, scc_switch) -- arm-symmetric and seed-independent, confirmed by the completion_gate_active ledger event appearing at tick 30 in all four runs; it is not a K-* denial of submit_application's core required fields.",
+      "handoff_address_resolution_failure: this was the pilot's (2026-07-10) primary cause and is now closed; approval-#14's contact directory produced 26/39/38/46 successful sends to emp-C per trial (149 total), a large improvement over the prior pilot's 0/4.",
+      "downstream_turn_starvation: this was the pilot's secondary cause and is now closed; emp-C received 14/22/16/16 turns per trial (68 total) versus 5 turns total across the whole 2026-07-10 pilot.",
+      "model_specific_failure: the same pattern (customer_id present in 0/149 handoff chats; only application_id and sometimes product carried) recurs across two seeds (953, 954), two probe families (R1, R4), and both control and treatment arms.",
+      "mutation_side_effect: the pattern is identical in both control arms (A, C), which carry no document mutation."
+    ],
+    "mechanism": "customer_id is generated and stored in the kernel's internal event/application state (customer_event, application_drafted payloads) but is dropped by the natural-language rendering layer for every seat: the sales seat's own inbox line for a new case shows only the application id and product, never customer_id, and the chat rendering used for sales-to-application handoff is unstructured free text. As a result sales itself frequently does not have a literal customer_id to write into a handoff chat (directly evidenced: multiple sales-authored chat bodies to emp-C literally ask emp-C to supply or confirm the customer ID), and no tool anywhere in the tool bundle can resolve one from an application_id. The application-role seat (emp-C) attempted submit_application 7 times across the 4 runs (6 in trial C, 1 in trial D) and never attempted request_approval/verify_identity/link_review either before or after. The one clean, directly-provable denial (trial D) cites missing customer_id and product by the kernel's own required-field check. The lone success (trial A) occurred only because the sales seat that generated the case bypassed the handoff and submitted directly using its own (already fabricated, non-validated) placeholder customer_id -- submit_application performs no existence check, only a non-empty check, on customer_id/application_id."
+  },
+  "boundaries": {
+    "effect_estimation": "not_performed",
+    "mutation_effect_interpretation": "forbidden",
+    "redesign_requires_separate_owner_approval": true,
+    "confirmatory_campaign": "remains_unauthorized",
+    "pilot_and_repilot_data_reuse_in_confirmatory": "forbidden",
+    "this_document_authorizes_no_change_and_no_run": true
+  }
+}

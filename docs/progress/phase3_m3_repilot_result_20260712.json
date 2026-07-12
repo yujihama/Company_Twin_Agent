@@ -58,7 +58,7 @@
    16
   ],
   "prior_pilot_application_role_turns_total": 5,
-  "remaining_bottleneck_observation": "The application-role seat received dozens of free-text handoff chats and acted 14-16 turns per run, but submit_application was attempted twice in 160 ticks (one success by a sales seat, one denial for missing customer_id/product), and no case advanced past submission."
+  "remaining_bottleneck_observation": "The application-role seat received dozens of free-text handoff chats and acted 14-22 turns per run, but submit_application was attempted 9 times across the four runs (per-run [2,0,6,1]; 1 success by a sales seat, 8 denials: 6 basis-contract, 1 completion-evidence gate, 1 missing customer_id/product) and no case advanced past submission. [Corrected 2026-07-12: this field originally said 'twice'; the per-run submit_application_attempts values were always correct. Root cause diagnosis: docs/progress/phase3_m3_stall2_analysis_20260712.md]"
  },
  "integrity_diagnosis": {
   "symptom": "adjacent ledger rows written in swapped order with intact hash chain",
