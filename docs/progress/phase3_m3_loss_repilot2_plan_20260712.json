@@ -5,10 +5,10 @@
   "created_at": "2026-07-12",
   "kind": "pre_execution_pilot_plan",
   "campaign_role": "feasibility_pilot",
-  "approval_status": "DRAFT: explicit execution approval is not yet granted for this second re-pilot. Sealed as a non-executable four-run feasibility configuration in the workflow_support_v2 world generation (approval #15, MASTER_DESIGN §17.31); a later owner-authorization commit must flip the approval and execution booleans before any run.",
-  "approval_granted_by_this_file": false,
-  "execution_authorized_by_this_file": false,
-  "seal_method": "This plan file is a draft seal only: it fixes the re-pilot-2 configuration but authorizes no execution. Execution additionally requires a credit charge (balance 3.42 is below the sealed 7-credit floor as of 2026-07-12) and a separate owner-authorization commit.",
+  "approval_status": "Explicit execution approval was granted by the owner in the task conversation on 2026-07-12, after recharging the balance above the sealed 7-credit floor (13.42 at authorization). Authorization is limited to this four-run feasibility re-pilot #2 in the workflow_support_v2 world generation (approval #15) and excludes the confirmatory K=5 campaign.",
+  "approval_granted_by_this_file": true,
+  "execution_authorized_by_this_file": true,
+  "seal_method": "The owner explicitly approved this four-run re-pilot #2 on 2026-07-12. This PR's merge commit is the execution seal. The old-generation confirmatory template remains frozen, untouched, and unauthorized.",
   "question": "Before spending on the confirmatory K=5 campaign, can one fresh R1 pair and one fresh R4 pair exercise every assigned endpoint and the R3 completion sentinel while preserving exact mutation-circulation exposure under the NEW world generation path (workflow support spec section 17.29)?",
   "measurement_boundary": {
     "primary": "Feasibility and integrity only: assigned-endpoint opportunity exercise, R3 opportunity exercise with zero R3 events, and exact manipulation-gate exposure in every run.",
@@ -184,10 +184,10 @@
     "abort_on_low_credits": true,
     "require_available": true,
     "rule": "The batch-sealed guard is authoritative: abort before launching any pilot run when available balance cannot be read or is below 7 credits.",
-    "execution_authorized_by_this_file": false
+    "execution_authorized_by_this_file": true
   },
   "proposed_execution_order": [
-    "This is a non-executable draft. No run may execute until a later owner-authorization commit flips both approval_granted_by_this_file and execution_authorized_by_this_file, and the OpenRouter balance has been recharged above the sealed 7-credit floor.",
+    "The owner granted re-pilot-2-only execution approval on 2026-07-12 with the balance recharged to 13.42. Mark this PR Ready and merge it before any live run; the merge commit becomes the execution seal.",
     "Check out that exact merge commit with a clean working tree and execute the full four-run re-pilot with both --batch-spec and --plan under the sealed seven-credit fail-closed guard.",
     "Retry only manifest-recorded infrastructure failures with identical run IDs/seeds and a distinct retry batch directory.",
     "Produce loss_events.json and loss_event_monitoring.json for every successful run, then run loss-event-campaign with the sealed plan and complete manifest chain.",
@@ -195,8 +195,8 @@
     "Record the re-pilot result and exact artifact hashes in a result PR regardless of outcome. Only pilot_gate.passed=true can satisfy the prerequisite for authoring and separately approving a new-generation confirmatory plan; re-pilot data is never pooled into K=5 or compared with the 2026-07-10 pilot."
   ],
   "owner_decisions_recorded_for_pilot_merge": [
-    "This draft records no execution authorization and no confirmatory authorization.",
-    "Execution remains blocked until a follow-up owner-authorization commit sets the two booleans to true and the balance is recharged above the 7-credit floor.",
+    "Explicit re-pilot-2 execution approval was granted on 2026-07-12 after a recharge (balance 13.42 > 7-credit floor); it covers only these four runs (seeds 955/956) in the workflow_support_v2 generation.",
+    "This merge records no confirmatory execution authorization.",
     "The four-run all-or-nothing feasibility gate and exact exposure gate apply unchanged.",
     "Seeds 955/956 are excluded from every confirmatory analysis and are never pooled with the 2026-07-10 pilot (v0) or the seeds-953/954 re-pilot (v1).",
     "The old-generation confirmatory template stays frozen and pinned to the 2026-07-10 pilot plan; it will be re-authored only after a passing re-pilot in the current generation."
