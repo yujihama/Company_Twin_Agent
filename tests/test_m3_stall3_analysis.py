@@ -61,6 +61,6 @@ def test_stall3_report_proposes_but_does_not_authorize() -> None:
         root / "docs" / "progress" / "phase3_m3_stall3_analysis_20260713.md"
     ).read_text(encoding="utf-8")
 
-    assert "承認#16候補・提案のみ" in report
+    assert "承認#16・2026-07-13承認: 候補1+候補2を採用" in report
     assert "STR-01" in report
     assert "判定条件の再検討に関する材料(判断はオーナー)" in report
