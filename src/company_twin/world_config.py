@@ -45,7 +45,7 @@ CONSEQUENCES_STALL_AFTER_TICKS = 3
 MOTIVE_LAYER_VERSION = "motive_layer_v1"
 MOTIVE_SALES_TARGET = 4
 
-WORKFLOW_SUPPORT_VERSION = "workflow_support_v1"
+WORKFLOW_SUPPORT_VERSION = "workflow_support_v2"
 
 
 def _normalize_consequences_mode(value: str | None) -> str:
@@ -68,19 +68,23 @@ def _motives_schedule(enabled: bool) -> dict[str, Any]:
 
 
 def _workflow_schedule(enabled: bool) -> dict[str, Any]:
-    """M3 minimal world fix (MASTER_DESIGN §17.29, approval #14): default-off.
+    """M3 minimal world fixes (MASTER_DESIGN §17.29/§17.31, approvals #14/#15): default-off.
     When enabled, the turn prompt carries a fixed internal contact directory
     (role label -> chat address, machine-generated from the seat table) and
     the kernel delivers factual workflow routing notices (submission,
     approval request, intermediate transitions) to the seats that own the
     next step -- the §17.24 "kernel-tallied facts only" discipline. Both are
     arm-symmetric world conditions stamped into the config snapshot like
-    every other experimental condition."""
+    every other experimental condition. The v2-only rendering flags preserve
+    the v1 -> v2 boundary: v1 configs lack them and therefore replay using the
+    byte-identical v1 inbox and prompt rendering."""
     return {
         "enabled": bool(enabled),
         "version": WORKFLOW_SUPPORT_VERSION,
         "notices": bool(enabled),
         "contact_directory": bool(enabled),
+        "customer_id_in_inbox": bool(enabled),
+        "sales_direct_submission_guidance": bool(enabled),
     }
 
 
