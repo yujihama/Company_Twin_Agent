@@ -87,6 +87,8 @@ class RunRecorder:
         self._tick_usage: dict[tuple[int, str], int] = {}
         self._successful_attempt_counts: dict[tuple[str, str, str], int] = {}
         self._counter_lock = threading.Lock()
+        # File order MUST equal hash-chain order (§17.30, 2026-07-12 re-pilot).
+        self._ledger_lock = threading.Lock()
         run_root.mkdir(parents=True, exist_ok=True)
         self.write_json("meta.json", {"run_id": run_id, "created_at": utc_now(), **(meta or {})})
         for name in ("attempts.jsonl", "basis_records.jsonl", "chat_channel.jsonl", "world_ledger.jsonl", "store_events.jsonl"):
@@ -228,12 +230,13 @@ class RunRecorder:
         return notes
 
     def append_ledger(self, event_type: str, payload: dict[str, Any]) -> str:
-        base = {"ts": utc_now(), "run_id": self.run_id, "tick": self.tick, "event_type": event_type, "payload": payload, "prev_hash": self._prev_hash}
-        event_hash = hashlib.sha256(json.dumps(base, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
-        base["hash"] = event_hash
-        self._prev_hash = event_hash
-        self.append_jsonl("world_ledger.jsonl", base)
-        return event_hash
+        with self._ledger_lock:
+            base = {"ts": utc_now(), "run_id": self.run_id, "tick": self.tick, "event_type": event_type, "payload": payload, "prev_hash": self._prev_hash}
+            event_hash = hashlib.sha256(json.dumps(base, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
+            base["hash"] = event_hash
+            self._prev_hash = event_hash
+            self.append_jsonl("world_ledger.jsonl", base)
+            return event_hash
 
     def write_json(self, name: str, payload: dict[str, Any]) -> None:
         (self.run_root / name).write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
