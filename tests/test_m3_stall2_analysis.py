@@ -59,6 +59,6 @@ def test_stall2_report_proposes_but_does_not_authorize() -> None:
         root / "docs" / "progress" / "phase3_m3_stall2_analysis_20260712.md"
     ).read_text(encoding="utf-8")
 
-    assert "承認#15候補・提案のみ" in report
+    assert "承認#15・2026-07-12承認: 候補1+候補2を採用" in report
     assert "本文書はいかなる実行も許可しない" in report
     assert "顧客ID(CUS-パターン)を含むものは" in report
