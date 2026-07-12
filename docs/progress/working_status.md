@@ -9,7 +9,7 @@
 - 再設計案(承認#14・2026-07-12承認済み): 連絡先名簿のprompt追加+kernelのワークフロー事実通知+send_chat拒否文言修正。全て両腕対称・オラクル/変異機構に変更なし・新世界世代(`docs/progress/phase3_m3_redesign_proposal_20260710.md`)
 - 実装済み(2026-07-12、§17.29「実装」): 既定オフの `--workflow-support` 条件。オフ時プロンプトはバイト同一・新notice種は監視ルール非該当。費用ゼロ検証: スクリプト駆動全工程でR3 opportunity 1件・R3 event 0(`tests/test_workflow_support.py`)
 - 再パイロット実行は実装承認とは別に封印plan+実行承認を要する
-- 再パイロットのドラフトplan/batch起草済み(2026-07-12、seed 953/954・4 run・両腕`--workflow-support`対称・承認/実行フラグfalse): `docs/progress/phase3_m3_loss_repilot_plan_20260712.json` + 同batch。`run-batch`はドラフトのまま起動すると費用発生前に拒否することを実証済み。実行にはオーナー承認でフラグを反転する認可コミットが必要
+- 再パイロットのドラフトplan/batch起草済み(2026-07-12、seed 953/954・4 run・両腕`--workflow-support`対称・承認/実行フラグfalse): `docs/progress/phase3_m3_loss_repilot_plan_20260712.json` + 同batch。`run-batch`はドラフトのまま起動すると費用発生前に拒否することを実証済み。オーナーが2026-07-12に実行を承認し、認可コミットでフラグを反転(実行封印=当該PRのマージコミット)
 
 ## 0-D. 損失事象campaign集計器(2026-07-10)
 
