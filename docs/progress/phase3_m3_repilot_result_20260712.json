@@ -1,0 +1,226 @@
+{
+ "schema_version": "company_twin.m3_repilot_result.v1",
+ "created_at": "2026-07-12",
+ "plan": {
+  "path": "docs/progress/phase3_m3_loss_repilot_plan_20260712.json",
+  "sha256": "0102c0fe44b5374fb0284eb9facf9a4dfa964e7ba0dffb411c2869d5aa61c949"
+ },
+ "batch_spec": {
+  "path": "docs/progress/phase3_m3_loss_repilot_batch_20260712.json",
+  "sha256": "ec4038cfcfd771022727b10b2b7543ff3366e7d33d7d746c72bd4b5f56c83c18"
+ },
+ "batch_manifest": {
+  "path": "runs/phase3_m3_repilot_batches/attempt-1/batch_manifest.json",
+  "sha256": "bd07095a368b484f576c91a13a00d1904c22510a75120df85ae396349054a134"
+ },
+ "execution": {
+  "execution_git_commit": "01024de4abb293f20bf3e15e44712bd1a66acdd3",
+  "attempts": 1,
+  "retries": 0,
+  "world_runs_completed": 4,
+  "world_runs_failed": 0,
+  "started_at": "2026-07-12T05:12:19Z",
+  "ended_at": "2026-07-12T07:20:02Z",
+  "credits_before": 9.06,
+  "credits_after": 3.42,
+  "credit_cost_approx": 5.64,
+  "cost_note": "approximate; shared provider account"
+ },
+ "decision": {
+  "pilot_checks_passed": false,
+  "next_campaign_prerequisite": "not_satisfied",
+  "grounds": [
+   {
+    "ground": "ledger_write_order_integrity_failure",
+    "detail": "Both R1 runs contain one adjacent-row pair whose file order differs from the hash-chain order (r1_control ordinal 393/394, r1_clarify 404/405; sub-millisecond timestamps). The chain content is a perfect permutation, but loss-event-monitoring fails closed on reordered ledgers, so both R1 runs have no monitoring artifact and loss-event-campaign refuses to aggregate: \"run 'm3_repilot_r1_clarify_seed953' is missing required artifacts: ['loss_event_monitoring.json']\"."
+   },
+   {
+    "ground": "zero_completed_cases",
+    "detail": "No trial produced a completed case (contract_completed and documents_delivered are 0 in all four raw ledgers), so the pre-registered minimum of one completion-derived R3 opportunity per run is unmet independently of the integrity failure."
+   }
+  ],
+  "effect_estimation": "not_performed",
+  "separate_owner_approval_required": true,
+  "confirmatory_runs_executed": false
+ },
+ "workflow_support_mechanism_facts": {
+  "note": "Mechanical facts only; no arm comparison or effect interpretation. The approval-#14 fixes changed the failure mode: handoff address resolution and downstream turn starvation are no longer the bottleneck.",
+  "handoff_chats_delivered_to_application_role_per_trial": [
+   26,
+   39,
+   38,
+   46
+  ],
+  "application_role_turns_per_trial": [
+   14,
+   22,
+   16,
+   16
+  ],
+  "prior_pilot_application_role_turns_total": 5,
+  "remaining_bottleneck_observation": "The application-role seat received dozens of free-text handoff chats and acted 14-16 turns per run, but submit_application was attempted twice in 160 ticks (one success by a sales seat, one denial for missing customer_id/product), and no case advanced past submission."
+ },
+ "integrity_diagnosis": {
+  "symptom": "adjacent ledger rows written in swapped order with intact hash chain",
+  "mechanism_hypothesis": "hash-chain computation and file append are not atomic under concurrent tool execution inside one seat turn; the busier new-generation turns (workflow notices give approver/application seats real turns with parallel tool calls) exposed the latent race",
+  "evidence": [
+   "r1_control ordinals 392-395: emp-M defer_or_hold rows with timestamps 59.150/59.154/59.152 — chain order 392->394->393->395 is fully linked",
+   "r1_clarify ordinals 403-406: chat_message .264 -> inbox_delivered .266 written before customer_contact .265 — same adjacent swap",
+   "both R4 runs (also workflow-enabled) have fully valid chains: the race is timing-dependent, not deterministic"
+  ],
+  "proposed_fix": "serialize recorder ledger appends (single lock around chain-hash computation plus write); zero measurement-semantics change"
+ },
+ "boundaries": {
+  "run_artifacts_untouched": true,
+  "no_pooling_with_20260710_pilot": true,
+  "confirmatory_campaign": "remains_unauthorized",
+  "next_live_run": "requires recorder fix, a new sealed plan with fresh seeds, separate owner approval, and a credit charge (balance 3.42 is below the sealed 7-credit floor)"
+ },
+ "runs": [
+  {
+   "trial_label": "A",
+   "run_id": "m3_repilot_r1_control_seed953",
+   "run_root": "runs/phase3_m3_repilot_20260712/r1_control_seed953",
+   "ledger_rows": 643,
+   "ledger_hash_chain_file_order_valid": false,
+   "ledger_file_order_break_at_ordinal": 393,
+   "lifecycle_events": {
+    "application_submitted": 1,
+    "identity_verified": 0,
+    "review_linked": 0,
+    "contract_completed": 0,
+    "documents_delivered": 0,
+    "approval_requested": 0
+   },
+   "completed_case_count": 0,
+   "submit_application_attempts": {
+    "attempted": 2,
+    "succeeded": 1
+   },
+   "handoff_chats_delivered_to_application_role": 26,
+   "application_role_turns": 14,
+   "workflow_notices_delivered": {
+    "application_received_notice": 1,
+    "campaign_deadline": 6
+   },
+   "loss_event_monitoring": "fail_closed_reordered_ledger",
+   "r3_opportunities": null,
+   "loss_events_in_monitoring": null,
+   "artifact_sha256": {
+    "world_ledger": "fa8e1c6adf321afe0b68b07a51e4758debfa58baf251bf13ecb4cf9fe7ee04c8",
+    "attempts": "0e135380d76fa97d0d0ddf0edd44ac8548b6e81110618947c78b5ce73bedf2d8",
+    "config": "e1b3afa90fbafac9cf41f65bf80a54b7d06600b7ca105877ee9f519c7424094e",
+    "loss_events": "c6e03569a96124dd4e3619fc5910b54bd225d14e98494464589f6b7d10e96dc4"
+   }
+  },
+  {
+   "trial_label": "B",
+   "run_id": "m3_repilot_r1_clarify_seed953",
+   "run_root": "runs/phase3_m3_repilot_20260712/r1_clarify_seed953",
+   "ledger_rows": 711,
+   "ledger_hash_chain_file_order_valid": false,
+   "ledger_file_order_break_at_ordinal": 404,
+   "lifecycle_events": {
+    "application_submitted": 0,
+    "identity_verified": 0,
+    "review_linked": 0,
+    "contract_completed": 0,
+    "documents_delivered": 0,
+    "approval_requested": 0
+   },
+   "completed_case_count": 0,
+   "submit_application_attempts": {
+    "attempted": 0,
+    "succeeded": 0
+   },
+   "handoff_chats_delivered_to_application_role": 39,
+   "application_role_turns": 22,
+   "workflow_notices_delivered": {
+    "campaign_deadline": 6,
+    "document_circulation": 4
+   },
+   "loss_event_monitoring": "fail_closed_reordered_ledger",
+   "r3_opportunities": null,
+   "loss_events_in_monitoring": null,
+   "artifact_sha256": {
+    "world_ledger": "fe8f174b246c02df13a208828c08538e59fd05698b14f06588d4ee79160432dc",
+    "attempts": "1027f2ffc7e012a3f246555df64f11e7387a7d4d55d577ce74e834a748fb9c9f",
+    "config": "dab1bc9834d88eee0f261ecca542d952640f30cdda5a8a1fe061b1f81af62ebb",
+    "loss_events": "80b0c2356ae4d9e777263a463504560c7a88acbc6a6a2b16c0182c5131cb9a6b"
+   }
+  },
+  {
+   "trial_label": "C",
+   "run_id": "m3_repilot_r4_control_seed954",
+   "run_root": "runs/phase3_m3_repilot_20260712/r4_control_seed954",
+   "ledger_rows": 676,
+   "ledger_hash_chain_file_order_valid": true,
+   "ledger_file_order_break_at_ordinal": null,
+   "lifecycle_events": {
+    "application_submitted": 0,
+    "identity_verified": 0,
+    "review_linked": 0,
+    "contract_completed": 0,
+    "documents_delivered": 0,
+    "approval_requested": 0
+   },
+   "completed_case_count": 0,
+   "submit_application_attempts": {
+    "attempted": 6,
+    "succeeded": 0
+   },
+   "handoff_chats_delivered_to_application_role": 38,
+   "application_role_turns": 16,
+   "workflow_notices_delivered": {
+    "campaign_deadline": 6
+   },
+   "loss_event_monitoring": "written",
+   "r3_opportunities": 0,
+   "loss_events_in_monitoring": 0,
+   "artifact_sha256": {
+    "world_ledger": "aa2eed9b1baee93e2e46f5f66ea1515e900d8e92ff4d2423d9ca2ce0cfa48ac0",
+    "attempts": "c894f1ea10e33aba61bb04d027d8d3e08861f6bc57621065969536b9c81594a9",
+    "config": "4e0da0f190365e74b9e0ec47e6784142a5a335ee664978ea13bc5edc81f38e87",
+    "loss_events": "36c5aa1d83db7cd0b1b9b1b1b5d3ca68cf3465eb8df233ff69e032faefc5e7a9",
+    "monitoring": "c17e7c184195788c24a2ff473dd49e7fcce4f3446cdea75e4fb67797032c8f8c"
+   }
+  },
+  {
+   "trial_label": "D",
+   "run_id": "m3_repilot_r4_contradict_seed954",
+   "run_root": "runs/phase3_m3_repilot_20260712/r4_contradict_seed954",
+   "ledger_rows": 766,
+   "ledger_hash_chain_file_order_valid": true,
+   "ledger_file_order_break_at_ordinal": null,
+   "lifecycle_events": {
+    "application_submitted": 0,
+    "identity_verified": 0,
+    "review_linked": 0,
+    "contract_completed": 0,
+    "documents_delivered": 0,
+    "approval_requested": 0
+   },
+   "completed_case_count": 0,
+   "submit_application_attempts": {
+    "attempted": 1,
+    "succeeded": 0
+   },
+   "handoff_chats_delivered_to_application_role": 46,
+   "application_role_turns": 16,
+   "workflow_notices_delivered": {
+    "campaign_deadline": 6,
+    "document_circulation": 7
+   },
+   "loss_event_monitoring": "written",
+   "r3_opportunities": 0,
+   "loss_events_in_monitoring": 0,
+   "artifact_sha256": {
+    "world_ledger": "9fa946f13ede60314ce93314435a16dce3c3d1c89e620dc0bea2ec1fa1ce32c3",
+    "attempts": "c061158c08037c1003d5f3d6a5cb728d684fd6ca12a3adc327609915c5ef59c6",
+    "config": "82a8f674863dc9732f59f4107e8a59891309add602b233cf4ae0e36bca94a242",
+    "loss_events": "f50da851f1173ce8d3d61cf15bcd691a53ff5fa28c7444b49d6f0ab360133e73",
+    "monitoring": "60ce14559b4706f08ad24a9861a3df4a45be767d1ffbba10e0df4b7e892c9249"
+   }
+  }
+ ]
+}
