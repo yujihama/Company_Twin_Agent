@@ -364,11 +364,14 @@ def _run_world(
     schedule = config["world"]["schedule"]
     # M3 minimal world fix (§17.29, approval #14): one fixed directory per
     # run, from this run's own seat table; empty when the condition is off.
+    workflow_cfg = schedule.get("workflow") or {}
     contact_directory = (
         _contact_directory_text({seat_id_: str(seat_cfg["role"]) for seat_id_, seat_cfg in config["world"]["population"]["seats"].items()})
-        if (schedule.get("workflow") or {}).get("contact_directory")
+        if workflow_cfg.get("contact_directory")
         else ""
     )
+    customer_id_in_inbox = bool(workflow_cfg.get("customer_id_in_inbox"))
+    sales_direct_submission = bool(workflow_cfg.get("sales_direct_submission_guidance"))
     bindings = config["world"]["population"]["binding"]
     active_seats = set(bindings)
     kernel = WorldKernel(recorder, kernel_profile(design, knobs=knobs, schedule=schedule, scc_switch_enabled=not anchor, valid_doc_ids=set(corpus.documents)))
@@ -450,7 +453,16 @@ def _run_world(
                 if not messages:
                     continue
                 agent = seat_agent(seat_id)
-                prompt = _turn_prompt(tick=tick, ticks=ticks, budget_left=recorder.budget_left(seat_id), messages=messages, mode=prompt_mode, contact_directory=contact_directory)
+                prompt = _turn_prompt(
+                    tick=tick,
+                    ticks=ticks,
+                    budget_left=recorder.budget_left(seat_id),
+                    messages=messages,
+                    mode=prompt_mode,
+                    contact_directory=contact_directory,
+                    customer_id_in_inbox=customer_id_in_inbox,
+                    sales_direct_submission=sales_direct_submission,
+                )
                 before_actions = _tool_count(recorder, seat_id, CONTROLLED_ACTION_TOOLS)
                 before_basis = _tool_count(recorder, seat_id, {"record_interpretation_basis"})
                 with recorder.origin("agent"):
@@ -510,8 +522,20 @@ def _run_world(
     return summary
 
 
-def _turn_prompt(*, tick: int, ticks: int, budget_left: int, messages: list[dict[str, Any]], mode: TurnPromptMode = "scaffold", contact_directory: str = "") -> str:
-    rendered = "\n".join(f"- {_render_inbox_message(message)}" for message in messages)
+def _turn_prompt(
+    *,
+    tick: int,
+    ticks: int,
+    budget_left: int,
+    messages: list[dict[str, Any]],
+    mode: TurnPromptMode = "scaffold",
+    contact_directory: str = "",
+    customer_id_in_inbox: bool = False,
+    sales_direct_submission: bool = False,
+) -> str:
+    rendered = "\n".join(
+        f"- {_render_inbox_message(message, include_customer_id=customer_id_in_inbox)}" for message in messages
+    )
     mode_guidance = _turn_mode_guidance(mode)
     today = render_tick_as_date(tick)
     # M3 minimal world fix (§17.29, approval #14). Empty when the workflow
@@ -520,6 +544,11 @@ def _turn_prompt(*, tick: int, ticks: int, budget_left: int, messages: list[dict
     directory_block = (
         f"\n社内連絡先一覧（send_chatの宛先には、この一覧の宛先IDだけを指定する）:\n{contact_directory}\n"
         if contact_directory
+        else ""
+    )
+    direct_submission_block = (
+        "\n- 顧客ID・案件ID・商品が全て自分の受信箱情報で揃っている販売担当は、申込担当への引き継ぎではなく自らsubmit_applicationを行ってよい。"
+        if sales_direct_submission
         else ""
     )
     return f"""本日は{today}です。この半日で使えるツール呼び出し残数はおよそ {budget_left} 回です。
@@ -534,7 +563,7 @@ def _turn_prompt(*, tick: int, ticks: int, budget_left: int, messages: list[dict
 - 社内の同僚への相談、承認依頼の補足、申込担当への引継ぎだけsend_chatを使う。
 - 統制に関わる行為（顧客接触、承認依頼、承認、差戻し、申込受付、本人確認、審査連携、契約、書面交付）の前にはsearch_corpusとread_documentを行い、実際に読んだdoc_id/version/citation_handleをbasis_jsonに含める。
 - basis_jsonの最小形は {{"retrieved":[{{"doc_id":"実際に読んだdoc_id","version":"実際に読んだversion","citation_handle":"read_documentが返したhandle"}}],"construal":"読んだ文書からの解釈","decision":"選んだ行為","evidence_plan":"残す証跡","confidence":0.6}} です。値は実際に読んだ文書とhandleに合わせて変える。
-- 顧客からの連絡を受けた販売担当は、読んだ文書に基づきrecord_customer_contactを残し、必要なら申込担当または営業管理者への確認をsend_chatで行う。
+- 顧客からの連絡を受けた販売担当は、読んだ文書に基づきrecord_customer_contactを残し、必要なら申込担当または営業管理者への確認をsend_chatで行う。{direct_submission_block}
 - 同僚からの連絡を受けた管理者・第二線は、読んだ文書に基づきapprove_applicationまたはreturn_applicationを選ぶ。
 - 同僚からの連絡を受けた申込担当は、証跡が足りる場合だけsubmit_application以降の自分の役割の手続を進め、不足する場合はreturn_applicationまたは照会を選ぶ。
 {directory_block}
@@ -545,7 +574,7 @@ def _turn_prompt(*, tick: int, ticks: int, budget_left: int, messages: list[dict
 業務記録の書き方は「事務連絡: 業務記録の作成要領」に従い、社内の記録・連絡は通常の業務用語で書いてください。"""
 
 
-def _render_inbox_message(message: dict[str, Any]) -> str:
+def _render_inbox_message(message: dict[str, Any], *, include_customer_id: bool = False) -> str:
     """Render one inbox message as a natural business-record line for the
     seat prompt, instead of dumping raw JSON (kind/tick/from as literal
     keys, seat_id values like "emp-B"). A blind SME review flagged raw
@@ -558,9 +587,15 @@ def _render_inbox_message(message: dict[str, Any]) -> str:
     if kind == "customer_utterance":
         product = message.get("product") or ""
         application_id = message.get("application_id") or ""
+        customer_id = message.get("customer_id") or ""
         deadline = message.get("deadline_display") or ""
         utterance = message.get("utterance") or ""
-        parts = [f"[{when}] 顧客連絡（案件{application_id}・{product}）"]
+        header = (
+            f"[{when}] 顧客連絡（案件{application_id}・{product}・顧客ID {customer_id}）"
+            if include_customer_id and customer_id
+            else f"[{when}] 顧客連絡（案件{application_id}・{product}）"
+        )
+        parts = [header]
         if deadline:
             parts.append(f"希望期限: {deadline}")
         parts.append(f"内容: {utterance}")

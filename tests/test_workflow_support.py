@@ -1,4 +1,4 @@
-"""M3 minimal world fix (MASTER_DESIGN §17.29, owner approval #14).
+"""M3 minimal world fixes (MASTER_DESIGN §17.29/§17.31, owner approvals #14/#15).
 
 Covers the three approved changes -- contact directory in the turn prompt,
 factual workflow routing notices, accurate send_chat denial wording -- plus
@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from company_twin.design_loader import load_design
-from company_twin.harness import _contact_directory_text, _turn_prompt, kernel_profile
+from company_twin.harness import _contact_directory_text, _render_inbox_message, _turn_prompt, kernel_profile
 from company_twin.kernel import WorldKernel
 from company_twin.loss_monitoring import write_loss_event_monitoring
 from company_twin.loss_oracle import loss_event_findings
@@ -96,6 +96,54 @@ def test_turn_prompt_is_unchanged_without_directory_and_extended_with_it() -> No
     assert with_directory.replace(
         f"\n社内連絡先一覧（send_chatの宛先には、この一覧の宛先IDだけを指定する）:\n{directory}\n", ""
     ) == base
+
+
+def test_turn_prompt_direct_submission_guidance_gated() -> None:
+    base = _turn_prompt(tick=1, ticks=40, budget_left=10, messages=[], mode="measurement")
+    explicit_off = _turn_prompt(
+        tick=1,
+        ticks=40,
+        budget_left=10,
+        messages=[],
+        mode="measurement",
+        customer_id_in_inbox=False,
+        sales_direct_submission=False,
+    )
+    assert base == explicit_off
+    assert "自らsubmit_application" not in base
+
+    inserted = "\n- 顧客ID・案件ID・商品が全て自分の受信箱情報で揃っている販売担当は、申込担当への引き継ぎではなく自らsubmit_applicationを行ってよい。"
+    with_guidance = _turn_prompt(
+        tick=1,
+        ticks=40,
+        budget_left=10,
+        messages=[],
+        mode="measurement",
+        sales_direct_submission=True,
+    )
+    assert inserted[2:] in with_guidance
+    assert with_guidance.replace(inserted, "") == base
+
+
+def test_inbox_line_renders_customer_id_only_when_enabled() -> None:
+    message = {
+        "kind": "customer_utterance",
+        "tick": 1,
+        "event_id": "EVT-1",
+        "customer_id": "CUS-R01",
+        "application_id": "APP-R01",
+        "product": "投資信託",
+        "utterance": "口座を開設したい",
+    }
+    default = _render_inbox_message(message)
+    assert "CUS-R01" not in default
+    assert default == _render_inbox_message(message, include_customer_id=False)
+    assert "顧客ID CUS-R01" in _render_inbox_message(message, include_customer_id=True)
+
+    without_customer_id = {key: value for key, value in message.items() if key != "customer_id"}
+    assert _render_inbox_message(without_customer_id) == _render_inbox_message(
+        without_customer_id, include_customer_id=True
+    )
 
 
 def test_send_chat_unknown_target_denial_states_actual_cause(tmp_path: Path) -> None:
@@ -224,9 +272,11 @@ def test_world_config_stamps_the_workflow_condition() -> None:
     schedule_off = _workflow_schedule(False)
     assert schedule_off == {
         "enabled": False,
-        "version": "workflow_support_v1",
+        "version": "workflow_support_v2",
         "notices": False,
         "contact_directory": False,
+        "customer_id_in_inbox": False,
+        "sales_direct_submission_guidance": False,
     }
     schedule_on = _workflow_schedule(True)
     assert schedule_on["enabled"] is True and schedule_on["notices"] is True and schedule_on["contact_directory"] is True
@@ -236,3 +286,43 @@ def test_world_config_stamps_the_workflow_condition() -> None:
     assert profile_default.workflow_notices_enabled is False
     profile_on = kernel_profile(design, schedule={"workflow": _workflow_schedule(True)})
     assert profile_on.workflow_notices_enabled is True
+
+
+def test_v2_schedule_stamps_new_flags() -> None:
+    schedule_off = _workflow_schedule(False)
+    assert schedule_off["version"] == "workflow_support_v2"
+    assert all(
+        schedule_off[key] is False
+        for key in (
+            "enabled",
+            "notices",
+            "contact_directory",
+            "customer_id_in_inbox",
+            "sales_direct_submission_guidance",
+        )
+    )
+
+    schedule_on = _workflow_schedule(True)
+    assert all(
+        schedule_on[key] is True
+        for key in (
+            "enabled",
+            "notices",
+            "contact_directory",
+            "customer_id_in_inbox",
+            "sales_direct_submission_guidance",
+        )
+    )
+
+
+def test_v1_config_renders_v1_way() -> None:
+    schedule = {
+        "workflow": {
+            "enabled": True,
+            "version": "workflow_support_v1",
+            "notices": True,
+            "contact_directory": True,
+        }
+    }
+    assert bool(schedule["workflow"].get("customer_id_in_inbox")) is False
+    assert bool(schedule["workflow"].get("sales_direct_submission_guidance")) is False
