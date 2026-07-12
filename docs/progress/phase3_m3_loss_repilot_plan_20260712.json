@@ -17,7 +17,7 @@
     "readiness": "The pilot and its report do not update acceptance or readiness."
   },
   "batch_spec": "docs/progress/phase3_m3_loss_repilot_batch_20260712.json",
-  "batch_spec_sha256": "7cf3974110693d5e6f7af12718c8cc7568000c69b73b4d3358c5172e315b013b",
+  "batch_spec_sha256": "ec4038cfcfd771022727b10b2b7543ff3366e7d33d7d746c72bd4b5f56c83c18",
   "pilot_gate": {
     "schema_version": "company_twin.loss_event_feasibility_gate.v1",
     "effect_estimation": "forbidden_exclude_from_confirmatory",
