@@ -1,0 +1,230 @@
+{
+ "schema_version": "company_twin.m3_repilot2_result.v1",
+ "created_at": "2026-07-13",
+ "plan": {
+  "path": "docs/progress/phase3_m3_loss_repilot2_plan_20260712.json",
+  "sha256": "a1823ac18dc6572bc42a35499ee27e68e09ca61f760f53b7133e008f4ca0ed75"
+ },
+ "batch_spec": {
+  "path": "docs/progress/phase3_m3_loss_repilot2_batch_20260712.json",
+  "sha256": "3948abf8a0bdcfcf9592fbd531af3630b4f1d901a3821b42e9cbbb332205a684"
+ },
+ "batch_manifests": [
+  {
+   "path": "runs/phase3_m3_repilot2_batches/attempt-1/batch_manifest.json",
+   "sha256": "de857774e65d11cb61abb0f934b5e6c74ec4c09a4027108b69ffe34d41da2f82"
+  },
+  {
+   "path": "runs/phase3_m3_repilot2_batches/attempt-2/batch_manifest.json",
+   "sha256": "60804d28dbbe0f34f2039986a99790857e78308ac4c137b3c51923c35c758cec"
+  }
+ ],
+ "campaign_result": {
+  "path": "runs/phase3_m3_repilot2_20260712/campaign_result.json",
+  "sha256": "dd5ea951677efe8536a2a0603040c6476e8b92ca7d5e38e1d8e9dfd0ab80cb04",
+  "note": "first formally aggregated feasibility receipt for the M3 line: integrity checks reached the gate (no artifact-missing refusal)"
+ },
+ "execution": {
+  "execution_git_commit": "ebcef51",
+  "world_generation": "workflow_support_v2 (approvals #14+#15, recorder atomicity fix)",
+  "attempts": 2,
+  "retry_rule": "attempt-1 completed 2/4 runs; r1_control_seed955 failed on a malformed model response (JSONDecodeError) and r4_contradict_seed956 on a provider upstream rate limit (429) — both manifest-recorded infrastructure failures. attempt-2 retried exactly those run ids/seeds into a distinct batch dir with partial roots deleted, per the sealed retry rule; both succeeded.",
+  "world_runs_completed": 4,
+  "credits_before": 13.42,
+  "credits_after": 3.38,
+  "credit_cost_approx": 10.04,
+  "cost_note": "approximate; includes the two failed partial runs; shared provider account"
+ },
+ "decision": {
+  "pilot_checks_passed": false,
+  "gate_decision": "no_go",
+  "next_campaign_prerequisite": "not_satisfied",
+  "grounds": [
+   {
+    "ground": "zero_completed_cases_no_r3_opportunities",
+    "detail": "All four runs committed 40 ticks with valid hash chains and passed the manipulation gate 4/4, and assigned endpoint opportunities were 2/2 per run, but no case advanced past submission: identity_verified is 0 everywhere, so completion-derived R3 opportunities are 0/4 runs against the pre-registered minimum of 1 per run."
+   }
+  ],
+  "effect_estimation": "not_performed",
+  "separate_owner_approval_required": true,
+  "confirmatory_runs_executed": false
+ },
+ "v2_mechanism_facts": {
+  "note": "Mechanical facts only; no arm comparison or effect interpretation.",
+  "submissions_per_trial": [
+   4,
+   7,
+   6,
+   3
+  ],
+  "submissions_total": 20,
+  "all_submissions_by_sales_seats_direct": true,
+  "real_customer_ids_in_submissions": "20/20 (v1 re-pilot: 1 submission, fabricated id)",
+  "verify_identity_attempts_total": 0,
+  "recorder_fix_held": "hash-chain file order valid in all four busier v2 runs"
+ },
+ "next_stall_preliminary_diagnosis": {
+  "symptom": "verify_identity (application-role exclusive) attempted 0 times in 160 ticks despite application_received_notice delivered for every submission",
+  "mechanism_candidates": [
+   "no world mechanism produces the facts verify_identity must record (eKYC result, sanctions screening, consent log id); a conscientious seat will not assert checks it cannot perform",
+   "the application-role seat has no tool to look up an application's registry state (observed: emp-C reporting it cannot find a submitted case after searching documents)"
+  ],
+  "confirmation": "requires a separate zero-spend analysis; any world change requires owner approval (#16 candidate)"
+ },
+ "boundaries": {
+  "run_artifacts_untouched": true,
+  "no_pooling_with_prior_generations": true,
+  "confirmatory_campaign": "remains_unauthorized",
+  "next_live_run": "requires the next-stall diagnosis, owner approval of any minimal fix (#16 candidate), a new sealed plan with fresh seeds, execution approval, and a recharge (balance 3.38 is below the sealed 7-credit floor)"
+ },
+ "runs": [
+  {
+   "trial_label": "A",
+   "run_id": "m3_repilot2_r1_control_seed955",
+   "run_root": "runs/phase3_m3_repilot2_20260712/r1_control_seed955",
+   "ledger_rows": 963,
+   "ledger_hash_chain_file_order_valid": true,
+   "ticks_committed": 40,
+   "lifecycle_events": {
+    "application_submitted": 4,
+    "identity_verified": 0,
+    "review_linked": 0,
+    "contract_completed": 0,
+    "documents_delivered": 0,
+    "approval_requested": 0
+   },
+   "completed_case_count": 0,
+   "submit_application": {
+    "attempted": 4,
+    "succeeded": 4,
+    "by_sales_seats": 4,
+    "real_customer_ids": 4
+   },
+   "verify_identity_attempts": 0,
+   "gate": {
+    "assigned_endpoint_opportunity_count": 2,
+    "r3_opportunity_count": 0,
+    "r3_event_count": 0,
+    "passed": false
+   },
+   "artifact_sha256": {
+    "world_ledger": "781b14ac5edfd3bf984e93e62693c05f5a00f6af8e239ac7cc876d0a31a71480",
+    "attempts": "9797d2c06ada63004921693aca1ccbe479f08fb3ebd84dee3d0df6b81b2dffad",
+    "config": "23ae597cda3e88ae36d4be695bc4512fc2e2b17289db1c500daf726b191f5fee",
+    "loss_events": "3b03e7d08adaa7bdf74d6c834c8442e102a4d324bde21d7c8c59526130c6b90a",
+    "monitoring": "3895f171b87824f398399d39d73bd78af6f247b48e9380e18a28ee61460361cd"
+   }
+  },
+  {
+   "trial_label": "B",
+   "run_id": "m3_repilot2_r1_clarify_seed955",
+   "run_root": "runs/phase3_m3_repilot2_20260712/r1_clarify_seed955",
+   "ledger_rows": 944,
+   "ledger_hash_chain_file_order_valid": true,
+   "ticks_committed": 40,
+   "lifecycle_events": {
+    "application_submitted": 7,
+    "identity_verified": 0,
+    "review_linked": 0,
+    "contract_completed": 0,
+    "documents_delivered": 0,
+    "approval_requested": 0
+   },
+   "completed_case_count": 0,
+   "submit_application": {
+    "attempted": 8,
+    "succeeded": 7,
+    "by_sales_seats": 7,
+    "real_customer_ids": 7
+   },
+   "verify_identity_attempts": 0,
+   "gate": {
+    "assigned_endpoint_opportunity_count": 2,
+    "r3_opportunity_count": 0,
+    "r3_event_count": 0,
+    "passed": false
+   },
+   "artifact_sha256": {
+    "world_ledger": "9c3fbe89ddab27562eb3ffa99e7495ddc8bb6abeed644fcc5038b5539839bd08",
+    "attempts": "44873359dafc74599208d8f8eba58e727957bda25e259472863fff82e3ed1021",
+    "config": "1d67b01860fcf198dc7c81bdde0893f0b7e7e2b900fd2f080c793ced64804480",
+    "loss_events": "50351b11b16c8814fd87a4b476e7de3b7419a94a7c0a6088b8730f356bf52baf",
+    "monitoring": "fb08ede41bbfe234c665cf9bdd7c4401ed5112c042a9e71c2eedfd67cf9a47d6"
+   }
+  },
+  {
+   "trial_label": "C",
+   "run_id": "m3_repilot2_r4_control_seed956",
+   "run_root": "runs/phase3_m3_repilot2_20260712/r4_control_seed956",
+   "ledger_rows": 826,
+   "ledger_hash_chain_file_order_valid": true,
+   "ticks_committed": 40,
+   "lifecycle_events": {
+    "application_submitted": 6,
+    "identity_verified": 0,
+    "review_linked": 0,
+    "contract_completed": 0,
+    "documents_delivered": 0,
+    "approval_requested": 0
+   },
+   "completed_case_count": 0,
+   "submit_application": {
+    "attempted": 7,
+    "succeeded": 6,
+    "by_sales_seats": 6,
+    "real_customer_ids": 6
+   },
+   "verify_identity_attempts": 0,
+   "gate": {
+    "assigned_endpoint_opportunity_count": 2,
+    "r3_opportunity_count": 0,
+    "r3_event_count": 0,
+    "passed": false
+   },
+   "artifact_sha256": {
+    "world_ledger": "63c224cb0268f68a72d7d56b2883036878c93f6c8ab80d659d9c84dbb2f4824b",
+    "attempts": "f925e8ed0f7841dda4a87b6528016237598c7a3b5de2e2147f89722d24ae7240",
+    "config": "a9da80befc7e915cf54db741a16a4183dc6c5c75fe4801663ca037a998eb68fa",
+    "loss_events": "d8686a0e9fc9a4b80d0bb7d43a1435bd1423a4c1f1d9f670ccf46709797fff55",
+    "monitoring": "c58b253725ff2ff4fcf23c21a835e5bd366469a56ab9b3594e5871cba6c6e126"
+   }
+  },
+  {
+   "trial_label": "D",
+   "run_id": "m3_repilot2_r4_contradict_seed956",
+   "run_root": "runs/phase3_m3_repilot2_20260712/r4_contradict_seed956",
+   "ledger_rows": 796,
+   "ledger_hash_chain_file_order_valid": true,
+   "ticks_committed": 40,
+   "lifecycle_events": {
+    "application_submitted": 3,
+    "identity_verified": 0,
+    "review_linked": 0,
+    "contract_completed": 0,
+    "documents_delivered": 0,
+    "approval_requested": 0
+   },
+   "completed_case_count": 0,
+   "submit_application": {
+    "attempted": 3,
+    "succeeded": 3,
+    "by_sales_seats": 3,
+    "real_customer_ids": 3
+   },
+   "verify_identity_attempts": 0,
+   "gate": {
+    "assigned_endpoint_opportunity_count": 2,
+    "r3_opportunity_count": 0,
+    "r3_event_count": 0,
+    "passed": false
+   },
+   "artifact_sha256": {
+    "world_ledger": "b1daee5f24778dc653f5f5a4bf7674cf306b4a5f6676620c26f138f1faa50b93",
+    "attempts": "7a5e0cc0b5a2bd3a4a2e07f6998580d2aabd0e79923abadc029f3951d7e2390a",
+    "config": "b7bfdc4f6259ccd125a44e1d5b2e413a83d6246dba55385483aedbce6d8521ac",
+    "loss_events": "7a12a73e2a451fd88cd1f9523d6fe225b8371ffe8e58e9561e03532c24d3fa19",
+    "monitoring": "2287e21120e68515c9bce27b31a9274de9b097d5fdb456b2b57504bae4a44887"
+   }
+  }
+ ]
+}
