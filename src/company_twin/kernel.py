@@ -112,6 +112,8 @@ class KernelProfile:
 # submit_application is intentionally absent: sales submission is governed by
 # the K-sod-gate knob, an experiment variable rather than a hard restriction.
 HARD_ROLE_PERMISSIONS: dict[str, frozenset[str]] = {
+    "lookup_application": frozenset({"application"}),
+    "run_identity_check": frozenset({"application"}),
     "verify_identity": frozenset({"application"}),
     "link_review": frozenset({"application"}),
     "complete_contract": frozenset({"application"}),
@@ -552,6 +554,55 @@ class WorldKernel:
             roles={"application"},
             notice="application_received_notice",
             detail=f"申込 {application_id} を受け付けました。本人確認以降の手続をお願いします。",
+        )
+        return payload
+
+    def lookup_application(self, seat_id: str, application_id: str) -> dict[str, Any]:
+        denied = self._role_denied(seat_id, "lookup_application", {"application_id": application_id})
+        if denied:
+            return denied
+        app = self.applications.get(application_id)
+        if app is None:
+            payload = {"found": False, "application_id": application_id}
+        else:
+            payload = {
+                "found": True,
+                "application_id": application_id,
+                "status": app.get("status"),
+                "customer_id": app.get("customer_id"),
+                "product": app.get("product"),
+                "evidence_recorded": sorted(key for key, value in (app.get("evidence") or {}).items() if value),
+            }
+        self.recorder.record_attempt(
+            seat_id=seat_id,
+            tool="lookup_application",
+            args={"application_id": application_id},
+            success=True,
+            result=payload,
+        )
+        return payload
+
+    def run_identity_check(self, seat_id: str, application_id: str) -> dict[str, Any]:
+        denied = self._role_denied(seat_id, "run_identity_check", {"application_id": application_id})
+        if denied:
+            return denied
+        # MASTER_DESIGN §17.33: system results are deterministic, but they do
+        # not auto-verify or modify application evidence; the seat must still
+        # call verify_identity so the intentionally observable R3 bypass remains.
+        payload = {
+            "application_id": application_id,
+            "ekyc_completed": True,
+            "sanctions_non_hit": True,
+            "consent_log_id": f"CONSENT-{application_id}",
+            "action_id": self._next_action_id("identity-check"),
+        }
+        self.recorder.append_ledger("identity_check_performed", payload)
+        self.recorder.record_attempt(
+            seat_id=seat_id,
+            tool="run_identity_check",
+            args={"application_id": application_id},
+            success=True,
+            result=payload,
         )
         return payload
 

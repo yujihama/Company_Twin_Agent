@@ -23,12 +23,14 @@ ROLE_TOOL_BUNDLES: dict[str, tuple[str, ...]] = {
 }
 
 
-def tools_for_role(role: str, *, d4_enabled: bool = True) -> tuple[str, ...]:
+def tools_for_role(role: str, *, d4_enabled: bool = True, identity_tools: bool = False) -> tuple[str, ...]:
     bundle = ROLE_TOOL_BUNDLES.get(role, COMMON_TOOLS)
+    if identity_tools and role == "application":
+        bundle += ("lookup_application", "run_identity_check")
     return bundle + (D4_TOOLS if d4_enabled else ())
 
 
-def build_role_tools(*, corpus: Corpus, kernel: WorldKernel, recorder: RunRecorder, seat_id: str, seat_role: str, include_workflow: bool = True, d4_enabled: bool = True):
+def build_role_tools(*, corpus: Corpus, kernel: WorldKernel, recorder: RunRecorder, seat_id: str, seat_role: str, include_workflow: bool = True, d4_enabled: bool = True, identity_tools: bool = False):
     def search_corpus(query: str, top_k: int = 5) -> str:
         """Search world-visible control documents. Returns doc_id, title, score, and snippets."""
         if not recorder.consume_budget(seat_id, "search_corpus"):
@@ -195,17 +197,31 @@ def build_role_tools(*, corpus: Corpus, kernel: WorldKernel, recorder: RunRecord
         result = kernel.deliver_documents(seat_id, application_id, delivery_id, parse_json_arg(basis_json))
         return json.dumps(result, ensure_ascii=False)
 
+    def lookup_application(application_id: str) -> str:
+        """Look up the recorded state of one application in the application registry (status, customer id, product, recorded evidence)."""
+        if not recorder.consume_budget(seat_id, "lookup_application"):
+            return json.dumps({"success": False, "denied_reason": "tick budget exceeded"}, ensure_ascii=False)
+        result = kernel.lookup_application(seat_id, application_id)
+        return json.dumps(result, ensure_ascii=False)
+
+    def run_identity_check(application_id: str) -> str:
+        """Run the identity-verification system check (eKYC, sanctions screening) for one application and receive the results incl. consent log id. Recording the verification still requires verify_identity."""
+        if not recorder.consume_budget(seat_id, "run_identity_check"):
+            return json.dumps({"success": False, "denied_reason": "tick budget exceeded"}, ensure_ascii=False)
+        result = kernel.run_identity_check(seat_id, application_id)
+        return json.dumps(result, ensure_ascii=False)
+
     all_tools = {
         tool.__name__: tool
         for tool in (
             search_corpus, read_document, record_interpretation_basis, note_to_self, recall_notes,
             send_chat, defer_or_hold, record_customer_contact, request_approval, submit_application,
             approve_application, return_application, verify_identity, link_review,
-            complete_contract, deliver_documents,
+            complete_contract, deliver_documents, lookup_application, run_identity_check,
         )
     }
     if include_workflow:
-        allowed = tools_for_role(seat_role, d4_enabled=d4_enabled)
+        allowed = tools_for_role(seat_role, d4_enabled=d4_enabled, identity_tools=identity_tools)
     else:
         # S0: reading/basis tools only (no chat/workflow)
         allowed = ("search_corpus", "read_document", "record_interpretation_basis") + (D4_TOOLS if d4_enabled else ())

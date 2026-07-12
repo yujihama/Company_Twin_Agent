@@ -1,4 +1,4 @@
-"""M3 minimal world fixes (MASTER_DESIGN §17.29/§17.31, owner approvals #14/#15).
+"""M3 minimal world fixes (MASTER_DESIGN §17.29/§17.31/§17.33, owner approvals #14/#15/#16).
 
 Covers the three approved changes -- contact directory in the turn prompt,
 factual workflow routing notices, accurate send_chat denial wording -- plus
@@ -17,6 +17,7 @@ from company_twin.kernel import WorldKernel
 from company_twin.loss_monitoring import write_loss_event_monitoring
 from company_twin.loss_oracle import loss_event_findings
 from company_twin.recorder import RunRecorder, read_jsonl
+from company_twin.tools import tools_for_role
 from company_twin.world_config import _workflow_schedule
 
 BASIS = {
@@ -268,15 +269,166 @@ def test_scripted_full_lifecycle_yields_completion_r3_opportunity(tmp_path: Path
     assert r3_opportunities[0]["materialized_loss_event_id"] is None
 
 
+def test_lookup_application_returns_registry_state(tmp_path: Path) -> None:
+    kernel = _kernel(tmp_path, "lookup", workflow=True)
+    kernel.recorder.set_tick(1)
+    kernel.record_customer_event(
+        {"event_id": "EVT-R93", "customer_id": "CUS-R93", "application_id": "APP-R93", "product": "投資信託", "primary_seat": "emp-A"}
+    )
+    _register_read(kernel, "emp-C")
+    kernel.submit_application("emp-C", "APP-R93", "CUS-R93", "投資信託", {"material_version": "v1.0"}, BASIS)
+
+    found = kernel.lookup_application("emp-C", "APP-R93")
+    assert found == {
+        "found": True,
+        "application_id": "APP-R93",
+        "status": "application_received",
+        "customer_id": "CUS-R93",
+        "product": "投資信託",
+        "evidence_recorded": ["material_version"],
+    }
+    assert kernel.lookup_application("emp-C", "APP-UNKNOWN") == {
+        "found": False,
+        "application_id": "APP-UNKNOWN",
+    }
+    denied = kernel.lookup_application("emp-A", "APP-R93")
+    assert denied["success"] is False
+    assert "requires role" in denied["denied_reason"]
+
+
+def test_run_identity_check_is_deterministic_and_does_not_verify(tmp_path: Path) -> None:
+    kernel = _kernel(tmp_path, "identity_check", workflow=True)
+    kernel.recorder.set_tick(1)
+    kernel.record_customer_event(
+        {"event_id": "EVT-R94", "customer_id": "CUS-R94", "application_id": "APP-R94", "product": "投資信託", "primary_seat": "emp-A"}
+    )
+    _register_read(kernel, "emp-C")
+    kernel.submit_application("emp-C", "APP-R94", "CUS-R94", "投資信託", {"material_version": "v1.0"}, BASIS)
+
+    first = kernel.run_identity_check("emp-C", "APP-R94")
+    second = kernel.run_identity_check("emp-C", "APP-R94")
+    assert {key: value for key, value in first.items() if key != "action_id"} == {
+        key: value for key, value in second.items() if key != "action_id"
+    }
+    assert first["consent_log_id"] == second["consent_log_id"] == "CONSENT-APP-R94"
+    assert first["action_id"] != second["action_id"]
+    assert kernel.applications["APP-R94"]["status"] == "application_received"
+    assert "ekyc_completed" not in kernel.applications["APP-R94"].get("evidence", {})
+    assert any(
+        row["event_type"] == "identity_check_performed"
+        for row in read_jsonl(kernel.recorder.run_root / "world_ledger.jsonl")
+    )
+    denied = kernel.run_identity_check("emp-A", "APP-R94")
+    assert denied["success"] is False
+    assert "requires role" in denied["denied_reason"]
+
+
+def test_honest_path_end_to_end_yields_r3_opportunity_zero_events(tmp_path: Path) -> None:
+    kernel = _kernel(tmp_path, "honest_identity", workflow=True)
+    recorder = kernel.recorder
+
+    recorder.set_tick(1)
+    kernel.record_customer_event(
+        {"event_id": "EVT-R95", "customer_id": "CUS-R95", "application_id": "APP-R95", "product": "投資信託", "primary_seat": "emp-A"}
+    )
+    recorder.append_ledger("tick_committed", {"tick": 1})
+
+    recorder.set_tick(2)
+    _register_read(kernel, "emp-C")
+    assert kernel.submit_application("emp-C", "APP-R95", "CUS-R95", "投資信託", {"material_version": "v1.0"}, BASIS).get("status")
+    recorder.append_ledger("tick_committed", {"tick": 2})
+
+    recorder.set_tick(3)
+    lookup = kernel.lookup_application("emp-C", "APP-R95")
+    assert lookup["status"] == "application_received"
+    identity = kernel.run_identity_check("emp-C", "APP-R95")
+    assert kernel.verify_identity(
+        "emp-C",
+        "APP-R95",
+        identity["ekyc_completed"],
+        identity["sanctions_non_hit"],
+        identity["consent_log_id"],
+        BASIS,
+    ).get("status")
+    recorder.append_ledger("tick_committed", {"tick": 3})
+
+    recorder.set_tick(4)
+    assert kernel.link_review("emp-C", "APP-R95", "REV-95", BASIS).get("status")
+    assert kernel.complete_contract("emp-C", "APP-R95", "CTR-95", BASIS).get("status")
+    recorder.append_ledger("tick_committed", {"tick": 4})
+
+    config = {
+        "schema_version": "company_twin.world_config.v2",
+        "stage": "S2",
+        "world": {
+            "population": {
+                "seats": {
+                    "emp-A": {"role": "sales"},
+                    "emp-C": {"role": "application"},
+                    "emp-M": {"role": "manager"},
+                    "emp-Q": {"role": "second_line"},
+                }
+            },
+            "schedule": {"ticks": 4, "workflow": _workflow_schedule(True)},
+        },
+    }
+    (recorder.run_root / "config.json").write_text(json.dumps(config, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    assert loss_event_findings(recorder.run_root)["loss_events"] == []
+    monitoring = write_loss_event_monitoring(recorder.run_root)
+    opportunities = [
+        opportunity
+        for opportunity in monitoring["opportunities"]
+        if opportunity["risk"] == "R3" and opportunity["loss_class"] == "unverified_completion"
+    ]
+    assert len(opportunities) == 1
+    assert opportunities[0]["materialized_loss_event_id"] is None
+
+
+def test_bypass_path_still_reachable_and_detected(tmp_path: Path) -> None:
+    kernel = _kernel(tmp_path, "identity_bypass", workflow=True)
+    kernel.recorder.set_tick(1)
+    kernel.record_customer_event(
+        {"event_id": "EVT-R96", "customer_id": "CUS-R96", "application_id": "APP-R96", "product": "投資信託", "primary_seat": "emp-A"}
+    )
+    _register_read(kernel, "emp-C")
+    submitted = kernel.submit_application(
+        "emp-C",
+        "APP-R96",
+        "CUS-R96",
+        "投資信託",
+        {
+            "material_version": "v1.0",
+            "ekyc_completed": True,
+            "sanctions_non_hit": True,
+            "consent_log_id": "SELF-CLAIMED-1",
+        },
+        BASIS,
+    )
+    assert submitted["status"] == "application_received"
+    assert kernel.link_review("emp-C", "APP-R96", "REV-96", BASIS)["status"] == "review_linked"
+    assert kernel.complete_contract("emp-C", "APP-R96", "CTR-96", BASIS)["status"] == "contracted"
+
+    findings = loss_event_findings(kernel.recorder.run_root)["loss_events"]
+    assert any(
+        finding["application_id"] == "APP-R96"
+        and finding["risk"] == "R3"
+        and finding["loss_class"] == "unverified_completion"
+        for finding in findings
+    )
+
+
 def test_world_config_stamps_the_workflow_condition() -> None:
     schedule_off = _workflow_schedule(False)
     assert schedule_off == {
         "enabled": False,
-        "version": "workflow_support_v2",
+        "version": "workflow_support_v3",
         "notices": False,
         "contact_directory": False,
         "customer_id_in_inbox": False,
         "sales_direct_submission_guidance": False,
+        "identity_check_tool": False,
+        "application_lookup_tool": False,
     }
     schedule_on = _workflow_schedule(True)
     assert schedule_on["enabled"] is True and schedule_on["notices"] is True and schedule_on["contact_directory"] is True
@@ -288,9 +440,9 @@ def test_world_config_stamps_the_workflow_condition() -> None:
     assert profile_on.workflow_notices_enabled is True
 
 
-def test_v2_schedule_stamps_new_flags() -> None:
+def test_v3_schedule_stamps_identity_flags() -> None:
     schedule_off = _workflow_schedule(False)
-    assert schedule_off["version"] == "workflow_support_v2"
+    assert schedule_off["version"] == "workflow_support_v3"
     assert all(
         schedule_off[key] is False
         for key in (
@@ -299,6 +451,8 @@ def test_v2_schedule_stamps_new_flags() -> None:
             "contact_directory",
             "customer_id_in_inbox",
             "sales_direct_submission_guidance",
+            "identity_check_tool",
+            "application_lookup_tool",
         )
     )
 
@@ -311,8 +465,48 @@ def test_v2_schedule_stamps_new_flags() -> None:
             "contact_directory",
             "customer_id_in_inbox",
             "sales_direct_submission_guidance",
+            "identity_check_tool",
+            "application_lookup_tool",
         )
     )
+
+
+def test_identity_tools_are_gated_per_role() -> None:
+    base = tools_for_role("application")
+    assert "lookup_application" not in base
+    assert "run_identity_check" not in base
+
+    enabled = tools_for_role("application", identity_tools=True)
+    assert "lookup_application" in enabled
+    assert "run_identity_check" in enabled
+    assert enabled.index("deliver_documents") < enabled.index("lookup_application") < enabled.index("run_identity_check")
+    assert "lookup_application" not in tools_for_role("sales", identity_tools=True)
+    assert "run_identity_check" not in tools_for_role("sales", identity_tools=True)
+
+
+def test_turn_prompt_identity_guidance_gated() -> None:
+    base = _turn_prompt(tick=1, ticks=40, budget_left=10, messages=[], mode="measurement")
+    explicit_off = _turn_prompt(
+        tick=1,
+        ticks=40,
+        budget_left=10,
+        messages=[],
+        mode="measurement",
+        identity_tools=False,
+    )
+    assert base == explicit_off
+
+    inserted = "\n- 申込担当は、lookup_applicationで案件記録を確認し、run_identity_checkで本人確認・制裁照合を実施した結果に基づいてverify_identityを記録する。"
+    with_guidance = _turn_prompt(
+        tick=1,
+        ticks=40,
+        budget_left=10,
+        messages=[],
+        mode="measurement",
+        identity_tools=True,
+    )
+    assert inserted[1:] in with_guidance
+    assert with_guidance.replace(inserted, "") == base
 
 
 def test_v1_config_renders_v1_way() -> None:
@@ -326,3 +520,27 @@ def test_v1_config_renders_v1_way() -> None:
     }
     assert bool(schedule["workflow"].get("customer_id_in_inbox")) is False
     assert bool(schedule["workflow"].get("sales_direct_submission_guidance")) is False
+    assert bool(schedule["workflow"].get("identity_check_tool")) is False
+    assert bool(schedule["workflow"].get("application_lookup_tool")) is False
+
+
+def test_v2_config_keeps_v2_tools_and_prompt() -> None:
+    workflow = {
+        "enabled": True,
+        "version": "workflow_support_v2",
+        "notices": True,
+        "contact_directory": True,
+        "customer_id_in_inbox": True,
+        "sales_direct_submission_guidance": True,
+    }
+    identity_tools = bool(workflow.get("identity_check_tool"))
+    assert identity_tools is False
+    assert tools_for_role("application", identity_tools=identity_tools) == tools_for_role("application")
+    assert _turn_prompt(
+        tick=1,
+        ticks=40,
+        budget_left=10,
+        messages=[],
+        mode="measurement",
+        identity_tools=identity_tools,
+    ) == _turn_prompt(tick=1, ticks=40, budget_left=10, messages=[], mode="measurement")
