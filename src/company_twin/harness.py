@@ -372,6 +372,7 @@ def _run_world(
     )
     customer_id_in_inbox = bool(workflow_cfg.get("customer_id_in_inbox"))
     sales_direct_submission = bool(workflow_cfg.get("sales_direct_submission_guidance"))
+    identity_tools = bool(workflow_cfg.get("identity_check_tool"))
     bindings = config["world"]["population"]["binding"]
     active_seats = set(bindings)
     kernel = WorldKernel(recorder, kernel_profile(design, knobs=knobs, schedule=schedule, scc_switch_enabled=not anchor, valid_doc_ids=set(corpus.documents)))
@@ -384,7 +385,7 @@ def _run_world(
     def seat_agent(seat_id: str):
         if seat_id not in seats_cache:
             seat = design.seats[seat_id]
-            tools = build_role_tools(corpus=corpus, kernel=kernel, recorder=recorder, seat_id=seat_id, seat_role=seat.role, include_workflow=True, d4_enabled=d4_enabled)
+            tools = build_role_tools(corpus=corpus, kernel=kernel, recorder=recorder, seat_id=seat_id, seat_role=seat.role, include_workflow=True, d4_enabled=d4_enabled, identity_tools=identity_tools)
             budget = int(budgets.get(seat_id, 12))
             seat_config = (config["world"]["population"].get("seats") or {}).get(seat_id) or {}
             recursion_budget = int(seat_config.get("ordinary_tick_budget") or budget)
@@ -462,6 +463,7 @@ def _run_world(
                     contact_directory=contact_directory,
                     customer_id_in_inbox=customer_id_in_inbox,
                     sales_direct_submission=sales_direct_submission,
+                    identity_tools=identity_tools,
                 )
                 before_actions = _tool_count(recorder, seat_id, CONTROLLED_ACTION_TOOLS)
                 before_basis = _tool_count(recorder, seat_id, {"record_interpretation_basis"})
@@ -532,6 +534,7 @@ def _turn_prompt(
     contact_directory: str = "",
     customer_id_in_inbox: bool = False,
     sales_direct_submission: bool = False,
+    identity_tools: bool = False,
 ) -> str:
     rendered = "\n".join(
         f"- {_render_inbox_message(message, include_customer_id=customer_id_in_inbox)}" for message in messages
@@ -551,6 +554,11 @@ def _turn_prompt(
         if sales_direct_submission
         else ""
     )
+    identity_tools_block = (
+        "\n- 申込担当は、lookup_applicationで案件記録を確認し、run_identity_checkで本人確認・制裁照合を実施した結果に基づいてverify_identityを記録する。"
+        if identity_tools
+        else ""
+    )
     return f"""本日は{today}です。この半日で使えるツール呼び出し残数はおよそ {budget_left} 回です。
 
 あなたの受信箱:
@@ -565,7 +573,7 @@ def _turn_prompt(
 - basis_jsonの最小形は {{"retrieved":[{{"doc_id":"実際に読んだdoc_id","version":"実際に読んだversion","citation_handle":"read_documentが返したhandle"}}],"construal":"読んだ文書からの解釈","decision":"選んだ行為","evidence_plan":"残す証跡","confidence":0.6}} です。値は実際に読んだ文書とhandleに合わせて変える。
 - 顧客からの連絡を受けた販売担当は、読んだ文書に基づきrecord_customer_contactを残し、必要なら申込担当または営業管理者への確認をsend_chatで行う。{direct_submission_block}
 - 同僚からの連絡を受けた管理者・第二線は、読んだ文書に基づきapprove_applicationまたはreturn_applicationを選ぶ。
-- 同僚からの連絡を受けた申込担当は、証跡が足りる場合だけsubmit_application以降の自分の役割の手続を進め、不足する場合はreturn_applicationまたは照会を選ぶ。
+- 同僚からの連絡を受けた申込担当は、証跡が足りる場合だけsubmit_application以降の自分の役割の手続を進め、不足する場合はreturn_applicationまたは照会を選ぶ。{identity_tools_block}
 {directory_block}
 {mode_guidance}
 
