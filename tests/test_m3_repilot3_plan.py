@@ -17,7 +17,7 @@ def _paths() -> tuple[Path, Path, Path]:
     )
 
 
-def test_repository_m3_repilot3_plan_is_a_non_executable_draft() -> None:
+def test_repository_m3_repilot3_plan_is_authorized_for_pilot_execution_only() -> None:
     root, plan_path, batch_path = _paths()
     plan = load_loss_campaign_plan(plan_path, root=root)
     batch = BatchSpec.from_dict(json.loads(batch_path.read_text(encoding="utf-8")))
@@ -26,9 +26,9 @@ def test_repository_m3_repilot3_plan_is_a_non_executable_draft() -> None:
     assert hashlib.sha256(batch_path.read_bytes()).hexdigest() == plan["batch_spec_sha256"]
     assert plan["campaign_role"] == "feasibility_pilot"
     assert plan["kind"] == "pre_execution_pilot_plan"
-    assert plan["execution_authorized_by_this_file"] is False
-    assert plan["approval_granted_by_this_file"] is False
-    assert plan["cost_guard"]["execution_authorized_by_this_file"] is False
+    assert plan["execution_authorized_by_this_file"] is True
+    assert plan["approval_granted_by_this_file"] is True
+    assert plan["cost_guard"]["execution_authorized_by_this_file"] is True
     assert batch.credit_guard is not None
     assert batch.credit_guard.to_dict() == {
         "minimum_credits": 7.0,
