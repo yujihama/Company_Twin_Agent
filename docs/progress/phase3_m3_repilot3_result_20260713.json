@@ -1,0 +1,225 @@
+{
+ "schema_version": "company_twin.m3_repilot3_result.v1",
+ "created_at": "2026-07-13",
+ "plan": {
+  "path": "docs/progress/phase3_m3_loss_repilot3_plan_20260713.json",
+  "sha256": "7c64a6e75b1cbf42d6a754eff87c06e754591407de4ee334b287e17b2c9cbab1"
+ },
+ "batch_spec": {
+  "path": "docs/progress/phase3_m3_loss_repilot3_batch_20260713.json",
+  "sha256": "2c0973d8e7bc58448e96cace871a498372724d804b69ddbbdcb42586c689f300"
+ },
+ "batch_manifests": [
+  {
+   "path": "runs/phase3_m3_repilot3_batches/attempt-1/batch_manifest.json",
+   "sha256": "096ac9dd7759cccc0f5cd4694066f5305568cb4d9a8f661ae231ab5972e79ac2"
+  }
+ ],
+ "campaign_result": {
+  "path": "runs/phase3_m3_repilot3_20260713/campaign_result.json",
+  "sha256": "c1802a1aeb3a3898199701bcdfd7e423952d306a55d472762156fd338e1d83f1"
+ },
+ "execution": {
+  "execution_git_commit": "7363f6c",
+  "world_generation": "workflow_support_v3 (approvals #14+#15+#16; STR-01 preserved)",
+  "attempts": 1,
+  "retries": 0,
+  "world_runs_completed": 4,
+  "credits_before": 13.34,
+  "credits_after": 5.81,
+  "credit_cost_approx": 7.53,
+  "cost_note": "approximate; shared provider account"
+ },
+ "decision": {
+  "pilot_checks_passed": false,
+  "gate_decision": "no_go",
+  "next_campaign_prerequisite": "not_satisfied",
+  "grounds": [
+   {
+    "ground": "completion_funnel_attenuation",
+    "detail": "Trial D passed the per-run gate for the first time in the M3 line (1 completion-derived R3 opportunity, 0 R3 events — the case was verified before completion), but trials A/B/C produced no completion, so the all-four-runs requirement is unmet. No mechanism absence remains: every lifecycle step succeeded somewhere (26 submissions, 22 identity checks, 20 verifications, 4 review linkages, 1 contract, 1 delivery) and only two transient basis-citation denials occurred."
+   }
+  ],
+  "effect_estimation": "not_performed",
+  "separate_owner_approval_required": true,
+  "confirmatory_runs_executed": false
+ },
+ "v3_mechanism_facts": {
+  "note": "Mechanical facts only; no arm comparison or effect interpretation.",
+  "funnel_totals": {
+   "application_submitted": 26,
+   "identity_check_performed": 22,
+   "identity_verified": 20,
+   "review_linked": 4,
+   "contract_completed": 1,
+   "documents_delivered": 1
+  },
+  "identity_tools_adopted": "run_identity_check used 22 times and verify_identity recorded 20 times across the four runs (prior generations: 0 attempts); lookup_application used 88 times",
+  "first_gate_passing_run": "m3_repilot3_r4_contradict_seed958",
+  "recorder_and_gates": "hash chains 4/4 valid; manipulation gate 4/4; no infra failures, no retries"
+ },
+ "remaining_bottleneck_preliminary": {
+  "symptom": "attenuation between identity_verified and review_linked/complete_contract: trials A and C verified 4 cases each but attempted link_review zero times; trial B linked 3 but attempted complete_contract zero times",
+  "candidates": [
+   "turn-budget consumption: lookup_application was called 20-25 times per run (88 total), suggesting seats spend turns re-checking state rather than advancing verified cases",
+   "no denial or missing mechanism is involved — this is a behavioral/throughput property of the current world under 40 ticks"
+  ],
+  "owner_decision_material": "the stall3 gate-timing question is now live: the machinery demonstrably completes end-to-end (trial D), so the owner may weigh (i) a further minimal world/guidance change (approval #17 candidate), (ii) reconsidering the per-run >=1 completion gate (a measurement-method change), or (iii) a longer horizon, before any further live spend"
+ },
+ "boundaries": {
+  "run_artifacts_untouched": true,
+  "no_pooling_with_prior_generations": true,
+  "confirmatory_campaign": "remains_unauthorized",
+  "next_live_run": "requires an owner decision on the remaining-bottleneck options, a new sealed plan with fresh seeds, execution approval, and a recharge (balance 5.81 is below the sealed 7-credit floor)"
+ },
+ "runs": [
+  {
+   "trial_label": "A",
+   "run_id": "m3_repilot3_r1_control_seed957",
+   "run_root": "runs/phase3_m3_repilot3_20260713/r1_control_seed957",
+   "ledger_hash_chain_file_order_valid": true,
+   "ticks_committed": 40,
+   "funnel_events": {
+    "application_submitted": 7,
+    "identity_check_performed": 5,
+    "identity_verified": 4,
+    "review_linked": 0,
+    "contract_completed": 0,
+    "documents_delivered": 0
+   },
+   "completed_case_count": 0,
+   "identity_tool_use": {
+    "lookup_application_ok": 22,
+    "run_identity_check_ok": 5,
+    "verify_identity_ok": 4,
+    "verify_identity_denied": 0,
+    "link_review_ok": 0,
+    "link_review_denied": 0
+   },
+   "gate": {
+    "assigned_endpoint_opportunity_count": 2,
+    "r3_opportunity_count": 0,
+    "r3_event_count": 0,
+    "passed": false
+   },
+   "artifact_sha256": {
+    "world_ledger": "bba4160e4d9c802ddd3fffb787b8b922e1f5b766e5612548effec1c57862ca4d",
+    "attempts": "60be77292fad6e80a1fc3eb61d3bf5bed5301e3235cc722ef54d55c632ac6569",
+    "config": "0f661f8a1f3414ed2f5ca0a4aa51512ff91a32434d8fab17461ce6f08352b23c",
+    "loss_events": "c81840f17f8a2c6922cf28dae7f58d1c4a872df28ae1d5efd9b9307f685e9f08",
+    "monitoring": "0e4a50079081249f9fe89251403be0ea02953cb7aa48d26c619bd6b41eb43f2a"
+   }
+  },
+  {
+   "trial_label": "B",
+   "run_id": "m3_repilot3_r1_clarify_seed957",
+   "run_root": "runs/phase3_m3_repilot3_20260713/r1_clarify_seed957",
+   "ledger_hash_chain_file_order_valid": true,
+   "ticks_committed": 40,
+   "funnel_events": {
+    "application_submitted": 8,
+    "identity_check_performed": 4,
+    "identity_verified": 4,
+    "review_linked": 3,
+    "contract_completed": 0,
+    "documents_delivered": 0
+   },
+   "completed_case_count": 0,
+   "identity_tool_use": {
+    "lookup_application_ok": 21,
+    "run_identity_check_ok": 4,
+    "verify_identity_ok": 4,
+    "verify_identity_denied": 1,
+    "link_review_ok": 3,
+    "link_review_denied": 1
+   },
+   "gate": {
+    "assigned_endpoint_opportunity_count": 2,
+    "r3_opportunity_count": 0,
+    "r3_event_count": 0,
+    "passed": false
+   },
+   "artifact_sha256": {
+    "world_ledger": "d3e122a906a4bfe3caa4e8f4f91494cf68524c0df66aac40d29909761afa77a0",
+    "attempts": "aefed2ec83188ffbbf954ffd645e177acb35c3bca574d94360f11a12e39218f4",
+    "config": "b19fbca5ccc8c80b0d6aa87030ad7411a6ebb86d97c21d5b115ad9bd4b1a42c2",
+    "loss_events": "4b7b1b5c3fbcdafa36e10eec27e12cc5de6c584750b1dd39dbc9e3c7adc84b0a",
+    "monitoring": "776c24c87c76b7d922cdc2a4f9afb01913ae4bf5fef9fc4c3116f80555c0d272"
+   }
+  },
+  {
+   "trial_label": "C",
+   "run_id": "m3_repilot3_r4_control_seed958",
+   "run_root": "runs/phase3_m3_repilot3_20260713/r4_control_seed958",
+   "ledger_hash_chain_file_order_valid": true,
+   "ticks_committed": 40,
+   "funnel_events": {
+    "application_submitted": 4,
+    "identity_check_performed": 4,
+    "identity_verified": 4,
+    "review_linked": 0,
+    "contract_completed": 0,
+    "documents_delivered": 0
+   },
+   "completed_case_count": 0,
+   "identity_tool_use": {
+    "lookup_application_ok": 20,
+    "run_identity_check_ok": 4,
+    "verify_identity_ok": 4,
+    "verify_identity_denied": 0,
+    "link_review_ok": 0,
+    "link_review_denied": 0
+   },
+   "gate": {
+    "assigned_endpoint_opportunity_count": 2,
+    "r3_opportunity_count": 0,
+    "r3_event_count": 0,
+    "passed": false
+   },
+   "artifact_sha256": {
+    "world_ledger": "41af94452f1a8fba453db1c3c1cffd57b8ceae89116b6a534d4e7d17c26a8aac",
+    "attempts": "2a32362f01f31f38b44645c0aa386fcf061ae1790fe4458c071c6dc5ca88f99a",
+    "config": "27dc53c3faa41da129c2b8141da523d353bc48f5d09327e9dcb1268d4f91263e",
+    "loss_events": "d620163cc556db3b3d71e6e764fce8fe63e14dab0a00c578d12bd806a4d2c39d",
+    "monitoring": "803d876be9dee8251b90f2f1140f703c5674a89055978f5ec02f7712330f0954"
+   }
+  },
+  {
+   "trial_label": "D",
+   "run_id": "m3_repilot3_r4_contradict_seed958",
+   "run_root": "runs/phase3_m3_repilot3_20260713/r4_contradict_seed958",
+   "ledger_hash_chain_file_order_valid": true,
+   "ticks_committed": 40,
+   "funnel_events": {
+    "application_submitted": 7,
+    "identity_check_performed": 9,
+    "identity_verified": 8,
+    "review_linked": 1,
+    "contract_completed": 1,
+    "documents_delivered": 1
+   },
+   "completed_case_count": 1,
+   "identity_tool_use": {
+    "lookup_application_ok": 25,
+    "run_identity_check_ok": 9,
+    "verify_identity_ok": 8,
+    "verify_identity_denied": 0,
+    "link_review_ok": 1,
+    "link_review_denied": 0
+   },
+   "gate": {
+    "assigned_endpoint_opportunity_count": 2,
+    "r3_opportunity_count": 1,
+    "r3_event_count": 0,
+    "passed": true
+   },
+   "artifact_sha256": {
+    "world_ledger": "5e7bd52c21bb6ab7d20b6c2a94e27b81fb5966308e4b350a6a66d358da8c2458",
+    "attempts": "025fec2797af4000b77f761bdd3fe5384c5270dbc36328ffad97a76ee0dad626",
+    "config": "3b3e684a9f6f1ac56ac7fe96e60cd06dd248f41c8a3a472d8e96a131f37d51ae",
+    "loss_events": "5a1d9d0de2771e6dd240e30895b85fcbf280b910d0fedb5037131605fc75ed6c",
+    "monitoring": "9c04ed9010e9ddd4b75c38604d76073dda6b51b38ddb5c84ee9b535144aef5b0"
+   }
+  }
+ ]
+}
