@@ -1,0 +1,73 @@
+{
+  "description": "M3 feasibility re-pilot #3 (workflow_support_v3 generation, approvals #14+#15+#16): one fresh same-seed R1 clarify pair (seed 957) and one fresh same-seed R4 contradict pair (seed 958). Non-executable draft until a separate owner-authorization commit; never pooled with the 2026-07-10 pilot (v0), the seeds-953/954 re-pilot (v1), or the seeds-955/956 re-pilot #2 (v2).",
+  "root": ".",
+  "concurrency": 2,
+  "stagger_seconds": 8,
+  "credit_guard": {
+    "minimum_credits": 7,
+    "abort_on_low_credits": true,
+    "require_available": true
+  },
+  "runs": [
+    {
+      "run_id": "m3_repilot3_r1_control_seed957",
+      "stage": "s2",
+      "run_root": "runs/phase3_m3_repilot3_20260713/r1_control_seed957",
+      "seed": 957,
+      "ticks": 40,
+      "prompt_mode": "measurement",
+      "model": "openrouter:qwen/qwen3.6-flash",
+      "mutations": [],
+      "extra_args": [
+        "--circulate-notices",
+        "--workflow-support"
+      ]
+    },
+    {
+      "run_id": "m3_repilot3_r1_clarify_seed957",
+      "stage": "s2",
+      "run_root": "runs/phase3_m3_repilot3_20260713/r1_clarify_seed957",
+      "seed": 957,
+      "ticks": 40,
+      "prompt_mode": "measurement",
+      "model": "openrouter:qwen/qwen3.6-flash",
+      "mutations": [
+        "clarify_elderly_understanding_sales_only"
+      ],
+      "extra_args": [
+        "--circulate-notices",
+        "--workflow-support"
+      ]
+    },
+    {
+      "run_id": "m3_repilot3_r4_control_seed958",
+      "stage": "s2",
+      "run_root": "runs/phase3_m3_repilot3_20260713/r4_control_seed958",
+      "seed": 958,
+      "ticks": 40,
+      "prompt_mode": "measurement",
+      "model": "openrouter:qwen/qwen3.6-flash",
+      "mutations": [],
+      "extra_args": [
+        "--circulate-notices",
+        "--workflow-support"
+      ]
+    },
+    {
+      "run_id": "m3_repilot3_r4_contradict_seed958",
+      "stage": "s2",
+      "run_root": "runs/phase3_m3_repilot3_20260713/r4_contradict_seed958",
+      "seed": 958,
+      "ticks": 40,
+      "prompt_mode": "measurement",
+      "model": "openrouter:qwen/qwen3.6-flash",
+      "mutations": [
+        "contradict_chat_approval_recorded"
+      ],
+      "extra_args": [
+        "--circulate-notices",
+        "--workflow-support"
+      ]
+    }
+  ]
+}
