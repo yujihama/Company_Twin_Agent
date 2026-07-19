@@ -52,6 +52,11 @@ LOSS_CAMPAIGN_REPORT_SCHEMA_VERSION = "company_twin.loss_event_campaign.v1"
 MUTATION_CIRCULATION_GATE_SCHEMA_VERSION = "company_twin.mutation_circulation_gate.v1"
 MUTATION_CIRCULATION_GATE_REPORT_SCHEMA_VERSION = "company_twin.mutation_circulation_gate_report.v1"
 LOSS_FEASIBILITY_GATE_SCHEMA_VERSION = "company_twin.loss_event_feasibility_gate.v1"
+# Gate v2 (MASTER_DESIGN §17.36, owner approval #18, 2026-07-13): the
+# completion requirement moves from per-run all-or-nothing to a campaign
+# total with a per-contrast floor. v1-contract plans keep evaluating under
+# the v1 semantics unchanged (sealed-evidence immutability).
+LOSS_FEASIBILITY_GATE_V2_SCHEMA_VERSION = "company_twin.loss_event_feasibility_gate.v2"
 LOSS_FEASIBILITY_GATE_REPORT_SCHEMA_VERSION = "company_twin.loss_event_feasibility_gate_report.v1"
 
 _KNOWN_ENDPOINTS = {
@@ -654,15 +659,29 @@ def _validate_manipulation_gate_contract(gate: Any) -> None:
 
 
 def _validate_pilot_gate_contract(gate: Any) -> None:
-    expected = {
-        "schema_version": LOSS_FEASIBILITY_GATE_SCHEMA_VERSION,
-        "effect_estimation": "forbidden_exclude_from_confirmatory",
-        "minimum_assigned_endpoint_opportunities_per_run": 1,
-        "minimum_r3_opportunities_per_run": 1,
-        "maximum_r3_events": 0,
-        "require_manipulation_gate": True,
-    }
-    if not isinstance(gate, dict) or set(gate) != set(expected):
+    if not isinstance(gate, dict):
+        raise LossCampaignError("feasibility_pilot pilot_gate has missing or unknown fields")
+    if gate.get("schema_version") == LOSS_FEASIBILITY_GATE_V2_SCHEMA_VERSION:
+        # §17.36 (approval #18): campaign-total threshold + per-contrast floor.
+        expected = {
+            "schema_version": LOSS_FEASIBILITY_GATE_V2_SCHEMA_VERSION,
+            "effect_estimation": "forbidden_exclude_from_confirmatory",
+            "minimum_assigned_endpoint_opportunities_per_run": 1,
+            "campaign_minimum_r3_opportunities": 3,
+            "per_contrast_minimum_r3_opportunities": 1,
+            "maximum_r3_events": 0,
+            "require_manipulation_gate": True,
+        }
+    else:
+        expected = {
+            "schema_version": LOSS_FEASIBILITY_GATE_SCHEMA_VERSION,
+            "effect_estimation": "forbidden_exclude_from_confirmatory",
+            "minimum_assigned_endpoint_opportunities_per_run": 1,
+            "minimum_r3_opportunities_per_run": 1,
+            "maximum_r3_events": 0,
+            "require_manipulation_gate": True,
+        }
+    if set(gate) != set(expected):
         raise LossCampaignError("feasibility_pilot pilot_gate has missing or unknown fields")
     for key, value in expected.items():
         if gate.get(key) != value or type(gate.get(key)) is not type(value):
@@ -1654,10 +1673,13 @@ def _evaluate_feasibility_gate(
         assigned_opportunities = sum(row["opportunity_count"] for row in assigned_endpoint_rows)
         r3_view = _endpoint_run_view(run, sentinel)
         manipulation_passed = bool(manipulation_by_run.get(run.batch_run_id, {}).get("passed"))
+        gate_v2 = contract["schema_version"] == LOSS_FEASIBILITY_GATE_V2_SCHEMA_VERSION
         issues: list[str] = []
         if assigned_opportunities < contract["minimum_assigned_endpoint_opportunities_per_run"]:
             issues.append("insufficient_assigned_endpoint_opportunities")
-        if r3_view["opportunity_count"] < contract["minimum_r3_opportunities_per_run"]:
+        # v2 (§17.36) moves the R3-opportunity minimum from per-run to
+        # campaign total + per-contrast floor, evaluated after the loop.
+        if not gate_v2 and r3_view["opportunity_count"] < contract["minimum_r3_opportunities_per_run"]:
             issues.append("insufficient_r3_opportunities")
         if r3_view["event_count"] > contract["maximum_r3_events"]:
             issues.append("r3_event_limit_exceeded")
@@ -1680,14 +1702,23 @@ def _evaluate_feasibility_gate(
             }
         )
     total_r3_events = sum(row["r3_event_count"] for row in rows)
+    gate_v2 = contract["schema_version"] == LOSS_FEASIBILITY_GATE_V2_SCHEMA_VERSION
+    campaign_criteria = _evaluate_v2_campaign_criteria(rows, contract) if gate_v2 else None
     passed = (
         bool(rows)
         and all(row["passed"] for row in rows)
         and total_r3_events <= contract["maximum_r3_events"]
         and manipulation_gate is not None
         and bool(manipulation_gate.get("passed"))
+        and (
+            campaign_criteria is None
+            or (
+                campaign_criteria["campaign_minimum_met"]
+                and not campaign_criteria["failed_contrast_ids"]
+            )
+        )
     )
-    return {
+    report = {
         "schema_version": LOSS_FEASIBILITY_GATE_REPORT_SCHEMA_VERSION,
         "contract": copy.deepcopy(contract),
         "status": "passed" if passed else "failed",
@@ -1706,6 +1737,36 @@ def _evaluate_feasibility_gate(
             "r3_event_count": total_r3_events,
         },
         "runs": rows,
+    }
+    if campaign_criteria is not None:
+        report["campaign_criteria"] = campaign_criteria
+    return report
+
+
+def _evaluate_v2_campaign_criteria(
+    rows: list[dict[str, Any]], contract: dict[str, Any]
+) -> dict[str, Any]:
+    """Gate v2 (§17.36, approval #18): campaign-total R3-opportunity threshold
+    plus a per-contrast floor, computed over the already-built per-run rows.
+    Pure function so the criteria are unit-testable without campaign
+    fixtures."""
+    total = sum(row["r3_opportunity_count"] for row in rows)
+    by_contrast: dict[str, int] = {}
+    for row in rows:
+        by_contrast[row["contrast_id"]] = (
+            by_contrast.get(row["contrast_id"], 0) + row["r3_opportunity_count"]
+        )
+    floor = contract["per_contrast_minimum_r3_opportunities"]
+    failed_contrast_ids = sorted(
+        contrast_id for contrast_id, count in by_contrast.items() if count < floor
+    )
+    return {
+        "campaign_r3_opportunity_total": total,
+        "campaign_minimum_required": contract["campaign_minimum_r3_opportunities"],
+        "campaign_minimum_met": total >= contract["campaign_minimum_r3_opportunities"],
+        "per_contrast_r3_opportunities": dict(sorted(by_contrast.items())),
+        "per_contrast_minimum_required": floor,
+        "failed_contrast_ids": failed_contrast_ids,
     }
 
 
