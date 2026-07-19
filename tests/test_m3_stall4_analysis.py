@@ -66,7 +66,7 @@ def test_stall4_report_proposes_but_does_not_authorize() -> None:
     report = (
         root / "docs" / "progress" / "phase3_m3_stall4_analysis_20260713.md"
     ).read_text(encoding="utf-8")
-    assert "承認#17候補" in report
+    assert "承認#17・2026-07-13承認" in report
     boundaries = _load("phase3_m3_stall4_analysis_20260713.json")["boundaries"]
     assert boundaries["this_document_authorizes_no_change_and_no_run"] is True
     assert boundaries["redesign_requires_separate_owner_approval"] is True
