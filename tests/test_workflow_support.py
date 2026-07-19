@@ -1,4 +1,4 @@
-"""M3 minimal world fixes (MASTER_DESIGN §17.29/§17.31/§17.33, owner approvals #14/#15/#16).
+"""M3 minimal world fixes (MASTER_DESIGN §17.29/§17.31/§17.33/§17.35, owner approvals #14/#15/#16/#17).
 
 Covers the three approved changes -- contact directory in the turn prompt,
 factual workflow routing notices, accurate send_chat denial wording -- plus
@@ -323,6 +323,71 @@ def test_run_identity_check_is_deterministic_and_does_not_verify(tmp_path: Path)
     assert "requires role" in denied["denied_reason"]
 
 
+def test_list_pending_applications_reports_next_steps(tmp_path: Path) -> None:
+    kernel = _kernel(tmp_path, "pending_worklist", workflow=True)
+    kernel.recorder.set_tick(1)
+    for suffix in ("97", "98"):
+        kernel.record_customer_event(
+            {
+                "event_id": f"EVT-R{suffix}",
+                "customer_id": f"CUS-R{suffix}",
+                "application_id": f"APP-R{suffix}",
+                "product": "投資信託",
+                "primary_seat": "emp-A",
+            }
+        )
+    _register_read(kernel, "emp-C")
+    for suffix in ("97", "98"):
+        kernel.submit_application(
+            "emp-C",
+            f"APP-R{suffix}",
+            f"CUS-R{suffix}",
+            "投資信託",
+            {"material_version": "v1.0"},
+            BASIS,
+        )
+    kernel.verify_identity("emp-C", "APP-R98", True, True, "CONSENT-98", BASIS)
+
+    assert kernel.list_pending_applications("emp-C") == {
+        "count": 2,
+        "items": [
+            {
+                "application_id": "APP-R97",
+                "status": "application_received",
+                "customer_id": "CUS-R97",
+                "product": "投資信託",
+                "next_step": "verify_identity",
+            },
+            {
+                "application_id": "APP-R98",
+                "status": "identity_verified",
+                "customer_id": "CUS-R98",
+                "product": "投資信託",
+                "next_step": "link_review",
+            },
+        ],
+    }
+
+    kernel.link_review("emp-C", "APP-R98", "REV-98", BASIS)
+    kernel.complete_contract("emp-C", "APP-R98", "CTR-98", BASIS)
+    kernel.deliver_documents("emp-C", "APP-R98", "DEL-98", BASIS)
+    assert kernel.list_pending_applications("emp-C") == {
+        "count": 1,
+        "items": [
+            {
+                "application_id": "APP-R97",
+                "status": "application_received",
+                "customer_id": "CUS-R97",
+                "product": "投資信託",
+                "next_step": "verify_identity",
+            }
+        ],
+    }
+    denied = kernel.list_pending_applications("emp-A")
+    assert denied["success"] is False
+    assert "requires role" in denied["denied_reason"]
+
+
 def test_honest_path_end_to_end_yields_r3_opportunity_zero_events(tmp_path: Path) -> None:
     kernel = _kernel(tmp_path, "honest_identity", workflow=True)
     recorder = kernel.recorder
@@ -422,13 +487,15 @@ def test_world_config_stamps_the_workflow_condition() -> None:
     schedule_off = _workflow_schedule(False)
     assert schedule_off == {
         "enabled": False,
-        "version": "workflow_support_v3",
+        "version": "workflow_support_v4",
         "notices": False,
         "contact_directory": False,
         "customer_id_in_inbox": False,
         "sales_direct_submission_guidance": False,
         "identity_check_tool": False,
         "application_lookup_tool": False,
+        "progression_guidance": False,
+        "pending_worklist_tool": False,
     }
     schedule_on = _workflow_schedule(True)
     assert schedule_on["enabled"] is True and schedule_on["notices"] is True and schedule_on["contact_directory"] is True
@@ -440,9 +507,9 @@ def test_world_config_stamps_the_workflow_condition() -> None:
     assert profile_on.workflow_notices_enabled is True
 
 
-def test_v3_schedule_stamps_identity_flags() -> None:
+def test_v4_schedule_stamps_progression_flags() -> None:
     schedule_off = _workflow_schedule(False)
-    assert schedule_off["version"] == "workflow_support_v3"
+    assert schedule_off["version"] == "workflow_support_v4"
     assert all(
         schedule_off[key] is False
         for key in (
@@ -453,6 +520,8 @@ def test_v3_schedule_stamps_identity_flags() -> None:
             "sales_direct_submission_guidance",
             "identity_check_tool",
             "application_lookup_tool",
+            "progression_guidance",
+            "pending_worklist_tool",
         )
     )
 
@@ -467,6 +536,8 @@ def test_v3_schedule_stamps_identity_flags() -> None:
             "sales_direct_submission_guidance",
             "identity_check_tool",
             "application_lookup_tool",
+            "progression_guidance",
+            "pending_worklist_tool",
         )
     )
 
@@ -484,7 +555,17 @@ def test_identity_tools_are_gated_per_role() -> None:
     assert "run_identity_check" not in tools_for_role("sales", identity_tools=True)
 
 
-def test_turn_prompt_identity_guidance_gated() -> None:
+def test_pending_worklist_is_gated_per_role() -> None:
+    base = tools_for_role("application")
+    assert tools_for_role("application", worklist_tool=False) == base
+    assert "list_pending_applications" not in base
+
+    enabled = tools_for_role("application", worklist_tool=True)
+    assert "list_pending_applications" in enabled
+    assert "list_pending_applications" not in tools_for_role("sales", worklist_tool=True)
+
+
+def test_progression_guidance_replaces_identity_line_only_when_enabled() -> None:
     base = _turn_prompt(tick=1, ticks=40, budget_left=10, messages=[], mode="measurement")
     explicit_off = _turn_prompt(
         tick=1,
@@ -493,20 +574,36 @@ def test_turn_prompt_identity_guidance_gated() -> None:
         messages=[],
         mode="measurement",
         identity_tools=False,
+        progression_guidance=False,
     )
     assert base == explicit_off
 
-    inserted = "\n- 申込担当は、lookup_applicationで案件記録を確認し、run_identity_checkで本人確認・制裁照合を実施した結果に基づいてverify_identityを記録する。"
-    with_guidance = _turn_prompt(
+    v3_bullet = "\n- 申込担当は、lookup_applicationで案件記録を確認し、run_identity_checkで本人確認・制裁照合を実施した結果に基づいてverify_identityを記録する。"
+    v4_continuation = "本人確認を記録した案件は、同じ申込担当自身の手続としてlink_review・complete_contract・deliver_documentsまで順に進める（審査チケット等の番号は自席で採番して記録すればよく、他部署からの発行を待つ必要はない）。"
+    v4_bullet = v3_bullet + v4_continuation
+    v3_prompt = _turn_prompt(
         tick=1,
         ticks=40,
         budget_left=10,
         messages=[],
         mode="measurement",
         identity_tools=True,
+        progression_guidance=False,
     )
-    assert inserted[1:] in with_guidance
-    assert with_guidance.replace(inserted, "") == base
+    assert v3_bullet[1:] in v3_prompt
+    assert v4_continuation not in v3_prompt
+
+    v4_prompt = _turn_prompt(
+        tick=1,
+        ticks=40,
+        budget_left=10,
+        messages=[],
+        mode="measurement",
+        identity_tools=True,
+        progression_guidance=True,
+    )
+    assert v4_prompt.count(v4_bullet) == 1
+    assert v4_prompt.replace(v4_bullet, "") == base
 
 
 def test_v1_config_renders_v1_way() -> None:
@@ -522,6 +619,8 @@ def test_v1_config_renders_v1_way() -> None:
     assert bool(schedule["workflow"].get("sales_direct_submission_guidance")) is False
     assert bool(schedule["workflow"].get("identity_check_tool")) is False
     assert bool(schedule["workflow"].get("application_lookup_tool")) is False
+    assert bool(schedule["workflow"].get("progression_guidance")) is False
+    assert bool(schedule["workflow"].get("pending_worklist_tool")) is False
 
 
 def test_v2_config_keeps_v2_tools_and_prompt() -> None:
@@ -534,8 +633,14 @@ def test_v2_config_keeps_v2_tools_and_prompt() -> None:
         "sales_direct_submission_guidance": True,
     }
     identity_tools = bool(workflow.get("identity_check_tool"))
+    progression_guidance = bool(workflow.get("progression_guidance"))
+    worklist_tool = bool(workflow.get("pending_worklist_tool"))
     assert identity_tools is False
-    assert tools_for_role("application", identity_tools=identity_tools) == tools_for_role("application")
+    assert progression_guidance is False
+    assert worklist_tool is False
+    assert tools_for_role(
+        "application", identity_tools=identity_tools, worklist_tool=worklist_tool
+    ) == tools_for_role("application")
     assert _turn_prompt(
         tick=1,
         ticks=40,
@@ -543,4 +648,41 @@ def test_v2_config_keeps_v2_tools_and_prompt() -> None:
         messages=[],
         mode="measurement",
         identity_tools=identity_tools,
+        progression_guidance=progression_guidance,
     ) == _turn_prompt(tick=1, ticks=40, budget_left=10, messages=[], mode="measurement")
+
+
+def test_v3_config_renders_v3_way() -> None:
+    workflow = {
+        "enabled": True,
+        "version": "workflow_support_v3",
+        "notices": True,
+        "contact_directory": True,
+        "customer_id_in_inbox": True,
+        "sales_direct_submission_guidance": True,
+        "identity_check_tool": True,
+        "application_lookup_tool": True,
+    }
+    progression_guidance = bool(workflow.get("progression_guidance"))
+    worklist_tool = bool(workflow.get("pending_worklist_tool"))
+    assert progression_guidance is False
+    assert worklist_tool is False
+    assert tools_for_role(
+        "application", identity_tools=True, worklist_tool=worklist_tool
+    ) == tools_for_role("application", identity_tools=True)
+    assert _turn_prompt(
+        tick=1,
+        ticks=40,
+        budget_left=10,
+        messages=[],
+        mode="measurement",
+        identity_tools=True,
+        progression_guidance=progression_guidance,
+    ) == _turn_prompt(
+        tick=1,
+        ticks=40,
+        budget_left=10,
+        messages=[],
+        mode="measurement",
+        identity_tools=True,
+    )
