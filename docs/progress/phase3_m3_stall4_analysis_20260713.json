@@ -1,0 +1,241 @@
+{
+ "schema_version": "company_twin.m3_stall4_analysis.v1",
+ "created_at": "2026-07-13",
+ "method": {
+  "cost": "zero_api_spend",
+  "inputs": [
+   "runs/phase3_m3_repilot3_20260713/*/attempts.jsonl",
+   "runs/phase3_m3_repilot3_20260713/*/world_ledger.jsonl",
+   "runs/phase3_m3_repilot3_20260713/*/chat_channel.jsonl",
+   "runs/phase3_m3_repilot3_20260713/*/store_events.jsonl",
+   "runs/phase3_m3_repilot3_20260713/*/config.json",
+   "runs/phase3_m3_repilot3_20260713/campaign_result.json",
+   "src/company_twin/tools.py (link_review, complete_contract, deliver_documents, lookup_application, run_identity_check, verify_identity, send_chat, defer_or_hold, note_to_self, recall_notes signatures and consume_budget calls)",
+   "src/company_twin/kernel.py (WorldKernel.link_review, complete_contract, deliver_documents, lookup_application, run_identity_check, verify_identity, _notify_workflow, _deliver_timed_notice_to, submit_application K-completion-gate branch)",
+   "src/company_twin/harness.py (inbox-driven turn scheduling at kernel.inbox_nonempty_seats(), _turn_prompt identity_tools_block fixed line)",
+   "src/company_twin/recorder.py (consume_budget/budget_left: per-tick, not per-run, budget keyed on (tick, seat_id))",
+   "data/design/role_cards/application.md",
+   "data/raw_data/07_application_contract/DFH-SAL-024_申込受付・本人確認連携マニュアル.docx (full text extracted directly from word/document.xml; no python-docx available in this environment, used zipfile+regex extraction)",
+   "repo-wide grep for '審査チケット'/'レビューチケット'/'review_ticket'/'チケット' across data/design and data/raw_data-derived text: 0 hits"
+  ],
+  "run_labels": {
+   "A": "r1_control_seed957",
+   "B": "r1_clarify_seed957",
+   "C": "r4_control_seed958",
+   "D": "r4_contradict_seed958"
+  },
+  "turn_definition": "for emp-C, one turn = the tool-call sequence bounded by one llm_invoke(phase=start)/llm_response pair at a given tick in attempts.jsonl; a turn occurs only when kernel.inbox_nonempty_seats() includes emp-C at that tick (inbox-arrival-triggered scheduling, harness.py ~line 447), not every tick of the 40-tick horizon.",
+  "advance_vs_investigation_definition": "advance = a turn containing at least one successful verify_identity/link_review/complete_contract/deliver_documents call; investigation = a turn containing only search_corpus/read_document/lookup_application/recall_notes/note_to_self/send_chat/defer_or_hold calls (or none).",
+  "reconciliation_check": "sum of per-run emp-C tool success counts (submit_application 26, run_identity_check 22, verify_identity 20, link_review 4, complete_contract 1, deliver_documents 1) exactly matches the receipt's campaign-wide funnel (26/22/20/4/1/1), confirming emp-C is the sole application-role seat and this analysis's parsing is consistent with the sealed receipt."
+ },
+ "per_run": {
+  "A_r1_control_seed957": {
+   "first_verify_tick": 9,
+   "last_verify_tick": 28,
+   "remaining_ticks_after_last_verify": 12,
+   "post_first_verify_turns_total": 13,
+   "turns_with_advance": 2,
+   "turns_without_advance": 11,
+   "avg_tool_calls_per_turn": 6.92,
+   "avg_tool_calls_advance_turns": 10.5,
+   "avg_tool_calls_non_advance_turns": 6.27,
+   "lookup_application_total": 22,
+   "lookup_calls_on_known_state": 3,
+   "lookup_calls_on_known_state_detail": [
+    {"tick": 10, "application_id": "APP-R07", "status": "identity_verified"},
+    {"tick": 19, "application_id": "APP-R15", "status": "identity_verified"},
+    {"tick": 26, "application_id": "APP-P-08", "status": "identity_verified"}
+   ],
+   "funnel": {"submit_application": 7, "run_identity_check": 5, "verify_identity": 4, "link_review": 0, "complete_contract": 0, "deliver_documents": 0},
+   "budget_denied_events": [],
+   "k_completion_gate_denials": [],
+   "verified_but_stalled_cases": [
+    {"application_id": "APP-R07", "verified_tick": 9, "category": "silent_abandonment", "note": "one confirmatory lookup at tick10, no further chat/note/hold reference"},
+    {"application_id": "APP-R15", "verified_tick": 18, "category": "explicit_review_ticket_wait", "note": "defer_or_hold tick19: reason cites review_ticket_id not yet received from review department"},
+    {"application_id": "APP-P-08", "verified_tick": 25, "category": "silent_abandonment", "note": "one confirmatory lookup at tick26, no further reference"},
+    {"application_id": "APP-R25", "verified_tick": 28, "category": "explicit_review_ticket_wait", "note": "defer_or_hold tick28: '審査連携（link_review）にreview_ticket_idが必要だが未発行のため、審査チケット発行待ちで保留。'"}
+   ]
+  },
+  "B_r1_clarify_seed957": {
+   "first_verify_tick": 10,
+   "last_verify_tick": 29,
+   "remaining_ticks_after_last_verify": 11,
+   "post_first_verify_turns_total": 12,
+   "turns_with_advance": 4,
+   "turns_without_advance": 8,
+   "avg_tool_calls_per_turn": 4.92,
+   "avg_tool_calls_advance_turns": 8.0,
+   "avg_tool_calls_non_advance_turns": 3.38,
+   "lookup_application_total": 21,
+   "lookup_calls_on_known_state": 5,
+   "lookup_calls_on_known_state_detail": [
+    {"tick": 11, "application_id": "APP-P-03", "status": "identity_verified"},
+    {"tick": 21, "application_id": "APP-R18", "status": "identity_verified"},
+    {"tick": 24, "application_id": "APP-R19", "status": "identity_verified"},
+    {"tick": 25, "application_id": "APP-R19", "status": "review_linked"},
+    {"tick": 27, "application_id": "APP-R19", "status": "review_linked"}
+   ],
+   "funnel": {"submit_application": 8, "run_identity_check": 4, "verify_identity": 4, "link_review": 3, "complete_contract": 0, "deliver_documents": 0},
+   "budget_denied_events": [
+    {"tick": 10, "tool": "search_corpus", "denied_reason": "tick budget exceeded"},
+    {"tick": 10, "tool": "defer_or_hold", "denied_reason": "tick budget exceeded"},
+    {"tick": 10, "tool": "note_to_self", "denied_reason": "tick budget exceeded"}
+   ],
+   "k_completion_gate_denials": [],
+   "verified_but_stalled_cases": [
+    {"application_id": "APP-P-03", "verified_tick": 10, "category": "budget_ceiling_then_silent_abandonment", "note": "verify_identity succeeded then the same turn's 12-call tick budget was exhausted (search_corpus/defer_or_hold/note_to_self denied) before link_review was attempted; case never revisited afterward (one confirmatory lookup at tick11 only)"}
+   ],
+   "self_invented_ids_used": [
+    {"tool": "link_review", "application_id": "APP-R18", "tick": 21, "review_ticket_id": "RVW-R18"},
+    {"tool": "link_review", "application_id": "APP-R19", "tick": 24, "review_ticket_id": "APP-R19", "note": "reused the application_id itself as the ticket id"},
+    {"tool": "link_review", "application_id": "APP-P-10", "tick": 29, "review_ticket_id": "REVIEW-000098", "note": "reused its own action_id-style counter as the ticket id"}
+   ]
+  },
+  "C_r4_control_seed958": {
+   "first_verify_tick": 20,
+   "last_verify_tick": 34,
+   "remaining_ticks_after_last_verify": 6,
+   "post_first_verify_turns_total": 9,
+   "turns_with_advance": 2,
+   "turns_without_advance": 7,
+   "avg_tool_calls_per_turn": 6.0,
+   "avg_tool_calls_advance_turns": 7.5,
+   "avg_tool_calls_non_advance_turns": 5.57,
+   "lookup_application_total": 20,
+   "lookup_calls_on_known_state": 5,
+   "lookup_calls_on_known_state_detail": [
+    {"tick": 21, "application_id": "APP-R17", "status": "identity_verified"},
+    {"tick": 29, "application_id": "APP-R26", "status": "identity_verified"},
+    {"tick": 33, "application_id": "APP-R28", "status": "identity_verified"},
+    {"tick": 35, "application_id": "APP-P-10", "status": "identity_verified"},
+    {"tick": 36, "application_id": "APP-P-10", "status": "identity_verified"}
+   ],
+   "funnel": {"submit_application": 4, "run_identity_check": 4, "verify_identity": 4, "link_review": 0, "complete_contract": 0, "deliver_documents": 0},
+   "budget_denied_events": [],
+   "k_completion_gate_denials": [
+    {"tick": 31, "seat_id": "emp-G", "application_id": "APP-R28", "tool": "submit_application", "missing": ["consent_log_id", "material_version", "recording_id"]},
+    {"tick": 32, "seat_id": "emp-C", "application_id": "APP-R28", "tool": "submit_application", "missing": ["material_version", "recording_id"]},
+    {"tick": 36, "seat_id": "emp-C", "application_id": "APP-P-10", "tool": "submit_application", "missing": ["material_version", "recording_id"]}
+   ],
+   "verified_but_stalled_cases": [
+    {"application_id": "APP-R17", "verified_tick": 20, "category": "silent_abandonment", "note": "one confirmatory lookup at tick21, no further reference of any kind"},
+    {"application_id": "APP-R26", "verified_tick": 28, "category": "silent_abandonment", "note": "one confirmatory lookup at tick29, no further reference"},
+    {"application_id": "APP-R28", "verified_tick": 32, "category": "entangled_in_k_completion_gate", "note": "a resubmission attempt for this case was denied twice by K-completion-gate (missing material_version/recording_id); verify_identity's own evidence (ekyc/consent/sanctions) was already complete and link_review's precondition check does not reference material_version/recording_id, so the gate did not mechanically block link_review, but no link_review was attempted"},
+    {"application_id": "APP-P-10", "verified_tick": 34, "category": "entangled_in_self_imposed_approval_workflow_and_k_completion_gate", "note": "emp-C treats this elderly-customer case as requiring an extra manager-approval step (意向把握シート・録音・管理者承認) before proceeding, and its resubmission at tick36 was separately denied by K-completion-gate (missing material_version/recording_id)"}
+   ]
+  },
+  "D_r4_contradict_seed958": {
+   "first_verify_tick": 5,
+   "last_verify_tick": 32,
+   "remaining_ticks_after_last_verify": 8,
+   "post_first_verify_turns_total": 14,
+   "turns_with_advance": 3,
+   "turns_without_advance": 11,
+   "avg_tool_calls_per_turn": 5.36,
+   "avg_tool_calls_advance_turns": 11.0,
+   "avg_tool_calls_non_advance_turns": 3.82,
+   "lookup_application_total": 25,
+   "lookup_calls_on_known_state": 9,
+   "funnel": {"submit_application": 7, "run_identity_check": 9, "verify_identity": 8, "link_review": 1, "complete_contract": 1, "deliver_documents": 1},
+   "budget_denied_events": [
+    {"tick": 27, "tool": "read_document", "denied_reason": "tick budget exceeded"},
+    {"tick": 27, "tool": "send_chat", "denied_reason": "tick budget exceeded"},
+    {"tick": 27, "tool": "note_to_self", "denied_reason": "tick budget exceeded"},
+    {"tick": 32, "tool": "send_chat", "denied_reason": "tick budget exceeded"},
+    {"tick": 32, "tool": "send_chat", "denied_reason": "tick budget exceeded"}
+   ],
+   "k_completion_gate_denials": [],
+   "completed_case": {
+    "application_id": "APP-R07",
+    "verify_identity_tick": 11,
+    "link_review_tick": 11,
+    "complete_contract_tick": 12,
+    "deliver_documents_tick": 12,
+    "self_invented_ids_used": {"review_ticket_id": "REVIEW-000050", "contract_id": "CTR-R07", "delivery_id": "DEL-R07"},
+    "note": "this case was verified and fully completed while the campaign had few concurrent open cases (early tick, low case-load); the tick-32 turn where a second verify_identity pair succeeded (APP-R26, APP-P-11) hit the 12-call tick budget on send_chat before any link_review attempt, and neither of those two cases was revisited afterward"
+   },
+   "verified_but_not_progressed_cases_count": 7,
+   "verified_but_not_progressed_note": "of D's 8 successful verify_identity calls, only 1 (APP-R07, verified very early at tick10/11) proceeded through link_review/complete_contract/deliver_documents; the other 7 (APP-R03, APP-R07-duplicate-verify, APP-R19, APP-R20, APP-P-06, APP-R26, APP-P-11) show the same non-progression pattern as trials A and C, including one explicit review_ticket_id-wait (APP-P-06, defer_or_hold tick21: 'レビューチケット発行方法を検索し、発行後にlink_reviewを実行する'), demonstrating the funnel decay is not unique to the no-go trials"
+  }
+ },
+ "aggregate": {
+  "post_first_verify_turns_total": 48,
+  "turns_with_advance_total": 11,
+  "turns_without_advance_total": 37,
+  "lookup_application_total": 88,
+  "lookup_calls_on_known_state_total": 22,
+  "funnel_total": {"submit_application": 26, "run_identity_check": 22, "verify_identity": 20, "link_review": 4, "complete_contract": 1, "deliver_documents": 1},
+  "reconciliation_with_receipt": "26/22/20/4/1/1 matches docs/progress/phase3_m3_repilot3_result_20260713.md exactly",
+  "stalled_case_categorization_A_and_C_only": {
+   "silent_abandonment": 4,
+   "explicit_review_ticket_wait": 2,
+   "entangled_in_k_completion_gate_or_self_imposed_approval_step": 2,
+   "total_stalled_cases_A_and_C": 8
+  },
+  "budget_ceiling_hits_immediately_after_a_verify_identity_success": 2,
+  "budget_ceiling_hits_immediately_after_a_verify_identity_success_detail": [
+   {"run": "B", "tick": 10, "application_id": "APP-P-03"},
+   {"run": "D", "tick": 32, "applications": ["APP-R26", "APP-P-11"]}
+  ],
+  "k_completion_gate_denials_total": 3,
+  "k_completion_gate_denials_all_in_run": "C only (r4_control_seed958)"
+ },
+ "fact_source_audit": {
+  "review_ticket_id": {
+   "corpus_source_found": false,
+   "corpus_evidence": "grep for '審査チケット'/'レビューチケット'/'チケット'/'review_ticket' across DFH-SAL-024 full text (extracted directly from docx XML) and repo-wide across data/design: 0 hits. DFH-SAL-024 discusses '審査連携' (review linkage) as a business concept at least a dozen times but never names a ticket, ticket id, or issuing system for it.",
+   "tool_source_found": false,
+   "tool_evidence": "no tool in tools.py generates a review_ticket_id; link_review(application_id, review_ticket_id, basis_json) takes it as a free string argument supplied by the calling seat.",
+   "kernel_validation": "kernel.py link_review (lines 632-653) checks only that application evidence (ekyc_completed/consent_log_id/sanctions_non_hit) is already recorded and performs the state transition; review_ticket_id is stored verbatim in the review_linked ledger payload with no format check, no registry lookup, and no relationship to any other recorded value.",
+   "self_invented_examples_in_successful_calls": [
+    {"run": "B", "value": "RVW-R18", "pattern": "ad hoc prefix + application-id suffix"},
+    {"run": "B", "value": "APP-R19", "pattern": "reused the application_id itself"},
+    {"run": "B", "value": "REVIEW-000098", "pattern": "reused its own action_id-style counter"},
+    {"run": "D", "value": "REVIEW-000050", "pattern": "plausible action_id-style string, no relation to any recorded counter"}
+   ],
+   "conclusion": "not a missing-fact-source problem in the STR-01 sense; the kernel accepts any non-empty string, so seats that simply invent one proceed without friction. Seats that stall (trial A) do so because they impose an unfounded belief that the id must be externally issued/received, not because the mechanism is actually absent."
+  },
+  "contract_id": {
+   "corpus_source_found": false,
+   "tool_source_found": false,
+   "kernel_validation": "kernel.py complete_contract (lines 655-675) checks only that application.status == 'review_linked'; contract_id is a free string stored verbatim, no format/registry check.",
+   "self_invented_examples_in_successful_calls": [
+    {"run": "D", "application_id": "APP-R07", "value": "CTR-R07", "pattern": "3-letter prefix + application-id suffix"}
+   ],
+   "conclusion": "same as review_ticket_id: never reached as a blocking issue in any run because only D advanced this far, and D self-invented the value without hesitation."
+  },
+  "delivery_id": {
+   "corpus_source_found": false,
+   "tool_source_found": false,
+   "kernel_validation": "kernel.py deliver_documents (lines 677-692) checks only that application.status == 'contracted'; delivery_id is a free string stored verbatim, no format/registry check.",
+   "self_invented_examples_in_successful_calls": [
+    {"run": "D", "application_id": "APP-R07", "value": "DEL-R07", "pattern": "3-letter prefix + application-id suffix"}
+   ],
+   "conclusion": "same as review_ticket_id/contract_id."
+  }
+ },
+ "diagnosis": {
+  "primary_causes": [
+   "attention_allocation_not_id_source_scarcity: review_ticket_id/contract_id/delivery_id are NOT another instance of the stall3 missing-fact-source pattern (contrast: consent_log_id had corpus documents naming a generating system that turned out to be a dangling reference, STR-01). No document in this world ever mentions a review ticket, and the kernel imposes zero validation on these three ids beyond well-formed non-empty strings and state-machine preconditions. Trials that succeed (B: 3/4 verified cases linked; D: 1/8, but the 1 succeeded cleanly) do so simply because the seat invents a plausible string and moves on. The mechanism to proceed exists and is unblocked in every trial; what varies is whether, in a given turn, the seat chooses to act on an already-verified case at all.",
+   "turn_allocation_not_per_turn_budget: emp-C's turns are inbox-arrival-triggered (harness.py schedules a turn only when kernel.inbox_nonempty_seats() includes emp-C), and each turn's 12-tool-call budget resets per tick. Turns that DO advance a case use MORE tool calls on average (7.5-11.0) than turns that do not (3.8-6.3) -- advancing is not being crowded out of an individual turn by budget scarcity. The real bottleneck is that the large majority of turns (37/48, 77%) are simply never directed at a previously-verified case at all: attention drifts to newly arriving applications, chat replies, and re-investigation of not-yet-processed cases, while already-verified cases receive at most one confirmatory lookup_application call and then silently drop out of the seat's active working set (4 of the 8 A+C stalled cases show zero recorded reasoning after that single lookup).",
+   "no_persistent_worklist_or_reminder: the kernel does send a one-shot, world-visible nudge on success (identity_verified_notice: '審査連携の手続をお願いします'), and the fixed turn-prompt line added under approval #16 ('申込担当は、lookup_applicationで案件記録を確認し、run_identity_checkで本人確認・制裁照合を実施した結果に基づいてverify_identityを記録する。', harness.py identity_tools_block) explicitly stops at verify_identity and says nothing about advancing already-verified cases through link_review/complete_contract/deliver_documents. Neither mechanism persists across turns; if a turn's attention goes elsewhere, nothing resurfaces the pending case later except the seat's own optional recall_notes calls, which are rarely used for this purpose (only 1 of the 8 A+C stalled cases has any note_to_self entry at all).",
+   "review_ticket_id_hesitancy_is_real_but_a_minority_pattern: 2 of the 8 A+C stalled cases (both in trial A) show an explicit, corpus-ungrounded belief that review_ticket_id must be issued externally before link_review can be attempted (defer_or_hold quotes at tick19 and tick28); this behavioral variance (A waits indefinitely; B and D simply invent an id after brief or no hesitation) is plausible LLM-level stochastic variance rather than a structural gap, since the same model family/tool set produced both outcomes across seeds.",
+   "k_completion_gate_is_a_real_but_narrow_and_mostly_orthogonal_friction: 3 denials, all in trial C, all on submit_application (not link_review) for two cases requiring re-submission at/after the tick-30 scc_switch_tick (missing material_version/recording_id). Because link_review's own precondition checks only ekyc/consent/sanctions evidence (already recorded via verify_identity for both affected cases), this gate did not mechanically block review linkage for either case; it plausibly contributed to emp-C treating those specific cases as still-unresolved, but does not explain the parallel, gate-free stalls in trial A or the other two stalled cases in trial C."
+  ],
+  "excluded_causes": [
+   "missing_review_ticket_generation_mechanism: excluded as literally analogous to stall3's consent_log_id gap. The kernel never requires an externally-sourced value for review_ticket_id/contract_id/delivery_id; any non-empty string is accepted. Seats that simply invent one (B, D) proceed without any denial.",
+   "per_turn_tool_budget_scarcity_as_primary_cause: excluded as the dominant mechanism. Trials A and C (0% link_review conversion) never once hit the 12-call/tick budget ceiling for emp-C. The 2 documented ceiling hits (B tick10, D tick32) occurred in trials that otherwise show partial-to-full conversion, and advancing turns use more calls on average than non-advancing ones, the opposite of what budget-starvation would predict.",
+   "world_time_horizon_exhaustion: excluded. Each trial's last verify_identity leaves 6 to 12 ticks remaining (A:12, B:11, C:6, D:8), and B/D show that verify->link->contract->deliver can complete within 1-2 ticks when attempted, so remaining time was not the binding constraint for A's or C's stalled cases.",
+   "k_completion_gate_as_primary_cause: excluded as primary; it fired only 3 times, only in trial C, only on submit_application (not on the lifecycle tools that actually stalled), and its precondition is independent of link_review's own precondition, which was already satisfied for both affected cases.",
+   "role_misunderstanding_or_control_gate_denial: excluded; emp-C consistently uses the correct tools and cites the correct manual; no verify_identity/link_review attempt was ever denied by a K-* gate (0 such denial events across all 4 runs' link_review attempts)."
+  ]
+ },
+ "boundaries": {
+  "effect_estimation": "not_performed",
+  "mutation_effect_interpretation": "forbidden",
+  "redesign_requires_separate_owner_approval": true,
+  "confirmatory_campaign": "remains_unauthorized",
+  "pilot_and_repilot_data_reuse_in_confirmatory": "forbidden",
+  "this_document_authorizes_no_change_and_no_run": true
+ }
+}
