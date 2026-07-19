@@ -23,14 +23,22 @@ ROLE_TOOL_BUNDLES: dict[str, tuple[str, ...]] = {
 }
 
 
-def tools_for_role(role: str, *, d4_enabled: bool = True, identity_tools: bool = False) -> tuple[str, ...]:
+def tools_for_role(
+    role: str,
+    *,
+    d4_enabled: bool = True,
+    identity_tools: bool = False,
+    worklist_tool: bool = False,
+) -> tuple[str, ...]:
     bundle = ROLE_TOOL_BUNDLES.get(role, COMMON_TOOLS)
     if identity_tools and role == "application":
         bundle += ("lookup_application", "run_identity_check")
+    if worklist_tool and role == "application":
+        bundle += ("list_pending_applications",)
     return bundle + (D4_TOOLS if d4_enabled else ())
 
 
-def build_role_tools(*, corpus: Corpus, kernel: WorldKernel, recorder: RunRecorder, seat_id: str, seat_role: str, include_workflow: bool = True, d4_enabled: bool = True, identity_tools: bool = False):
+def build_role_tools(*, corpus: Corpus, kernel: WorldKernel, recorder: RunRecorder, seat_id: str, seat_role: str, include_workflow: bool = True, d4_enabled: bool = True, identity_tools: bool = False, worklist_tool: bool = False):
     def search_corpus(query: str, top_k: int = 5) -> str:
         """Search world-visible control documents. Returns doc_id, title, score, and snippets."""
         if not recorder.consume_budget(seat_id, "search_corpus"):
@@ -204,6 +212,13 @@ def build_role_tools(*, corpus: Corpus, kernel: WorldKernel, recorder: RunRecord
         result = kernel.lookup_application(seat_id, application_id)
         return json.dumps(result, ensure_ascii=False)
 
+    def list_pending_applications() -> str:
+        """Return a read-only list of in-flight applications and their next procedural step."""
+        if not recorder.consume_budget(seat_id, "list_pending_applications"):
+            return json.dumps({"success": False, "denied_reason": "tick budget exceeded"}, ensure_ascii=False)
+        result = kernel.list_pending_applications(seat_id)
+        return json.dumps(result, ensure_ascii=False)
+
     def run_identity_check(application_id: str) -> str:
         """Run the identity-verification system check (eKYC, sanctions screening) for one application and receive the results incl. consent log id. Recording the verification still requires verify_identity."""
         if not recorder.consume_budget(seat_id, "run_identity_check"):
@@ -218,10 +233,16 @@ def build_role_tools(*, corpus: Corpus, kernel: WorldKernel, recorder: RunRecord
             send_chat, defer_or_hold, record_customer_contact, request_approval, submit_application,
             approve_application, return_application, verify_identity, link_review,
             complete_contract, deliver_documents, lookup_application, run_identity_check,
+            list_pending_applications,
         )
     }
     if include_workflow:
-        allowed = tools_for_role(seat_role, d4_enabled=d4_enabled, identity_tools=identity_tools)
+        allowed = tools_for_role(
+            seat_role,
+            d4_enabled=d4_enabled,
+            identity_tools=identity_tools,
+            worklist_tool=worklist_tool,
+        )
     else:
         # S0: reading/basis tools only (no chat/workflow)
         allowed = ("search_corpus", "read_document", "record_interpretation_basis") + (D4_TOOLS if d4_enabled else ())

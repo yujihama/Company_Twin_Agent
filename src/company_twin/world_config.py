@@ -45,7 +45,7 @@ CONSEQUENCES_STALL_AFTER_TICKS = 3
 MOTIVE_LAYER_VERSION = "motive_layer_v1"
 MOTIVE_SALES_TARGET = 4
 
-WORKFLOW_SUPPORT_VERSION = "workflow_support_v3"
+WORKFLOW_SUPPORT_VERSION = "workflow_support_v4"
 
 
 def _normalize_consequences_mode(value: str | None) -> str:
@@ -68,7 +68,7 @@ def _motives_schedule(enabled: bool) -> dict[str, Any]:
 
 
 def _workflow_schedule(enabled: bool) -> dict[str, Any]:
-    """M3 minimal world fixes (MASTER_DESIGN §17.29/§17.31/§17.33, approvals #14/#15/#16): default-off.
+    """M3 minimal world fixes (MASTER_DESIGN §17.29/§17.31/§17.33/§17.35, approvals #14/#15/#16/#17): default-off.
     When enabled, the turn prompt carries a fixed internal contact directory
     (role label -> chat address, machine-generated from the seat table) and
     the kernel delivers factual workflow routing notices (submission,
@@ -79,7 +79,10 @@ def _workflow_schedule(enabled: bool) -> dict[str, Any]:
     the v1 -> v2 boundary: v1 configs lack them and therefore replay using the
     byte-identical v1 inbox and prompt rendering. The v3-only identity-system
     and application-lookup flags likewise preserve the v2 -> v3 boundary:
-    v1/v2 configs lack them and retain their original tools and prompts."""
+    v1/v2 configs lack them and retain their original tools and prompts. The
+    v4-only progression-guidance and pending-worklist flags preserve the v3 ->
+    v4 boundary: v1/v2/v3 configs lack them and retain their original tools and
+    prompts."""
     return {
         "enabled": bool(enabled),
         "version": WORKFLOW_SUPPORT_VERSION,
@@ -89,6 +92,8 @@ def _workflow_schedule(enabled: bool) -> dict[str, Any]:
         "sales_direct_submission_guidance": bool(enabled),
         "identity_check_tool": bool(enabled),
         "application_lookup_tool": bool(enabled),
+        "progression_guidance": bool(enabled),
+        "pending_worklist_tool": bool(enabled),
     }
 
 
@@ -150,6 +155,7 @@ def build_world_config(
         d4_enabled=d4_enabled,
         model_bindings=model_bindings,
         identity_tools=workflow_support,
+        worklist_tool=workflow_support,
     )
     requested_seats = _normalize_seats_subset(seats_subset)
     if requested_seats is not None:
@@ -474,6 +480,7 @@ def _seat_configs(
     d4_enabled: bool = True,
     model_bindings: dict[str, str] | None = None,
     identity_tools: bool = False,
+    worklist_tool: bool = False,
 ) -> dict[str, Any]:
     from .tools import tools_for_role  # local import: avoids world_config<->tools<->corpus cycle
 
@@ -490,7 +497,14 @@ def _seat_configs(
             "tick_budget": budgets.get(seat.role, 8),
             "model_binding": bound_model,
             "store_enabled": d4_enabled,
-            "tools": list(tools_for_role(seat.role, d4_enabled=d4_enabled, identity_tools=identity_tools)),
+            "tools": list(
+                tools_for_role(
+                    seat.role,
+                    d4_enabled=d4_enabled,
+                    identity_tools=identity_tools,
+                    worklist_tool=worklist_tool,
+                )
+            ),
         }
     return result
 

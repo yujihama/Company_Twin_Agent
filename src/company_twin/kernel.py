@@ -113,6 +113,7 @@ class KernelProfile:
 # the K-sod-gate knob, an experiment variable rather than a hard restriction.
 HARD_ROLE_PERMISSIONS: dict[str, frozenset[str]] = {
     "lookup_application": frozenset({"application"}),
+    "list_pending_applications": frozenset({"application"}),
     "run_identity_check": frozenset({"application"}),
     "verify_identity": frozenset({"application"}),
     "link_review": frozenset({"application"}),
@@ -579,6 +580,42 @@ class WorldKernel:
             args={"application_id": application_id},
             success=True,
             result=payload,
+        )
+        return payload
+
+    def list_pending_applications(self, seat_id: str) -> dict[str, Any]:
+        denied = self._role_denied(seat_id, "list_pending_applications", {})
+        if denied:
+            return denied
+        # MASTER_DESIGN §17.35: this is a read-only worklist; the status-to-next-
+        # step mapping is procedural only, with no judgment or prioritization.
+        next_steps = {
+            "application_received": "verify_identity",
+            "identity_verified": "link_review",
+            "review_linked": "complete_contract",
+            "contracted": "deliver_documents",
+        }
+        items = []
+        for application_id, app in sorted(self.applications.items()):
+            status = str(app.get("status") or "")
+            if status == "draft" or status in self._TERMINAL_STATUSES:
+                continue
+            items.append(
+                {
+                    "application_id": application_id,
+                    "status": status,
+                    "customer_id": app.get("customer_id"),
+                    "product": app.get("product"),
+                    "next_step": next_steps[status],
+                }
+            )
+        payload = {"count": len(items), "items": items}
+        self.recorder.record_attempt(
+            seat_id=seat_id,
+            tool="list_pending_applications",
+            args={},
+            success=True,
+            result={"count": len(items)},
         )
         return payload
 

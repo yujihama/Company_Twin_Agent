@@ -373,6 +373,8 @@ def _run_world(
     customer_id_in_inbox = bool(workflow_cfg.get("customer_id_in_inbox"))
     sales_direct_submission = bool(workflow_cfg.get("sales_direct_submission_guidance"))
     identity_tools = bool(workflow_cfg.get("identity_check_tool"))
+    progression_guidance = bool(workflow_cfg.get("progression_guidance"))
+    worklist_tool = bool(workflow_cfg.get("pending_worklist_tool"))
     bindings = config["world"]["population"]["binding"]
     active_seats = set(bindings)
     kernel = WorldKernel(recorder, kernel_profile(design, knobs=knobs, schedule=schedule, scc_switch_enabled=not anchor, valid_doc_ids=set(corpus.documents)))
@@ -385,7 +387,7 @@ def _run_world(
     def seat_agent(seat_id: str):
         if seat_id not in seats_cache:
             seat = design.seats[seat_id]
-            tools = build_role_tools(corpus=corpus, kernel=kernel, recorder=recorder, seat_id=seat_id, seat_role=seat.role, include_workflow=True, d4_enabled=d4_enabled, identity_tools=identity_tools)
+            tools = build_role_tools(corpus=corpus, kernel=kernel, recorder=recorder, seat_id=seat_id, seat_role=seat.role, include_workflow=True, d4_enabled=d4_enabled, identity_tools=identity_tools, worklist_tool=worklist_tool)
             budget = int(budgets.get(seat_id, 12))
             seat_config = (config["world"]["population"].get("seats") or {}).get(seat_id) or {}
             recursion_budget = int(seat_config.get("ordinary_tick_budget") or budget)
@@ -464,6 +466,7 @@ def _run_world(
                     customer_id_in_inbox=customer_id_in_inbox,
                     sales_direct_submission=sales_direct_submission,
                     identity_tools=identity_tools,
+                    progression_guidance=progression_guidance,
                 )
                 before_actions = _tool_count(recorder, seat_id, CONTROLLED_ACTION_TOOLS)
                 before_basis = _tool_count(recorder, seat_id, {"record_interpretation_basis"})
@@ -535,6 +538,7 @@ def _turn_prompt(
     customer_id_in_inbox: bool = False,
     sales_direct_submission: bool = False,
     identity_tools: bool = False,
+    progression_guidance: bool = False,
 ) -> str:
     rendered = "\n".join(
         f"- {_render_inbox_message(message, include_customer_id=customer_id_in_inbox)}" for message in messages
@@ -555,9 +559,13 @@ def _turn_prompt(
         else ""
     )
     identity_tools_block = (
-        "\n- 申込担当は、lookup_applicationで案件記録を確認し、run_identity_checkで本人確認・制裁照合を実施した結果に基づいてverify_identityを記録する。"
-        if identity_tools
-        else ""
+        "\n- 申込担当は、lookup_applicationで案件記録を確認し、run_identity_checkで本人確認・制裁照合を実施した結果に基づいてverify_identityを記録する。本人確認を記録した案件は、同じ申込担当自身の手続としてlink_review・complete_contract・deliver_documentsまで順に進める（審査チケット等の番号は自席で採番して記録すればよく、他部署からの発行を待つ必要はない）。"
+        if progression_guidance
+        else (
+            "\n- 申込担当は、lookup_applicationで案件記録を確認し、run_identity_checkで本人確認・制裁照合を実施した結果に基づいてverify_identityを記録する。"
+            if identity_tools
+            else ""
+        )
     )
     return f"""本日は{today}です。この半日で使えるツール呼び出し残数はおよそ {budget_left} 回です。
 
