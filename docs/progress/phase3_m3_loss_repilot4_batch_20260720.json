@@ -1,10 +1,10 @@
 {
-  "description": "M3 feasibility re-pilot #4 (workflow_support_v4 generation, approvals #14-#17; gate v2 per approval #18): one fresh same-seed R1 clarify pair (seed 959) and one fresh same-seed R4 contradict pair (seed 960). Non-executable draft until a separate owner-authorization commit; never pooled with any prior generation (951/952 v0, 953/954 v1, 955/956 v2, 957/958 v3).",
+  "description": "M3 feasibility re-pilot #4 (workflow_support_v4 generation, approvals #14-#17; gate v2 per approval #18): one fresh same-seed R1 clarify pair (seed 959) and one fresh same-seed R4 contradict pair (seed 960), staged as two sealed waves so each spend boundary has its own credit preflight (owner cost-reduction directive 2026-07-20): wave-1 runs the R1 pair on the current balance; wave-2 (R4 pair) launches only when the balance clears the 4.5-credit floor again. Non-executable draft until a separate owner-authorization commit; never pooled with any prior generation (951/952 v0, 953/954 v1, 955/956 v2, 957/958 v3).",
   "root": ".",
   "concurrency": 2,
   "stagger_seconds": 8,
   "credit_guard": {
-    "minimum_credits": 7,
+    "minimum_credits": 4.5,
     "abort_on_low_credits": true,
     "require_available": true
   },
@@ -67,6 +67,22 @@
       "extra_args": [
         "--circulate-notices",
         "--workflow-support"
+      ]
+    }
+  ],
+  "waves": [
+    {
+      "wave_id": "wave-1-r1-pair",
+      "run_ids": [
+        "m3_repilot4_r1_control_seed959",
+        "m3_repilot4_r1_clarify_seed959"
+      ]
+    },
+    {
+      "wave_id": "wave-2-r4-pair",
+      "run_ids": [
+        "m3_repilot4_r4_control_seed960",
+        "m3_repilot4_r4_contradict_seed960"
       ]
     }
   ]

@@ -42,10 +42,14 @@ def test_repository_m3_repilot4_plan_is_a_non_executable_v2_gate_draft() -> None
 
     assert batch.credit_guard is not None
     assert batch.credit_guard.to_dict() == {
-        "minimum_credits": 7.0,
+        "minimum_credits": 4.5,
         "abort_on_low_credits": True,
         "require_available": True,
     }
+    # Two sealed waves (owner cost-reduction directive 2026-07-20): each
+    # spend boundary carries its own credit preflight.
+    assert [wave.wave_id for wave in batch.waves] == ["wave-1-r1-pair", "wave-2-r4-pair"]
+    assert [len(wave.run_ids) for wave in batch.waves] == [2, 2]
     assert len(assignments) == 4
     assert {assignment["seed"] for assignment in assignments.values()} == {959, 960}
 
