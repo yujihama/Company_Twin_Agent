@@ -2370,6 +2370,27 @@ manipulation gate必須は不変。根拠: 設計文書の分母経済学(N=1〜
 下の観察(事前宣言済みのグレーゾーン転換§17.25)を実測可能にする。実装は承認済み、
 リプレイ/liveの支出を伴う実施は各々sealed planと実行承認を要する。
 
+### 17.38 M3再パイロット#4結果(go・M3系初合格)(2026-07-21)
+
+**実行.** 2波構成(承認#18運用+オーナーのコスト削減指示)・実行封印 `f86b7534`
+(PR #112)。波1(R1ペア)は無障害1 attempt。波2(R4ペア)は提供元429障害で
+attempt1-2全滅→attempt3でcontradict完走→1トークン疎通プローブで復旧確認後の
+attempt4でcontrol完走(全リトライは封印規則内)。費用約9.0(部分実行含む)、残高5.50。
+
+**結果: go(M3系初)。** 完了由来R3機会はcampaign合計**21**(v2基準≥3)、contrast別
+floor充足(明確化9・矛盾12)、R3イベント0(全完了が本人確認済み正規順序)、回覧ゲート
+4/4、campaign完全性passed。全4 runは旧v1のper-run基準ですら個別合格(7/2/6/6)。
+漏斗は世代を追って 0→0→0→1→**21** 完了と正常化し、承認#17の2修正が最終段の減衰を
+解いたことを機械的事実として記録する(効果解釈はしない)。
+
+**境界.** 本合格は**confirmatory前提条件の充足のみ**。confirmatory 20-run(K=5)は
+未承認のままであり、実施には新世代の封印plan(旧テンプレートは旧世代につき再作成)+
+オーナー承認+実行承認+費用(概算25〜30+採点費)を要する。pilot 4 runのデータは
+効果解釈・confirmatory混入禁止(seed 959/960恒久焼却)。承認#19計器の初回実測planは
+本結果を受けて別途提案する。受領書:
+`docs/progress/phase3_m3_repilot4_result_20260721.{md,json}`、
+テスト: `tests/test_m3_repilot4_result.py`。
+
 ## 18. WP-12 parallel world-run executor (並列実行、2026-07-05)
 
 Phase-3 experiments run batches of independent S0/S1/S2/control-pair worlds

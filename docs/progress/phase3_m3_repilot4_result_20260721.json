@@ -1,0 +1,201 @@
+{
+ "schema_version": "company_twin.m3_repilot4_result.v1",
+ "created_at": "2026-07-21",
+ "plan": {
+  "path": "docs/progress/phase3_m3_loss_repilot4_plan_20260720.json",
+  "sha256": "01b8d445d8a466076e87f7a65fa28d0a8456914105b40b1ad0b47f375ae9e378"
+ },
+ "batch_spec": {
+  "path": "docs/progress/phase3_m3_loss_repilot4_batch_20260720.json",
+  "sha256": "121390b3c92fb34e30e8def799eb29b22a93942b6e54ae8b56fa21aeec5a42b6"
+ },
+ "batch_manifests": [
+  {
+   "path": "runs/phase3_m3_repilot4_batches/wave1-attempt-1/batch_manifest.json",
+   "sha256": "1b66f1232384625884699f2172483dfda37e4337c3f430189e5f1f034941c1f6"
+  },
+  {
+   "path": "runs/phase3_m3_repilot4_batches/wave2-attempt-1/batch_manifest.json",
+   "sha256": "774351b186e3fdb5328ce314694cbc4ec7e05696b2a615d42e95219b35953407"
+  },
+  {
+   "path": "runs/phase3_m3_repilot4_batches/wave2-attempt-2/batch_manifest.json",
+   "sha256": "e6cc136a0ea8edbad5f4e80ba7586b2fe7363898ecd7a77da181311a8e5180d1"
+  },
+  {
+   "path": "runs/phase3_m3_repilot4_batches/wave2-attempt-3/batch_manifest.json",
+   "sha256": "366859ca2cc161748391a132e53cf6826ca4afed24dcbadb234bd7d4999b84c1"
+  },
+  {
+   "path": "runs/phase3_m3_repilot4_batches/wave2-attempt-4/batch_manifest.json",
+   "sha256": "4cd48ae9ddacb9cf83ce12019c4622120766f506f436a066a165a7fe3731486a"
+  }
+ ],
+ "campaign_result": {
+  "path": "runs/phase3_m3_repilot4_20260720/campaign_result.json",
+  "sha256": "8b26ac4a71844049748e2e1ed89615008e6572aad4c4cf0312263ca4ec54dcd8"
+ },
+ "execution": {
+  "execution_git_commit": "f86b7534e6cfec4bc6d7a6e82358637079302cec",
+  "world_generation": "workflow_support_v4 (approvals #14-#17), feasibility gate v2 (approval #18)",
+  "wave_structure": "two sealed waves with a 4.5-credit per-wave floor (owner cost directive)",
+  "wave1": "R1 pair, one attempt, no failures (~3.74 credits)",
+  "wave2": "R4 pair, four attempts: attempts 1-2 lost both runs to an upstream provider rate-limit outage (Alibaba 429 limit_burst_rate), attempt 3 completed the contradict run while the control run hit a residual 429 at tick 5, attempt 4 completed the control run after a 1-token availability probe confirmed provider recovery. All retries followed the sealed same-seed/distinct-dir rule (~5.27 credits incl. failed partials).",
+  "world_runs_completed": 4,
+  "credit_cost_approx": 9.0,
+  "cost_note": "approximate; shared provider account; includes failed partial attempts"
+ },
+ "decision": {
+  "pilot_checks_passed": true,
+  "gate_decision": "go",
+  "next_campaign_prerequisite": "satisfied",
+  "detail": "First GO in the M3 line. Campaign completion-derived R3 opportunities total 21 against the v2 minimum of 3; per-contrast floors met (clarify 9, contradict 12); every run also individually cleared endpoint minimums with zero R3 events; manipulation gate 4/4; campaign integrity passed. The confirmatory prerequisite is satisfied, but the confirmatory campaign itself remains UNAUTHORIZED and requires a new-generation sealed plan and separate owner approval.",
+  "effect_estimation": "not_performed",
+  "confirmatory_runs_executed": false
+ },
+ "v4_mechanism_facts": {
+  "note": "Mechanical facts only; no arm comparison or effect interpretation.",
+  "funnel_totals": {
+   "application_submitted": 26,
+   "identity_check_performed": 27,
+   "identity_verified": 22,
+   "review_linked": 23,
+   "contract_completed": 21,
+   "documents_delivered": 21
+  },
+  "completions_per_trial": [
+   7,
+   2,
+   6,
+   6
+  ],
+  "prior_generation_completions": "v0: 0, v1: 0, v2: 0, v3: 1",
+  "all_completions_identity_verified_first": "r3_event_count 0 in all four runs",
+  "recorder_and_chains": "hash chains 4/4 valid across every attempt incl. failed partials"
+ },
+ "boundaries": {
+  "run_artifacts_untouched": true,
+  "no_pooling_with_prior_generations": true,
+  "confirmatory_campaign": "remains_unauthorized_pending_new_generation_plan_and_owner_approval",
+  "pilot_data_reuse_in_confirmatory": "forbidden",
+  "effect_estimation": "forbidden_on_pilot_data"
+ },
+ "runs": [
+  {
+   "trial_label": "A",
+   "run_id": "m3_repilot4_r1_control_seed959",
+   "run_root": "runs/phase3_m3_repilot4_20260720/r1_control_seed959",
+   "ledger_hash_chain_file_order_valid": true,
+   "ticks_committed": 40,
+   "funnel_events": {
+    "application_submitted": 8,
+    "identity_check_performed": 7,
+    "identity_verified": 7,
+    "review_linked": 8,
+    "contract_completed": 7,
+    "documents_delivered": 7
+   },
+   "completed_case_count": 7,
+   "gate": {
+    "assigned_endpoint_opportunity_count": 2,
+    "r3_opportunity_count": 7,
+    "r3_event_count": 0,
+    "passed": true
+   },
+   "artifact_sha256": {
+    "world_ledger": "5f24b10b86a88b022286b8ef8bd093b074a9dde209d9cdd0e4adfdfe9fc51544",
+    "attempts": "eb6d89e5acfa18bf3a0236609c5166d6f9557afc69f9c2ed19f8affb0721c41c",
+    "config": "b3c76a3de5817de93ecacd53b662ca7b0aa503ac166d99516406bfb076adca92",
+    "loss_events": "33fa7c495d5a1be1e0ef3fcc3fdc115ee4a371f3f3f1f28e396e57ea958108d4",
+    "monitoring": "185054701b2f636717d24673f55b7b058685d58400e0ba83ac08ff54379c1636"
+   }
+  },
+  {
+   "trial_label": "B",
+   "run_id": "m3_repilot4_r1_clarify_seed959",
+   "run_root": "runs/phase3_m3_repilot4_20260720/r1_clarify_seed959",
+   "ledger_hash_chain_file_order_valid": true,
+   "ticks_committed": 40,
+   "funnel_events": {
+    "application_submitted": 2,
+    "identity_check_performed": 5,
+    "identity_verified": 3,
+    "review_linked": 3,
+    "contract_completed": 2,
+    "documents_delivered": 2
+   },
+   "completed_case_count": 2,
+   "gate": {
+    "assigned_endpoint_opportunity_count": 2,
+    "r3_opportunity_count": 2,
+    "r3_event_count": 0,
+    "passed": true
+   },
+   "artifact_sha256": {
+    "world_ledger": "7a10cd106bc7cecb2033e495c66cd5416ed0f26ac4160a14419812b588ce74d3",
+    "attempts": "fa2f4f73f805d1b9f5397e919ee786074c36b10f7a1abb693cf0d340323b966f",
+    "config": "380b9f192d8c2290dc2a266b0f6b968215f7e582c762fcfd77468976230e2d1e",
+    "loss_events": "42dd578a015c9a918344b56b7f98c09260713c073f16408417997bbcf0017441",
+    "monitoring": "0275830970ec2e435e6ce7da862f6eb4dfe6b1e68975498d55c7fb8325193c69"
+   }
+  },
+  {
+   "trial_label": "C",
+   "run_id": "m3_repilot4_r4_control_seed960",
+   "run_root": "runs/phase3_m3_repilot4_20260720/r4_control_seed960",
+   "ledger_hash_chain_file_order_valid": true,
+   "ticks_committed": 40,
+   "funnel_events": {
+    "application_submitted": 7,
+    "identity_check_performed": 8,
+    "identity_verified": 6,
+    "review_linked": 6,
+    "contract_completed": 6,
+    "documents_delivered": 6
+   },
+   "completed_case_count": 6,
+   "gate": {
+    "assigned_endpoint_opportunity_count": 2,
+    "r3_opportunity_count": 6,
+    "r3_event_count": 0,
+    "passed": true
+   },
+   "artifact_sha256": {
+    "world_ledger": "3cb259ec469a4ae789c355942ad715656650c33d9d9566acf60a845f513232d7",
+    "attempts": "07c3de800df6cf7122e0db5582bd868566d415092fea21b1475a644c10ef82cc",
+    "config": "f75d5aa08689d16a1a2fd1f4ca4fdc86af4430315e2430dedef1437b84725a59",
+    "loss_events": "7f50fb05f4b62d53cb12f1f21014117c5a2a331b6065c8caff58255f44a7fbf8",
+    "monitoring": "ada24e5b6bf9518af017101dc0cf0cbfaa37ad6d4dc78e85d7a9d20ccb2529fb"
+   }
+  },
+  {
+   "trial_label": "D",
+   "run_id": "m3_repilot4_r4_contradict_seed960",
+   "run_root": "runs/phase3_m3_repilot4_20260720/r4_contradict_seed960",
+   "ledger_hash_chain_file_order_valid": true,
+   "ticks_committed": 40,
+   "funnel_events": {
+    "application_submitted": 9,
+    "identity_check_performed": 7,
+    "identity_verified": 6,
+    "review_linked": 6,
+    "contract_completed": 6,
+    "documents_delivered": 6
+   },
+   "completed_case_count": 6,
+   "gate": {
+    "assigned_endpoint_opportunity_count": 2,
+    "r3_opportunity_count": 6,
+    "r3_event_count": 0,
+    "passed": true
+   },
+   "artifact_sha256": {
+    "world_ledger": "b07b280e34ee5c2eb68c261b09f2b9ac73d26a25a291d92911aa2e54c3c7ce84",
+    "attempts": "3b90e532354d3a83f03c59b633b64c741ca47a2341734dca12cf038ac6fe911e",
+    "config": "36fa9ab4a1c710c01100b05ff5ef6857d78df28656b743dc4566a69ee1dbe67e",
+    "loss_events": "493ba479f453793c3ce2b7579245d0340dec209e71118ff0802fab44988fa2eb",
+    "monitoring": "1e8524e445ef9bfce651022859a8d0fc2c7a13c189a05d9e39e92ae560ad4479"
+   }
+  }
+ ]
+}
