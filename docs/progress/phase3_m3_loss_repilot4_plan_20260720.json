@@ -8,7 +8,7 @@
   "approval_status": "DRAFT: explicit execution approval is not yet granted for this fourth re-pilot. Sealed as a non-executable four-run feasibility configuration in the workflow_support_v4 world generation under gate contract v2 (approvals #17/#18, MASTER_DESIGN §17.35/§17.36); a later owner-authorization commit must flip the approval and execution booleans before any run.",
   "approval_granted_by_this_file": false,
   "execution_authorized_by_this_file": false,
-  "seal_method": "This plan file is a draft seal only: it fixes the re-pilot-4 configuration but authorizes no execution. Execution additionally requires a credit charge (balance 5.81 is below the sealed 7-credit floor as of 2026-07-20) and a separate owner-authorization commit. The gate-v2 parameters (campaign total >= 3, per-contrast floor >= 1) were chosen under owner delegation (§17.36) and may be amended at execution approval.",
+  "seal_method": "This plan file is a draft seal only: it fixes the re-pilot-4 configuration but authorizes no execution. The batch is staged as two sealed waves with a 4.5-credit per-wave floor (owner cost-reduction directive 2026-07-20): wave-1 (R1 pair) can start on the current balance without a recharge; wave-2 (R4 pair) requires the balance to clear the floor again (a small top-up of roughly 3-4 credits after wave-1). Between waves only infrastructure retries and integrity checks are examined; arm rates, paired deltas, and effect direction are never used for the continue/stop decision (the §17.28 wave discipline). The gate-v2 parameters (campaign total >= 3, per-contrast floor >= 1) were chosen under owner delegation (§17.36) and may be amended at execution approval.",
   "question": "Before spending on the confirmatory K=5 campaign, can one fresh R1 pair and one fresh R4 pair exercise every assigned endpoint and the R3 completion sentinel while preserving exact mutation-circulation exposure under the NEW world generation path (workflow support spec section 17.29)?",
   "measurement_boundary": {
     "primary": "Feasibility and integrity only: assigned-endpoint opportunity exercise, R3 opportunity exercise with zero R3 events, and exact manipulation-gate exposure in every run.",
@@ -18,7 +18,7 @@
     "generation_note": "workflow_support_v4 world generation (v3 mechanisms plus progression guidance and the pending worklist, approval #17/§17.35) evaluated under feasibility gate v2 (approval #18/§17.36: campaign R3-opportunity total >= 3 with a per-contrast floor >= 1; per-run endpoint minimum, zero R3 events, and the manipulation gate unchanged). The seeded STR-01 document defect stays unrepaired. Never pooled or compared with any prior generation."
   },
   "batch_spec": "docs/progress/phase3_m3_loss_repilot4_batch_20260720.json",
-  "batch_spec_sha256": "5ba0f3c1f03ba796a1ddebb7257870de78c29c3484d373ea0b4b4b834214301d",
+  "batch_spec_sha256": "121390b3c92fb34e30e8def799eb29b22a93942b6e54ae8b56fa21aeec5a42b6",
   "pilot_gate": {
     "schema_version": "company_twin.loss_event_feasibility_gate.v2",
     "effect_estimation": "forbidden_exclude_from_confirmatory",
@@ -181,23 +181,25 @@
     "retry_manifest_rule": "Preserve the original four-run manifest. Every retry must use a new --batch-dir and contain exactly the prior failed run IDs."
   },
   "cost_guard": {
-    "minimum_openrouter_credits": 7,
+    "minimum_openrouter_credits": 4.5,
     "abort_on_low_credits": true,
     "require_available": true,
-    "rule": "The batch-sealed guard is authoritative: abort before launching any pilot run when available balance cannot be read or is below 7 credits.",
+    "rule": "The batch-sealed guard is authoritative per wave: abort before launching any wave when the available balance cannot be read or is below 4.5 credits.",
     "execution_authorized_by_this_file": false
   },
   "proposed_execution_order": [
-    "This is a non-executable draft. No run may execute until a later owner-authorization commit flips both approval_granted_by_this_file and execution_authorized_by_this_file, and the OpenRouter balance has been recharged above the sealed 7-credit floor.",
-    "Check out that exact merge commit with a clean working tree and execute the full four-run re-pilot with both --batch-spec and --plan under the sealed seven-credit fail-closed guard.",
+    "This is a non-executable draft. No run may execute until a later owner-authorization commit flips both approval_granted_by_this_file and execution_authorized_by_this_file. Wave-1 can then start on the current balance (floor 4.5); no recharge is required to begin.",
+    "Check out the authorized merge commit with a clean working tree and execute wave-1-r1-pair with --wave under the sealed 4.5-credit fail-closed guard.",
+    "After wave-1 completes, verify infrastructure integrity only (no effect inspection), top up the balance above 4.5 if needed, and execute wave-2-r4-pair the same way.",
     "Retry only manifest-recorded infrastructure failures with identical run IDs/seeds and a distinct retry batch directory.",
-    "Produce loss_events.json and loss_event_monitoring.json for every successful run, then run loss-event-campaign with the sealed plan and complete manifest chain.",
-    "Evaluate only pilot_gate and manipulation-gate integrity. Do not inspect or publish effect direction, paired deltas, or arm comparisons.",
-    "Record the re-pilot result and exact artifact hashes in a result PR regardless of outcome. Only pilot_gate.passed=true can satisfy the prerequisite for authoring and separately approving a new-generation confirmatory plan; re-pilot data is never pooled into K=5 or compared with the 2026-07-10 pilot."
+    "Produce loss_events.json and loss_event_monitoring.json for every successful run, then run loss-event-campaign with the sealed plan and the complete manifest chain of both waves.",
+    "Evaluate only pilot_gate (contract v2) and manipulation-gate integrity. Do not inspect or publish effect direction, paired deltas, or arm comparisons.",
+    "Record the re-pilot result and exact artifact hashes in a result PR regardless of outcome. Only pilot_gate.passed=true can satisfy the prerequisite for authoring and separately approving a new-generation confirmatory plan; re-pilot data is never pooled into K=5 or compared with any prior generation."
   ],
   "owner_decisions_recorded_for_pilot_merge": [
     "This draft records no execution authorization and no confirmatory execution authorization.",
     "Execution remains blocked until a follow-up owner-authorization commit sets the two booleans to true and the balance is recharged above the 7-credit floor.",
+    "The two-wave staging with a 4.5-credit per-wave floor implements the owner's 2026-07-20 cost-reduction directive; between-wave checks are infrastructure/integrity only per the §17.28 wave discipline.",
     "The feasibility gate follows contract v2 (campaign total >= 3, per-contrast floor >= 1; parameters amendable at execution approval per the §17.36 delegation); the exact exposure gate applies unchanged.",
     "Seeds 959/960 are excluded from every confirmatory analysis and are never pooled with any prior generation (951/952 v0, 953/954 v1, 955/956 v2, 957/958 v3).",
     "The old-generation confirmatory template stays frozen and pinned to the 2026-07-10 pilot plan; it will be re-authored only after a passing re-pilot in the current generation."
