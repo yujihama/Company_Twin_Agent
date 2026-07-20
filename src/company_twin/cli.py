@@ -796,6 +796,44 @@ def action_replay_cmd(
         raise typer.Exit(code=1)
 
 
+@app.command("option-enumeration")
+def option_enumeration_cmd(
+    run_root: Annotated[Path, typer.Option("--run-root", help="Completed run bundle whose probe decision turn should be reconstructed")],
+    probe: Annotated[str, typer.Option("--probe", help="Probe id, e.g. P-04")],
+    samples: Annotated[int, typer.Option("--samples", help="Number of sandbox enumeration samples of the reconstructed turn")] = 25,
+    output: Annotated[Path, typer.Option("--output", help="Output directory for option_enumeration.json")] = Path("option_enumeration"),
+    model: Annotated[str | None, typer.Option("--model", help="Override seat model; defaults to the run's recorded seat binding")] = None,
+    root: Annotated[Path | None, typer.Option("--root")] = None,
+) -> None:
+    """Layer-1 option-space battery: neutrally enumerate courses of action at
+    one faithfully reconstructed probe turn, then apply experimenter-side
+    structural classification. Results are option-space awareness only,
+    never behavior or propensity, and real replay spend requires a sealed
+    plan and execution approval."""
+    _provenance_banner()
+    base = _root(root)
+    _require_live(base)
+    design = load_design(base)
+    resolved_run_root = run_root.resolve()
+    import tempfile
+
+    from .option_enumeration import run_option_enumeration_battery
+
+    with tempfile.TemporaryDirectory(prefix="option_enumeration_") as sandbox:
+        payload = run_option_enumeration_battery(
+            design=design,
+            run_root=resolved_run_root,
+            probe_id=probe,
+            n_samples=samples,
+            output_dir=output,
+            sandbox_dir=Path(sandbox),
+            model=model,
+        )
+    _echo_json({key: value for key, value in payload.items() if key != "samples"})
+    if not payload["fidelity"]["passed"]:
+        raise typer.Exit(code=1)
+
+
 @app.command("sme-pack")
 def sme_pack(
     campaign_root: Annotated[Path, typer.Option("--campaign-root")],
