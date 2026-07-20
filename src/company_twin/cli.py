@@ -834,6 +834,58 @@ def option_enumeration_cmd(
         raise typer.Exit(code=1)
 
 
+@app.command("branch-inject")
+def branch_inject_cmd(
+    source_run_root: Annotated[Path, typer.Option("--source-run-root", help="Completed or in-progress run bundle to fork from")],
+    fork_tick: Annotated[int, typer.Option("--fork-tick", help="Ledger tick to reconstruct kernel state up to before injection")],
+    tool: Annotated[str, typer.Option("--tool", help="Kernel tool name to inject, e.g. complete_contract")],
+    args: Annotated[str, typer.Option("--args", help="JSON object of tool call arguments (including basis)")],
+    output_run_root: Annotated[Path, typer.Option("--output-run-root", help="Output directory for the new branch_injection bundle")],
+    root: Annotated[Path | None, typer.Option("--root")] = None,
+) -> None:
+    """Layer-3 branch execution (MASTER_DESIGN §17.37, owner approval #19):
+    rebuild kernel state up to --fork-tick from a source run's ledger (its
+    hash chain is validated first, fail closed), inject exactly one
+    experimenter-plane kernel tool call, finalize a run_class=branch_injection
+    bundle, and run the unchanged loss-event oracle against it.
+
+    Live continuation with real seats for further ticks is NOT available from
+    this command -- there is no flag to enable it. It will be enabled
+    together with its sealed-plan execution machinery in a later change; this
+    command never spends -- no LLM seat is ever invoked."""
+    from .branch_execution import inject_branch_action, rebuild_kernel_state, run_branch_continuation, run_branch_detection
+
+    _provenance_banner()
+    base = _root(root)
+    try:
+        parsed_args = json.loads(args)
+    except json.JSONDecodeError as exc:
+        raise typer.BadParameter(f"--args must be valid JSON: {exc}") from exc
+    if not isinstance(parsed_args, dict):
+        raise typer.BadParameter("--args must be a JSON object")
+    kernel, metadata = rebuild_kernel_state(source_run_root.resolve(), fork_tick, output_run_root.resolve(), design_root=base)
+    action_spec = {"tool": tool, "args": parsed_args}
+    injected = inject_branch_action(kernel, action_spec)
+    summary = run_branch_continuation(
+        kernel,
+        metadata=metadata,
+        allow_spend=False,
+        injected_action={"tool": tool, "args": parsed_args, "result": injected},
+    )
+    detection = run_branch_detection(output_run_root.resolve())
+    _echo_json(
+        {
+            "metadata": metadata,
+            "injected": injected,
+            "summary": summary,
+            "detection": {
+                "loss_event_count": detection["loss_events"]["loss_event_count"],
+                "monitoring_error": detection["monitoring_error"],
+            },
+        }
+    )
+
+
 @app.command("sme-pack")
 def sme_pack(
     campaign_root: Annotated[Path, typer.Option("--campaign-root")],

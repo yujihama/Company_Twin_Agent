@@ -1146,10 +1146,22 @@ def _load_and_validate_bundle(
         "loss": run_root / "loss_events.json",
         "monitoring": run_root / "loss_event_monitoring.json",
     }
-    missing = [path.name for path in required.values() if not path.exists()]
+    if not required["meta"].exists():
+        raise LossCampaignError(f"run {run_spec.run_id!r} is missing required artifacts: ['meta.json']")
+    meta = _read_json_object(required["meta"])
+    if meta.get("run_class") == "branch_injection":
+        # Layer-3 branch-execution instrument (MASTER_DESIGN §17.37,
+        # docs/progress/option_branch_instrument_design_20260713.md §5.3): a
+        # fault-injection sandbox bundle must never enter campaign
+        # aggregation. Fail closed before requiring or reading any other
+        # artifact in the bundle.
+        raise LossCampaignError(
+            f"run {run_spec.run_id!r} bundle carries meta.run_class='branch_injection' "
+            "(Layer-3 fault-injection sandbox output) and must never enter campaign aggregation"
+        )
+    missing = [path.name for path in required.values() if path.name != "meta.json" and not path.exists()]
     if missing:
         raise LossCampaignError(f"run {run_spec.run_id!r} is missing required artifacts: {missing}")
-    meta = _read_json_object(required["meta"])
     config = _read_json_object(required["config"])
     loss_report = _read_json_object(required["loss"])
     monitoring = _read_json_object(required["monitoring"])
