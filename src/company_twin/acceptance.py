@@ -385,6 +385,27 @@ def _config_key_from_meta(meta: dict[str, Any]) -> str:
 
 def check_bundle(run_root: Path, seat_roles: dict[str, str] | None = None) -> BundleReport:
     report = BundleReport(run_root=run_root)
+    meta_path = run_root / "meta.json"
+    if meta_path.exists():
+        try:
+            meta_run_class = json.loads(meta_path.read_text(encoding="utf-8")).get("run_class")
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            meta_run_class = None
+        if meta_run_class == "branch_injection":
+            # Layer-3 branch-execution instrument (MASTER_DESIGN §17.37,
+            # docs/progress/option_branch_instrument_design_20260713.md §5.3):
+            # a fault-injection sandbox bundle must never enter acceptance,
+            # readiness, or campaign aggregation. Fail closed before touching
+            # any other gate, even if other artifacts are missing/malformed.
+            report.results.append(
+                GateResult(
+                    "bundle_excluded_branch_injection",
+                    False,
+                    f"{run_root} carries meta.run_class='branch_injection' (Layer-3 fault-injection "
+                    "sandbox output) and must never enter acceptance; exclude it from the campaign root",
+                )
+            )
+            return report
     failed_path = run_root / "failed_run.json"
     if failed_path.exists():
         detail = failed_path.read_text(encoding="utf-8")
