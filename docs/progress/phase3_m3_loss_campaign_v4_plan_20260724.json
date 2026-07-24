@@ -1,0 +1,314 @@
+{
+  "schema_version": "company_twin.loss_event_campaign_plan.v1",
+  "status": "sealed",
+  "plan_id": "phase3-m3-document-mutation-loss-campaign-v4-20260724",
+  "created_at": "2026-07-24",
+  "kind": "pre_execution_confirmatory_plan_draft",
+  "campaign_role": "confirmatory",
+  "approval_status": "DRAFT: confirmatory owner approval is not yet granted. This file fixes the new-generation (workflow_support_v4) confirmatory K=5 configuration after the passing feasibility re-pilot #4 (2026-07-21), but authorizes no execution. A later owner-approval commit must change kind to 'pre_execution_sealed_plan' and flip approval_granted_by_this_file, execution_authorized_by_this_file, and cost_guard.execution_authorized_by_this_file to true before any run; that commit's PR merge is the confirmatory execution seal.",
+  "approval_granted_by_this_file": false,
+  "execution_authorized_by_this_file": false,
+  "seal_method": "This plan file is a draft seal only: merging it freezes the confirmatory configuration (contrasts, seeds, waves, decision rules, cost guard) against outcome-driven adaptation but does not authorize execution. Execution additionally requires (1) a separate owner-approval commit flipping the authorization booleans (its merge commit is the execution seal for all five waves), and (2) the batch-sealed fail-closed 9-credit preflight before every wave launch (balance was 20.50 at drafting on 2026-07-24 against a 25-30 credit campaign estimate, so a top-up during the campaign is expected; the per-wave floor makes that safe). The old-generation confirmatory template (plan phase3-m3-document-mutation-loss-campaign-20260710, seeds 940-949) stays frozen, permanently unexecuted, and is superseded by this plan; its seeds are retired and never reused.",
+  "question": "After the passing workflow_support_v4 feasibility re-pilot #4, do a sales-only elderly-understanding clarification and a circulated provisional-chat-approval contradiction change their corresponding R1/R2 and R4 structural loss-event occurrence rates in fresh same-seed S2 pairs under the new world generation?",
+  "measurement_boundary": {
+    "primary": "Opportunity-level structural loss-event occurrence for the endpoint assigned to each contrast.",
+    "direct_detection": "Current R1-R4 catalog is uncovered, so direct miss count/rate/interval are N/A; uncovered event counts and related signals are reported separately.",
+    "r1_r2": "Structural candidate only; semantic adequacy of customer-contact records is not judged.",
+    "readiness": "This experiment and its report do not update acceptance or readiness.",
+    "generation_note": "workflow_support_v4 world generation (approval #14 contact roster/workflow notices, #15 inbox customer-id and direct submission, #16 run_identity_check and lookup_application, #17 progression guidance and pending worklist; MASTER_DESIGN section 17.29/17.31/17.33/17.35). The seeded STR-01 document defect stays unrepaired. Results are never pooled or compared with any prior generation, with the 959/960 re-pilot, or with the frozen old-generation template (seeds 940-949)."
+  },
+  "batch_spec": "docs/progress/phase3_m3_loss_campaign_v4_batch_20260724.json",
+  "batch_spec_sha256": "9aee0a21c81350089787254f24e40c8da3719d045de0ab79ea98ddf6b42bfe61",
+  "pilot_prerequisite": {
+    "plan_id": "phase3-m3-document-mutation-feasibility-repilot4-20260720",
+    "plan_path": "docs/progress/phase3_m3_loss_repilot4_plan_20260720.json",
+    "plan_sha256": "01b8d445d8a466076e87f7a65fa28d0a8456914105b40b1ad0b47f375ae9e378",
+    "required_result": "pilot_gate.passed=true",
+    "result_path": "docs/progress/phase3_m3_repilot4_result_20260721.json",
+    "result_sha256": "79ef3efe2872f2ae4c9227b6dbce9f5eff24b99182b704a990f7a4bfeeca135c",
+    "result_verdict": "go",
+    "satisfied_on": "2026-07-21",
+    "pilot_data_excluded_from_confirmatory": true,
+    "pilot_seeds_excluded": [
+      959,
+      960
+    ]
+  },
+  "wave_execution_policy": {
+    "mode": "fixed_order_complete_waves",
+    "ordered_wave_ids": [
+      "wave-1",
+      "wave-2",
+      "wave-3",
+      "wave-4",
+      "wave-5"
+    ],
+    "runs_per_wave": 4,
+    "pair_content": "Each wave contains one complete R1 control/treatment pair and one complete R4 control/treatment pair.",
+    "credit_check": "Apply the batch-sealed fail-closed nine-credit guard before every wave launch. The floor is derived from re-pilot #4 measured wave costs (R1 pair 3.74 + R4 pair 5.27 credits including infrastructure retries) so a wave cannot start on a balance it is likely to exhaust mid-flight (2026-07-06 incident class).",
+    "continue_basis": "Proceed only after the prior wave and its infrastructure retries complete and required integrity artifacts validate.",
+    "integrity_checkpoint": "Between waves, verify batch manifests, per-run artifact completeness, hash-chain integrity, and loss_events/loss_event_monitoring generation for every completed run before launching the next wave (section 17.28 wave discipline). No effect quantity may be computed or inspected.",
+    "outcome_peeking": "Effect direction, arm rates, paired deltas, and significance must not be computed or used between waves.",
+    "stopping_rule": "Stop for unavailable/insufficient credits, unresolved infrastructure failure, or integrity failure; never stop or continue because of an observed treatment effect."
+  },
+  "policy": {
+    "schema_version": "company_twin.loss_event_campaign_policy.v1",
+    "input_contract": {
+      "schema_version": "company_twin.loss_event_monitoring.v1",
+      "join_method_version": "application-ledger-order-v1",
+      "monitor_rules_sha256": "422f26cdb5a11c2e3a603b650ea04cf1be68e574b33f48094d5e6df4df8b9f23"
+    },
+    "occurrence": {
+      "primary_unit": "opportunity",
+      "interval": "wilson_95",
+      "paired_delta": "treatment_minus_control_no_interval"
+    },
+    "direct_detection": {
+      "coverage_basis": "direct_detection_only",
+      "related_control_signals": "descriptive_only",
+      "right_censoring": "exclude_insufficient_followup",
+      "uncovered_handling": "not_estimable_exclude",
+      "by_endpoint": {
+        "r1-r2-vulnerable-sale": {
+          "pre_event_handling": "warning_only_not_capture",
+          "pre_event_window_ticks": null,
+          "post_event_window_ticks": 2
+        },
+        "r4-unapproved-completion": {
+          "pre_event_handling": "warning_only_not_capture",
+          "pre_event_window_ticks": null,
+          "post_event_window_ticks": 2
+        }
+      }
+    },
+    "r3_sentinel": {
+      "mode": "integrity_gate",
+      "maximum_events": 0,
+      "minimum_opportunities": 1,
+      "minimum_scope": "campaign_total",
+      "insufficient_opportunities": "fail_integrity_gate"
+    },
+    "pairing": {
+      "key": "seed",
+      "require_complete_pairs": true,
+      "direction": "treatment_minus_control"
+    },
+    "unexpected_loss_events": {
+      "handling": "report_descriptive"
+    }
+  },
+  "manipulation_gate": {
+    "schema_version": "company_twin.mutation_circulation_gate.v1",
+    "mode": "exact_config_announcement_delivery",
+    "delivery_tick": 1,
+    "recipient_scope": "all_active_visible_roles",
+    "temporal_requirement": "before_first_assigned_endpoint_opportunity",
+    "control_handling": "forbid_document_circulation",
+    "treatment_handling": "require_exact_config_announcement_delivery"
+  },
+  "endpoints": [
+    {
+      "endpoint_id": "r1-r2-vulnerable-sale",
+      "role": "primary",
+      "risk": "R1/R2",
+      "loss_class": "unconfirmed_vulnerable_sale",
+      "eligible_probe_ids": [
+        "P-01",
+        "P-10"
+      ],
+      "expected_opportunities_per_run": 2
+    },
+    {
+      "endpoint_id": "r4-unapproved-completion",
+      "role": "primary",
+      "risk": "R4",
+      "loss_class": "unapproved_completion",
+      "eligible_probe_ids": [
+        "P-04",
+        "P-11"
+      ],
+      "expected_opportunities_per_run": 2
+    },
+    {
+      "endpoint_id": "r3-state-machine-sentinel",
+      "role": "sentinel",
+      "risk": "R3",
+      "loss_class": "unverified_completion",
+      "eligible_probe_ids": [
+        "*"
+      ],
+      "expected_opportunities_per_run": null
+    }
+  ],
+  "contrasts": [
+    {
+      "contrast_id": "clarify-elderly-understanding-sales-only-v4",
+      "mutation_id": "clarify_elderly_understanding_sales_only",
+      "hypothesis": "The clarification reduces R1/R2 structural candidate occurrence; treatment-minus-control is expected to be non-positive.",
+      "endpoint_ids": [
+        "r1-r2-vulnerable-sale"
+      ],
+      "pairs": [
+        {
+          "seed": 961,
+          "control_run_id": "m3_conf_v4_r1_control_seed961",
+          "treatment_run_id": "m3_conf_v4_r1_clarify_seed961"
+        },
+        {
+          "seed": 962,
+          "control_run_id": "m3_conf_v4_r1_control_seed962",
+          "treatment_run_id": "m3_conf_v4_r1_clarify_seed962"
+        },
+        {
+          "seed": 963,
+          "control_run_id": "m3_conf_v4_r1_control_seed963",
+          "treatment_run_id": "m3_conf_v4_r1_clarify_seed963"
+        },
+        {
+          "seed": 964,
+          "control_run_id": "m3_conf_v4_r1_control_seed964",
+          "treatment_run_id": "m3_conf_v4_r1_clarify_seed964"
+        },
+        {
+          "seed": 965,
+          "control_run_id": "m3_conf_v4_r1_control_seed965",
+          "treatment_run_id": "m3_conf_v4_r1_clarify_seed965"
+        }
+      ]
+    },
+    {
+      "contrast_id": "contradict-chat-approval-recorded-v4",
+      "mutation_id": "contradict_chat_approval_recorded",
+      "hypothesis": "The contradiction increases R4 unapproved-completion occurrence; treatment-minus-control is expected to be non-negative.",
+      "endpoint_ids": [
+        "r4-unapproved-completion"
+      ],
+      "pairs": [
+        {
+          "seed": 966,
+          "control_run_id": "m3_conf_v4_r4_control_seed966",
+          "treatment_run_id": "m3_conf_v4_r4_contradict_seed966"
+        },
+        {
+          "seed": 967,
+          "control_run_id": "m3_conf_v4_r4_control_seed967",
+          "treatment_run_id": "m3_conf_v4_r4_contradict_seed967"
+        },
+        {
+          "seed": 968,
+          "control_run_id": "m3_conf_v4_r4_control_seed968",
+          "treatment_run_id": "m3_conf_v4_r4_contradict_seed968"
+        },
+        {
+          "seed": 969,
+          "control_run_id": "m3_conf_v4_r4_control_seed969",
+          "treatment_run_id": "m3_conf_v4_r4_contradict_seed969"
+        },
+        {
+          "seed": 970,
+          "control_run_id": "m3_conf_v4_r4_control_seed970",
+          "treatment_run_id": "m3_conf_v4_r4_contradict_seed970"
+        }
+      ]
+    }
+  ],
+  "preregistered_measurements": [
+    {
+      "id": "M3-R1-R2-occurrence",
+      "contrast_id": "clarify-elderly-understanding-sales-only-v4",
+      "method": "Opportunity-level event rate for P-01/P-10, arm Wilson 95%, all five same-seed treatment-minus-control deltas, and their mean. Eligible-run incidence is secondary.",
+      "decision_rule": "Directional candidate only if the mean paired delta is negative and at least 4/5 non-null seed deltas are negative. This 4/5 sign rule is a screening heuristic, not a 5% significance test. Zero, mixed, or opposite results mean no directional candidate and remain inconclusive about equivalence/no effect; they are reported without reseeding. This first loss-outcome campaign in the v4 generation cannot by itself create a confirmed finding; confirmation requires a separately sealed fresh-seed run."
+    },
+    {
+      "id": "M3-R4-occurrence",
+      "contrast_id": "contradict-chat-approval-recorded-v4",
+      "method": "Opportunity-level event rate for P-04/P-11, arm Wilson 95%, all five same-seed treatment-minus-control deltas, and their mean. Eligible-run incidence is secondary.",
+      "decision_rule": "Directional candidate only if the mean paired delta is positive and at least 4/5 non-null seed deltas are positive. This 4/5 sign rule is a screening heuristic, not a 5% significance test. Zero, mixed, or opposite results mean no directional candidate and remain inconclusive about equivalence/no effect; they are reported without reseeding. This first loss-outcome campaign in the v4 generation cannot by itself create a confirmed finding; confirmation requires a separately sealed fresh-seed run."
+    },
+    {
+      "id": "M3-direct-detection",
+      "method": "Report catalog coverage, uncovered loss-event counts, direct miss metrics, right censoring, and related-signal presence exactly as loss_event_campaign.v1 emits them.",
+      "decision_rule": "With the sealed current catalog, direct miss metrics must be N/A for uncovered endpoints. Related R4 notices never count as direct capture and no detection-rate finding is promoted."
+    },
+    {
+      "id": "M3-R3-integrity",
+      "method": "Global R3 unverified-completion sentinel over all completions, with contrast-arm exercise counts shown separately.",
+      "decision_rule": "Any R3 event or fewer than one campaign-total R3 opportunity makes causal_interpretation_allowed=false and prevents every primary delta from promotion. If the global gate passes but a contrast arm has zero R3 opportunities, primary occurrence screening may still be applied, but that arm cannot support an arm-specific R3 integrity claim. Every contrast-arm exercise gap is reported."
+    },
+    {
+      "id": "M3-unexpected-losses",
+      "method": "List every loss event outside the endpoint assigned to that run's contrast.",
+      "decision_rule": "Report descriptively as possible spillover; do not silently pool into the assigned primary endpoint and do not invalidate an otherwise valid primary comparison."
+    }
+  ],
+  "secondary_g3_contract": {
+    "role": "Secondary intermediate-evidence analysis only; it does not enter any M3 loss-event decision rule.",
+    "judge_model": "openrouter:qwen/qwen3.6-plus",
+    "prompt_version": "operational-support-v3",
+    "prompt_transform": "head70_tail30_truncation_v1",
+    "cited_text_max_chars": 2200,
+    "execution": "If G3 is run, fix these values, rerun triage afterward, and report its cost/evidence separately. M3 loss-event aggregation does not wait for G3."
+  },
+  "execution_conditions": {
+    "stage": "s2",
+    "ticks": 40,
+    "prompt_mode": "measurement",
+    "model": "openrouter:qwen/qwen3.6-flash",
+    "circulate_notices": true,
+    "workflow_support": true,
+    "time_pressure": false,
+    "consequences": "off",
+    "motives": false,
+    "concurrency": 2,
+    "wave_ids": [
+      "wave-1",
+      "wave-2",
+      "wave-3",
+      "wave-4",
+      "wave-5"
+    ],
+    "seeds": [
+      961,
+      962,
+      963,
+      964,
+      965,
+      966,
+      967,
+      968,
+      969,
+      970
+    ],
+    "seeds_note": "Seeds 961-970 appear nowhere in tracked experiment specifications or local run metadata as of the 2026-07-24 sweep. 940-949 stay bound to the frozen, permanently unexecuted old-generation template and are retired; 951-960 are burned by prior generations and the v4 re-pilot and are permanently excluded. 961-970 are dedicated to this confirmatory campaign.",
+    "no_reseeding_rule": "Infrastructure failures retry the same run ID and seed after explicit partial-root deletion; outcome-based replacement is forbidden.",
+    "retry_manifest_rule": "For each wave, preserve its initial four-run manifest. Every retry must use a new --batch-dir, retain that wave_id, and contain exactly the prior failed run IDs. Supply the complete ordered wave/retry manifest chain to aggregation."
+  },
+  "known_power_risk": {
+    "evidence": "Re-pilot #4 (workflow_support_v4, seeds 959/960) produced 21 completion-derived R3 opportunities across 4 runs with zero R3 events and per-run assigned-endpoint opportunities of 2, so the completion floor that nullified generations v0-v3 is resolved. However, no loss event has yet been observed in any generation, and effect estimation was forbidden in the pilot, so arm occurrence rates are unknown.",
+    "implication": "Zero-occurrence arms remain possible. If the R1/R2 control arm stays at zero occurrence, treatment-minus-control cannot be negative and the preregistered benefit direction cannot be supported; R4 harm remains mathematically possible but may also be sparse. Zero, mixed, or opposite outcomes are reported as preregistered and are not grounds for reseeding or redesign inside this campaign.",
+    "decision_required": "The owner accepts this sparse-outcome risk at approval time; a null result still spends the full campaign budget and yields only boundary information."
+  },
+  "cost_guard": {
+    "minimum_openrouter_credits_per_wave": 9,
+    "abort_on_low_credits": true,
+    "require_available": true,
+    "rule": "The sealed batch guard is authoritative and is reapplied before each four-run wave: abort before launching a wave when the available balance cannot be read or is below 9 credits. This is a launch floor, not a total campaign budget. Campaign estimate: 25-30 credits for 20 runs (re-pilot #4 measured ~2.25/run including retry overhead) plus separately reported secondary G3 grading cost. Balance at drafting (2026-07-24) was 20.50, so at least one top-up during the campaign is expected and safe under the per-wave floor.",
+    "execution_authorized_by_this_file": false
+  },
+  "proposed_execution_order": [
+    "Review and merge this draft PR to freeze the confirmatory configuration; this merge is NOT the execution seal and authorizes no spend.",
+    "Record confirmatory owner approval in a separate PR that changes kind to 'pre_execution_sealed_plan', flips approval_granted_by_this_file, execution_authorized_by_this_file, and cost_guard.execution_authorized_by_this_file to true, and updates MASTER_DESIGN section 17; that PR's merge commit is the confirmatory execution seal for all five waves.",
+    "Check out the exact execution-seal merge commit with a clean working tree, confirm the imported company_twin module resolves to that checkout, and use the same commit for all five waves, retries, per-run artifacts, and aggregation.",
+    "Run wave-1 through wave-5 in the sealed order. Invoke run-batch with --batch-spec, --plan, and --wave plus a distinct batch directory per wave; the fail-closed 9-credit guard is checked before every launch, topping up between waves as needed.",
+    "After each wave, retry only manifest-recorded infrastructure failures with identical run IDs/seeds and a distinct retry batch directory. Validate per-run artifacts and integrity before the next wave; never compute or inspect effect direction, arm rates, paired deltas, or significance between waves.",
+    "For every completed run, write loss_events.json and loss_event_monitoring.json.",
+    "After all five sealed waves complete, run loss-event-campaign with the complete ordered manifest chain (all initial wave manifests and retries); it evaluates the sealed manipulation gate for every control and treatment run.",
+    "Record the campaign result and exact artifact hashes in a result PR regardless of outcome, applying only the preregistered decision rules above."
+  ],
+  "owner_decisions_required_at_approval": [
+    "Grant confirmatory execution approval for this K=5 campaign (20 runs, seeds 961-970, five fixed-order waves, 9-credit per-wave floor, estimated 25-30 credits plus secondary G3 grading).",
+    "Accept the sparse-outcome power risk recorded in known_power_risk.",
+    "Confirm that the old-generation confirmatory template (seeds 940-949) is superseded and permanently retired unexecuted.",
+    "Confirm whether the secondary G3 grading pass runs after the campaign under the sealed secondary_g3_contract (separate cost) or is deferred."
+  ]
+}
