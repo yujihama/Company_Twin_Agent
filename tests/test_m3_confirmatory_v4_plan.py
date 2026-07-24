@@ -4,10 +4,7 @@ import hashlib
 import json
 from pathlib import Path
 
-import pytest
-
 from company_twin.loss_campaign import (
-    LossCampaignError,
     _validate_managed_execution_authorization,
     _validate_sealed_batch_spec,
     load_loss_campaign_plan,
@@ -27,7 +24,7 @@ def _paths() -> tuple[Path, Path, Path]:
     )
 
 
-def test_repository_m3_confirmatory_v4_plan_is_a_non_executable_draft() -> None:
+def test_repository_m3_confirmatory_v4_plan_is_authorized_for_wave_execution() -> None:
     root, plan_path, batch_path = _paths()
     plan = load_loss_campaign_plan(plan_path, root=root)
     batch = BatchSpec.from_dict(json.loads(batch_path.read_text(encoding="utf-8")))
@@ -35,17 +32,18 @@ def test_repository_m3_confirmatory_v4_plan_is_a_non_executable_draft() -> None:
 
     assert hashlib.sha256(batch_path.read_bytes()).hexdigest() == plan["batch_spec_sha256"]
     assert plan["campaign_role"] == "confirmatory"
-    assert plan["kind"] == "pre_execution_confirmatory_plan_draft"
-    assert plan["approval_granted_by_this_file"] is False
-    assert plan["execution_authorized_by_this_file"] is False
-    assert plan["cost_guard"]["execution_authorized_by_this_file"] is False
+    # Approval #20 (2026-07-24): the owner-authorization commit flipped the
+    # draft into the executable sealed plan; its PR merge commit is the
+    # confirmatory execution seal.
+    assert plan["kind"] == "pre_execution_sealed_plan"
+    assert plan["approval_granted_by_this_file"] is True
+    assert plan["execution_authorized_by_this_file"] is True
+    assert plan["cost_guard"]["execution_authorized_by_this_file"] is True
     # Confirmatory plans must not carry a pilot gate.
     assert "pilot_gate" not in plan
 
-    # The draft must be refused by managed aggregation until a separate
-    # owner-approval commit changes kind and flips the booleans.
-    with pytest.raises(LossCampaignError):
-        _validate_managed_execution_authorization(plan, batch)
+    # Managed aggregation must accept the authorized plan.
+    _validate_managed_execution_authorization(plan, batch)
 
     assert batch.credit_guard is not None
     assert batch.credit_guard.to_dict() == {

@@ -2391,6 +2391,23 @@ floor充足(明確化9・矛盾12)、R3イベント0(全完了が本人確認済
 `docs/progress/phase3_m3_repilot4_result_20260721.{md,json}`、
 テスト: `tests/test_m3_repilot4_result.py`。
 
+### 17.39 新世代confirmatory計画の承認と実行許可(2026-07-24、プロジェクトオーナー承認 #20)
+
+**計画.** 再パイロット#4のgo(§17.38)を受け、workflow_support_v4世代のconfirmatory
+K=5計画を起草・凍結した(PR #115、`docs/progress/phase3_m3_loss_campaign_v4_plan_20260724.json`)。
+20 run(R1明確化ペア seed 961〜965、R4矛盾ペア seed 966〜970)を5波固定順で実行し、
+各波の起動前に残高9クレジット未満なら自動中止する(下限9は再パイロット#4の実測波費用
+3.74+5.27に基づく引き上げ。旧下限7は飛行中の残高切れを許し得た)。判定規則は旧
+テンプレートの事前登録を踏襲(Wilson 95%・same-seed差の4/5符号規則・R3完全性ゲート)。
+
+**承認 #20.** オーナーは2026-07-24のタスク会話で本計画を承認し、マージと実行を指示した。
+承認は (1) K=5全20 runの実行、(2) 疎な結果(発生0腕)の検出力リスクの受容、(3) 旧世代
+テンプレート(seed 940〜949)の未実行のままの恒久退役、を含む。secondary G3採点は
+結果確認後の別判断に先送り(M3集計はG3を待たない)。実行許可コミットが計画のkindを
+`pre_execution_sealed_plan`へ変更しフラグを反転する。当該PRのマージコミットが全5波の
+実行許可の証拠となり、全波・リトライ・成果物・集計はその同一コミットで行う。承認時
+残高20.50(概算25〜30のため途中で追加チャージを想定。波ごとの残高検査が安全に停止する)。
+
 ## 18. WP-12 parallel world-run executor (並列実行、2026-07-05)
 
 Phase-3 experiments run batches of independent S0/S1/S2/control-pair worlds

@@ -3,12 +3,12 @@
   "status": "sealed",
   "plan_id": "phase3-m3-document-mutation-loss-campaign-v4-20260724",
   "created_at": "2026-07-24",
-  "kind": "pre_execution_confirmatory_plan_draft",
+  "kind": "pre_execution_sealed_plan",
   "campaign_role": "confirmatory",
-  "approval_status": "DRAFT: confirmatory owner approval is not yet granted. This file fixes the new-generation (workflow_support_v4) confirmatory K=5 configuration after the passing feasibility re-pilot #4 (2026-07-21), but authorizes no execution. A later owner-approval commit must change kind to 'pre_execution_sealed_plan' and flip approval_granted_by_this_file, execution_authorized_by_this_file, and cost_guard.execution_authorized_by_this_file to true before any run; that commit's PR merge is the confirmatory execution seal.",
-  "approval_granted_by_this_file": false,
-  "execution_authorized_by_this_file": false,
-  "seal_method": "This plan file is a draft seal only: merging it freezes the confirmatory configuration (contrasts, seeds, waves, decision rules, cost guard) against outcome-driven adaptation but does not authorize execution. Execution additionally requires (1) a separate owner-approval commit flipping the authorization booleans (its merge commit is the execution seal for all five waves), and (2) the batch-sealed fail-closed 9-credit preflight before every wave launch (balance was 20.50 at drafting on 2026-07-24 against a 25-30 credit campaign estimate, so a top-up during the campaign is expected; the per-wave floor makes that safe). The old-generation confirmatory template (plan phase3-m3-document-mutation-loss-campaign-20260710, seeds 940-949) stays frozen, permanently unexecuted, and is superseded by this plan; its seeds are retired and never reused.",
+  "approval_status": "Confirmatory owner approval #20 was granted in the task conversation on 2026-07-24 (the owner approved the drafted plan and directed merge and execution). Authorization covers the full K=5 campaign: 20 runs, seeds 961-970, five fixed-order waves under the batch-sealed fail-closed 9-credit per-wave preflight. The owner accepts the sparse-outcome power risk recorded in known_power_risk and confirms the old-generation template (seeds 940-949) is superseded and permanently retired unexecuted. The secondary G3 grading pass is deferred to a separate owner decision after the campaign result; M3 loss-event aggregation does not wait for it.",
+  "approval_granted_by_this_file": true,
+  "execution_authorized_by_this_file": true,
+  "seal_method": "The draft configuration was frozen by the PR #115 merge (commit 8f9a569adb607c5f41bab7f953e38376a9e6d691). This authorization PR's merge commit is the confirmatory execution seal for all five waves: check it out with a clean working tree and use the same commit for every wave, retry, per-run artifact, and aggregation. Each wave launch still passes its own fail-closed 9-credit preflight; the balance at approval was 20.50 against a 25-30 credit campaign estimate, so execution is expected to pause safely for a top-up before a later wave.",
   "question": "After the passing workflow_support_v4 feasibility re-pilot #4, do a sales-only elderly-understanding clarification and a circulated provisional-chat-approval contradiction change their corresponding R1/R2 and R4 structural loss-event occurrence rates in fresh same-seed S2 pairs under the new world generation?",
   "measurement_boundary": {
     "primary": "Opportunity-level structural loss-event occurrence for the endpoint assigned to each contrast.",
@@ -293,7 +293,7 @@
     "abort_on_low_credits": true,
     "require_available": true,
     "rule": "The sealed batch guard is authoritative and is reapplied before each four-run wave: abort before launching a wave when the available balance cannot be read or is below 9 credits. This is a launch floor, not a total campaign budget. Campaign estimate: 25-30 credits for 20 runs (re-pilot #4 measured ~2.25/run including retry overhead) plus separately reported secondary G3 grading cost. Balance at drafting (2026-07-24) was 20.50, so at least one top-up during the campaign is expected and safe under the per-wave floor.",
-    "execution_authorized_by_this_file": false
+    "execution_authorized_by_this_file": true
   },
   "proposed_execution_order": [
     "Review and merge this draft PR to freeze the confirmatory configuration; this merge is NOT the execution seal and authorizes no spend.",
@@ -305,10 +305,10 @@
     "After all five sealed waves complete, run loss-event-campaign with the complete ordered manifest chain (all initial wave manifests and retries); it evaluates the sealed manipulation gate for every control and treatment run.",
     "Record the campaign result and exact artifact hashes in a result PR regardless of outcome, applying only the preregistered decision rules above."
   ],
-  "owner_decisions_required_at_approval": [
-    "Grant confirmatory execution approval for this K=5 campaign (20 runs, seeds 961-970, five fixed-order waves, 9-credit per-wave floor, estimated 25-30 credits plus secondary G3 grading).",
-    "Accept the sparse-outcome power risk recorded in known_power_risk.",
-    "Confirm that the old-generation confirmatory template (seeds 940-949) is superseded and permanently retired unexecuted.",
-    "Confirm whether the secondary G3 grading pass runs after the campaign under the sealed secondary_g3_contract (separate cost) or is deferred."
+  "owner_decisions_recorded_at_approval": [
+    "Approval #20 (2026-07-24): confirmatory execution approved for this K=5 campaign (20 runs, seeds 961-970, five fixed-order waves, 9-credit per-wave preflight, estimated 25-30 credits).",
+    "The sparse-outcome power risk recorded in known_power_risk is accepted; zero, mixed, or opposite outcomes are reported as preregistered without reseeding or redesign.",
+    "The old-generation confirmatory template (seeds 940-949) is superseded and permanently retired unexecuted.",
+    "The secondary G3 grading pass under the sealed secondary_g3_contract is deferred to a separate owner decision after the campaign result; it never gates M3 loss-event aggregation."
   ]
 }
