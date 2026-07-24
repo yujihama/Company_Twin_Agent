@@ -1,0 +1,360 @@
+{
+  "description": "M3 confirmatory K=5 campaign, workflow_support_v4 generation (approvals #14-#17), authored after the passing feasibility re-pilot #4 (plan phase3-m3-document-mutation-feasibility-repilot4-20260720, result 2026-07-21, pilot_gate.passed=true): five fresh same-seed R1 clarify pairs (seeds 961-965) and five fresh same-seed R4 contradict pairs (seeds 966-970), staged as five fixed-order sealed waves of four runs (one complete R1 pair plus one complete R4 pair per wave) so every spend boundary passes its own fail-closed 9-credit preflight (floor derived from re-pilot #4 measured wave costs 3.74+5.27 including infrastructure retries). Non-executable draft until a separate owner-approval commit flips the authorization booleans; seeds 961-970 are fresh and this campaign is never pooled with any prior generation (951/952 v0, 953/954 v1, 955/956 v2, 957/958 v3, 959/960 v4 re-pilot) nor with the frozen old-generation template (seeds 940-949, permanently retired unexecuted).",
+  "root": ".",
+  "concurrency": 2,
+  "stagger_seconds": 8,
+  "credit_guard": {
+    "minimum_credits": 9,
+    "abort_on_low_credits": true,
+    "require_available": true
+  },
+  "runs": [
+    {
+      "run_id": "m3_conf_v4_r1_control_seed961",
+      "stage": "s2",
+      "run_root": "runs/phase3_m3_confirmatory_v4_20260724/r1_control_seed961",
+      "seed": 961,
+      "ticks": 40,
+      "prompt_mode": "measurement",
+      "model": "openrouter:qwen/qwen3.6-flash",
+      "mutations": [],
+      "extra_args": [
+        "--circulate-notices",
+        "--workflow-support"
+      ]
+    },
+    {
+      "run_id": "m3_conf_v4_r1_clarify_seed961",
+      "stage": "s2",
+      "run_root": "runs/phase3_m3_confirmatory_v4_20260724/r1_clarify_seed961",
+      "seed": 961,
+      "ticks": 40,
+      "prompt_mode": "measurement",
+      "model": "openrouter:qwen/qwen3.6-flash",
+      "mutations": [
+        "clarify_elderly_understanding_sales_only"
+      ],
+      "extra_args": [
+        "--circulate-notices",
+        "--workflow-support"
+      ]
+    },
+    {
+      "run_id": "m3_conf_v4_r4_control_seed966",
+      "stage": "s2",
+      "run_root": "runs/phase3_m3_confirmatory_v4_20260724/r4_control_seed966",
+      "seed": 966,
+      "ticks": 40,
+      "prompt_mode": "measurement",
+      "model": "openrouter:qwen/qwen3.6-flash",
+      "mutations": [],
+      "extra_args": [
+        "--circulate-notices",
+        "--workflow-support"
+      ]
+    },
+    {
+      "run_id": "m3_conf_v4_r4_contradict_seed966",
+      "stage": "s2",
+      "run_root": "runs/phase3_m3_confirmatory_v4_20260724/r4_contradict_seed966",
+      "seed": 966,
+      "ticks": 40,
+      "prompt_mode": "measurement",
+      "model": "openrouter:qwen/qwen3.6-flash",
+      "mutations": [
+        "contradict_chat_approval_recorded"
+      ],
+      "extra_args": [
+        "--circulate-notices",
+        "--workflow-support"
+      ]
+    },
+    {
+      "run_id": "m3_conf_v4_r1_control_seed962",
+      "stage": "s2",
+      "run_root": "runs/phase3_m3_confirmatory_v4_20260724/r1_control_seed962",
+      "seed": 962,
+      "ticks": 40,
+      "prompt_mode": "measurement",
+      "model": "openrouter:qwen/qwen3.6-flash",
+      "mutations": [],
+      "extra_args": [
+        "--circulate-notices",
+        "--workflow-support"
+      ]
+    },
+    {
+      "run_id": "m3_conf_v4_r1_clarify_seed962",
+      "stage": "s2",
+      "run_root": "runs/phase3_m3_confirmatory_v4_20260724/r1_clarify_seed962",
+      "seed": 962,
+      "ticks": 40,
+      "prompt_mode": "measurement",
+      "model": "openrouter:qwen/qwen3.6-flash",
+      "mutations": [
+        "clarify_elderly_understanding_sales_only"
+      ],
+      "extra_args": [
+        "--circulate-notices",
+        "--workflow-support"
+      ]
+    },
+    {
+      "run_id": "m3_conf_v4_r4_control_seed967",
+      "stage": "s2",
+      "run_root": "runs/phase3_m3_confirmatory_v4_20260724/r4_control_seed967",
+      "seed": 967,
+      "ticks": 40,
+      "prompt_mode": "measurement",
+      "model": "openrouter:qwen/qwen3.6-flash",
+      "mutations": [],
+      "extra_args": [
+        "--circulate-notices",
+        "--workflow-support"
+      ]
+    },
+    {
+      "run_id": "m3_conf_v4_r4_contradict_seed967",
+      "stage": "s2",
+      "run_root": "runs/phase3_m3_confirmatory_v4_20260724/r4_contradict_seed967",
+      "seed": 967,
+      "ticks": 40,
+      "prompt_mode": "measurement",
+      "model": "openrouter:qwen/qwen3.6-flash",
+      "mutations": [
+        "contradict_chat_approval_recorded"
+      ],
+      "extra_args": [
+        "--circulate-notices",
+        "--workflow-support"
+      ]
+    },
+    {
+      "run_id": "m3_conf_v4_r1_control_seed963",
+      "stage": "s2",
+      "run_root": "runs/phase3_m3_confirmatory_v4_20260724/r1_control_seed963",
+      "seed": 963,
+      "ticks": 40,
+      "prompt_mode": "measurement",
+      "model": "openrouter:qwen/qwen3.6-flash",
+      "mutations": [],
+      "extra_args": [
+        "--circulate-notices",
+        "--workflow-support"
+      ]
+    },
+    {
+      "run_id": "m3_conf_v4_r1_clarify_seed963",
+      "stage": "s2",
+      "run_root": "runs/phase3_m3_confirmatory_v4_20260724/r1_clarify_seed963",
+      "seed": 963,
+      "ticks": 40,
+      "prompt_mode": "measurement",
+      "model": "openrouter:qwen/qwen3.6-flash",
+      "mutations": [
+        "clarify_elderly_understanding_sales_only"
+      ],
+      "extra_args": [
+        "--circulate-notices",
+        "--workflow-support"
+      ]
+    },
+    {
+      "run_id": "m3_conf_v4_r4_control_seed968",
+      "stage": "s2",
+      "run_root": "runs/phase3_m3_confirmatory_v4_20260724/r4_control_seed968",
+      "seed": 968,
+      "ticks": 40,
+      "prompt_mode": "measurement",
+      "model": "openrouter:qwen/qwen3.6-flash",
+      "mutations": [],
+      "extra_args": [
+        "--circulate-notices",
+        "--workflow-support"
+      ]
+    },
+    {
+      "run_id": "m3_conf_v4_r4_contradict_seed968",
+      "stage": "s2",
+      "run_root": "runs/phase3_m3_confirmatory_v4_20260724/r4_contradict_seed968",
+      "seed": 968,
+      "ticks": 40,
+      "prompt_mode": "measurement",
+      "model": "openrouter:qwen/qwen3.6-flash",
+      "mutations": [
+        "contradict_chat_approval_recorded"
+      ],
+      "extra_args": [
+        "--circulate-notices",
+        "--workflow-support"
+      ]
+    },
+    {
+      "run_id": "m3_conf_v4_r1_control_seed964",
+      "stage": "s2",
+      "run_root": "runs/phase3_m3_confirmatory_v4_20260724/r1_control_seed964",
+      "seed": 964,
+      "ticks": 40,
+      "prompt_mode": "measurement",
+      "model": "openrouter:qwen/qwen3.6-flash",
+      "mutations": [],
+      "extra_args": [
+        "--circulate-notices",
+        "--workflow-support"
+      ]
+    },
+    {
+      "run_id": "m3_conf_v4_r1_clarify_seed964",
+      "stage": "s2",
+      "run_root": "runs/phase3_m3_confirmatory_v4_20260724/r1_clarify_seed964",
+      "seed": 964,
+      "ticks": 40,
+      "prompt_mode": "measurement",
+      "model": "openrouter:qwen/qwen3.6-flash",
+      "mutations": [
+        "clarify_elderly_understanding_sales_only"
+      ],
+      "extra_args": [
+        "--circulate-notices",
+        "--workflow-support"
+      ]
+    },
+    {
+      "run_id": "m3_conf_v4_r4_control_seed969",
+      "stage": "s2",
+      "run_root": "runs/phase3_m3_confirmatory_v4_20260724/r4_control_seed969",
+      "seed": 969,
+      "ticks": 40,
+      "prompt_mode": "measurement",
+      "model": "openrouter:qwen/qwen3.6-flash",
+      "mutations": [],
+      "extra_args": [
+        "--circulate-notices",
+        "--workflow-support"
+      ]
+    },
+    {
+      "run_id": "m3_conf_v4_r4_contradict_seed969",
+      "stage": "s2",
+      "run_root": "runs/phase3_m3_confirmatory_v4_20260724/r4_contradict_seed969",
+      "seed": 969,
+      "ticks": 40,
+      "prompt_mode": "measurement",
+      "model": "openrouter:qwen/qwen3.6-flash",
+      "mutations": [
+        "contradict_chat_approval_recorded"
+      ],
+      "extra_args": [
+        "--circulate-notices",
+        "--workflow-support"
+      ]
+    },
+    {
+      "run_id": "m3_conf_v4_r1_control_seed965",
+      "stage": "s2",
+      "run_root": "runs/phase3_m3_confirmatory_v4_20260724/r1_control_seed965",
+      "seed": 965,
+      "ticks": 40,
+      "prompt_mode": "measurement",
+      "model": "openrouter:qwen/qwen3.6-flash",
+      "mutations": [],
+      "extra_args": [
+        "--circulate-notices",
+        "--workflow-support"
+      ]
+    },
+    {
+      "run_id": "m3_conf_v4_r1_clarify_seed965",
+      "stage": "s2",
+      "run_root": "runs/phase3_m3_confirmatory_v4_20260724/r1_clarify_seed965",
+      "seed": 965,
+      "ticks": 40,
+      "prompt_mode": "measurement",
+      "model": "openrouter:qwen/qwen3.6-flash",
+      "mutations": [
+        "clarify_elderly_understanding_sales_only"
+      ],
+      "extra_args": [
+        "--circulate-notices",
+        "--workflow-support"
+      ]
+    },
+    {
+      "run_id": "m3_conf_v4_r4_control_seed970",
+      "stage": "s2",
+      "run_root": "runs/phase3_m3_confirmatory_v4_20260724/r4_control_seed970",
+      "seed": 970,
+      "ticks": 40,
+      "prompt_mode": "measurement",
+      "model": "openrouter:qwen/qwen3.6-flash",
+      "mutations": [],
+      "extra_args": [
+        "--circulate-notices",
+        "--workflow-support"
+      ]
+    },
+    {
+      "run_id": "m3_conf_v4_r4_contradict_seed970",
+      "stage": "s2",
+      "run_root": "runs/phase3_m3_confirmatory_v4_20260724/r4_contradict_seed970",
+      "seed": 970,
+      "ticks": 40,
+      "prompt_mode": "measurement",
+      "model": "openrouter:qwen/qwen3.6-flash",
+      "mutations": [
+        "contradict_chat_approval_recorded"
+      ],
+      "extra_args": [
+        "--circulate-notices",
+        "--workflow-support"
+      ]
+    }
+  ],
+  "waves": [
+    {
+      "wave_id": "wave-1",
+      "run_ids": [
+        "m3_conf_v4_r1_control_seed961",
+        "m3_conf_v4_r1_clarify_seed961",
+        "m3_conf_v4_r4_control_seed966",
+        "m3_conf_v4_r4_contradict_seed966"
+      ]
+    },
+    {
+      "wave_id": "wave-2",
+      "run_ids": [
+        "m3_conf_v4_r1_control_seed962",
+        "m3_conf_v4_r1_clarify_seed962",
+        "m3_conf_v4_r4_control_seed967",
+        "m3_conf_v4_r4_contradict_seed967"
+      ]
+    },
+    {
+      "wave_id": "wave-3",
+      "run_ids": [
+        "m3_conf_v4_r1_control_seed963",
+        "m3_conf_v4_r1_clarify_seed963",
+        "m3_conf_v4_r4_control_seed968",
+        "m3_conf_v4_r4_contradict_seed968"
+      ]
+    },
+    {
+      "wave_id": "wave-4",
+      "run_ids": [
+        "m3_conf_v4_r1_control_seed964",
+        "m3_conf_v4_r1_clarify_seed964",
+        "m3_conf_v4_r4_control_seed969",
+        "m3_conf_v4_r4_contradict_seed969"
+      ]
+    },
+    {
+      "wave_id": "wave-5",
+      "run_ids": [
+        "m3_conf_v4_r1_control_seed965",
+        "m3_conf_v4_r1_clarify_seed965",
+        "m3_conf_v4_r4_control_seed970",
+        "m3_conf_v4_r4_contradict_seed970"
+      ]
+    }
+  ]
+}

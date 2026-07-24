@@ -1,6 +1,15 @@
 # 統制環境ツイン 作業状況メモ
 
-最終更新: 2026-07-21 — **M3再パイロット#4: 判定go(M3系初合格・§17.38)。完了21件(基準3)・R3イベント0・全ゲート通過。confirmatory前提成立——次はオーナー判断=新世代confirmatory封印plan(概算25〜30+採点費)+承認#19計器の初回実測plan。残高5.50**
+最終更新: 2026-07-24 — **新世代confirmatory封印plan(v4・K=5・20 run・seed 961〜970・5波×床9)を非実行ドラフトとして起草。残るはオーナー承認(承認コミットでkind/フラグ反転=実行封印)。チャージ済み残高20.50(概算25〜30のため波間で追いチャージ想定・床9がfail-closedで防護)**
+
+## 0-J. 新世代confirmatory封印planドラフト(2026-07-24)
+
+- `docs/progress/phase3_m3_loss_campaign_v4_plan_20260724.json` + 同batch。workflow_support_v4世代・K=5(R1明確化ペア seed 961〜965、R4矛盾ペア seed 966〜970)・20 run・5波固定順(各波=R1ペア+R4ペア)
+- **非実行ドラフト**: `kind=pre_execution_confirmatory_plan_draft`・承認/実行フラグfalse。managed集計は`pre_execution_sealed_plan`以外を拒否することをテストで実証(`tests/test_m3_confirmatory_v4_plan.py`)。実行封印は別PRのオーナー承認コミット(kind変更+フラグ反転)のマージコミット
+- 波あたりクレジット床は9(再パイロット#4実測: R1ペア3.74+R4ペア5.27、リトライ込み)。旧床7は2026-07-06型の飛行中残高切れを許し得るため引き上げ
+- pilot前提は再パイロット#4のgo結果にsha256で束縛(plan/result両ファイル)。seed 959/960は恒久焼却、旧世代テンプレート(seed 940〜949)は未実行のまま本planで置換・恒久退役
+- 判定規則は旧テンプレートの事前登録を踏襲(機会分母発生率・Wilson 95%・same-seed差の4/5符号規則・R3完全性ゲート・スピルオーバー記述報告)。secondary G3契約(qwen3.6-plus・prompt v3)も同値で封印
+- 残高20.50(2026-07-24チャージ後実測)。オーナー承認時の判断事項はplan内`owner_decisions_required_at_approval`に列挙
 
 ## 0-I. M3再パイロット#4結果: go・M3系初合格(2026-07-21)
 
