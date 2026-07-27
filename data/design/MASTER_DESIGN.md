@@ -2408,6 +2408,31 @@ K=5計画を起草・凍結した(PR #115、`docs/progress/phase3_m3_loss_campai
 実行許可の証拠となり、全波・リトライ・成果物・集計はその同一コミットで行う。承認時
 残高20.50(概算25〜30のため途中で追加チャージを想定。波ごとの残高検査が安全に停止する)。
 
+### 17.40 M3 confirmatory本実験(v4)結果: 主要判定は両contrastとも候補なし・初の実損失事象3件(2026-07-27)
+
+**実行.** 実行封印 `ef6e38be`(PR #116)で全20 run完走。5波+リトライのmanifest連鎖18件、
+全リトライは封印規則内(同一seed・別ディレクトリ・部分削除、再抽選なし)。実行環境の停止
+2回と提供元(Alibaba)の429/quota枯渇/不正JSON応答が多発し、費用は約64.3(完走正味
+約38〜39=約1.9/run、残りは障害損失)。バックオフ45分・75分を各1回実施。
+
+**完全性: 全て合格。** campaign完全性passed・causal_interpretation_allowed=true・回覧
+ゲート20/20・R3番兵は完了由来機会70に対しイベント0(Wilson 95%上限5.2%)。
+
+**主要判定(事前登録規則).** 両contrastとも割当エンドポイントの発生が両腕0(各0/10機会、
+same-seed差5ペア全て0)で**方向性候補なし**。全ゼロは同等性の主張に使えず結論保留のまま
+報告する(承認#20で受容した検出力リスクの実現)。direct detectionは封印どおりN/A。
+
+**初の実損失事象(記述報告のみ).** R4類型(承認なし完了、probe P-11)が3件、いずれも
+R1側割当runの中で発生(control seed 963/964・clarify seed 962)。全世代を通じて損失事象の
+発生到達はこれが初。事前登録上スピルオーバーの記述報告枠であり、効果主張・主要比較への
+合算はできない。仮説生成として、次期封印設計の候補は①1 runへの両エンドポイント族の割当
+②run当たり機会数の増加。
+
+**次のオーナー判断候補.** ①スピルオーバーを踏まえた次期封印設計 ②secondary G3採点
+(承認#20で先送り)の実施可否 ③承認#19計器の初回実測plan。受領書:
+`docs/progress/phase3_m3_confirmatory_v4_result_20260727.{md,json}`、
+テスト: `tests/test_m3_confirmatory_v4_result.py`。
+
 ## 18. WP-12 parallel world-run executor (並列実行、2026-07-05)
 
 Phase-3 experiments run batches of independent S0/S1/S2/control-pair worlds
