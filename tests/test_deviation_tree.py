@@ -19,6 +19,7 @@ from company_twin.deviation_tree import (
     TreeConfig,
     candidate_generation_prompt,
     classify_branch_outcome,
+    constructed_decision_context,
     explore_deviation_tree,
     parse_candidate_actions,
 )
@@ -159,10 +160,10 @@ def test_tree_explores_each_candidate_and_classifies_outcomes(tmp_path: Path, se
     assert len(outcomes) == 2
     # the unapproved completion is executable here, so that branch must reach
     # the goal (or be caught) -- never silently vanish
-    assert outcomes["d0-b00"] in {OUTCOME_GOAL_REACHED, OUTCOME_CAUGHT, "inconclusive"}
+    assert outcomes["root-d0b00"] in {OUTCOME_GOAL_REACHED, OUTCOME_CAUGHT, "inconclusive"}
     # delivering documents before a contract exists is refused by the state
     # machine: a preventive control, reported as such
-    assert outcomes["d0-b01"] == OUTCOME_ACTION_REFUSED
+    assert outcomes["root-d0b01"] == OUTCOME_ACTION_REFUSED
     assert (tmp_path / "tree_out" / "deviation_tree.json").exists()
 
 
@@ -210,3 +211,69 @@ def test_tree_reports_the_caps_that_actually_bit(tmp_path: Path, seat_factory) -
     # a truncated tree must never read as an exhausted one
     assert summary["worlds_executed"] == 1
     assert any("max_worlds" in note for note in summary["caps_hit"])
+
+
+def test_tree_expands_only_undecided_worlds_and_labels_deeper_contexts(tmp_path: Path, seat_factory) -> None:
+    """Depth>0 must re-branch worlds that are still undecided -- and only
+    those: a world already caught or already at its goal has answered the
+    question for its path, so spending another world on it is waste."""
+    design = load_design(Path.cwd())
+    source = _source_world(tmp_path, "depth_source")
+    fork_ordinal = len(read_jsonl(source / "world_ledger.jsonl"))
+    corpus = Corpus.from_design(design)
+
+    # request_approval neither completes the case nor gets it returned, so
+    # its world stays undecided and must be expanded once more.
+    generated = json.dumps(
+        [{"tool": "request_approval", "args": {"approver_role": "manager", "reason": "急ぎ"}, "why": "形だけ出す"}],
+        ensure_ascii=False,
+    )
+    calls: list[str] = []
+
+    def generate(prompt: str) -> str:
+        calls.append(prompt)
+        return generated
+
+    def continuation(kernel, **kwargs):
+        from company_twin.branch_execution import run_branch_continuation
+
+        return run_branch_continuation(
+            kernel,
+            metadata=kwargs["metadata"],
+            design=design,
+            corpus=corpus,
+            ticks=kwargs["ticks"],
+            allow_spend=True,
+            seat_factory=seat_factory,
+            injected_action=kwargs.get("injected_action"),
+        )
+
+    summary = explore_deviation_tree(
+        design=design,
+        source_run_root=source,
+        decision_context="受信箱: 案件 APP-P-04 の対応をお願いします。",
+        application_id="APP-P-04",
+        fork_ordinal=fork_ordinal,
+        seat_id="emp-C",
+        output_root=tmp_path / "depth_out",
+        config=TreeConfig(max_branches_per_node=1, max_depth=1, max_worlds=4, continuation_ticks=1),
+        generate=generate,
+        continuation_runner=continuation,
+    )
+
+    depths = sorted({node["depth"] for node in summary["nodes"]})
+    assert depths == [0, 1], summary["nodes"]
+    # the deeper generation was asked about the branch's own state, not the
+    # original historical turn
+    assert len(calls) == 2
+    assert "現在の状態" in calls[1]
+    # and the depth cap is reported when it stops further expansion
+    assert any("max_depth" in note for note in summary["caps_hit"])
+
+
+def test_constructed_context_is_labelled_and_reads_the_branch_ledger(tmp_path: Path) -> None:
+    source = _source_world(tmp_path, "ctx_source")
+    context = constructed_decision_context(source, "APP-P-04")
+    assert context["context_source"] == "constructed_from_branch_state"
+    assert context["status"] == "review_linked"
+    assert "APP-P-04" in context["prompt"]

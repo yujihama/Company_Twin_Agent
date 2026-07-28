@@ -266,6 +266,47 @@ def _seat_tool_names() -> set[str]:
     return set(CONTROLLED_TOOLS)
 
 
+def constructed_decision_context(run_root: Path, application_id: str) -> dict[str, Any]:
+    """Describe where a case stands in a world we already branched into.
+
+    Depth 0 uses a faithfully RECONSTRUCTED historical turn, machine-checked
+    against the source run. Deeper levels cannot: the branch's own inbox
+    state is not reproducible from the ledger alone (`_apply_ledger_event`
+    rebuilds application state, not inbox queues). So this builds the context
+    from ledger facts about the case instead, and labels itself as
+    constructed -- the two kinds of context are never conflated in the
+    report.
+    """
+    rows = read_jsonl(Path(run_root) / "world_ledger.jsonl")
+    history: list[str] = []
+    status = "不明"
+    product = ""
+    last_tick = 0
+    for row in rows:
+        payload = row.get("payload") or {}
+        if str(payload.get("application_id") or "") != application_id:
+            continue
+        event_type = str(row.get("event_type") or "")
+        tick = int(row.get("tick") or 0)
+        last_tick = max(last_tick, tick)
+        product = product or str(payload.get("product") or "")
+        if payload.get("status"):
+            status = str(payload["status"])
+        history.append(f"{tick}コマ目: {event_type}")
+    lines = "\n".join(f"- {entry}" for entry in history[-8:])
+    prompt = (
+        f"案件 {application_id}({product or '商品未記載'})の現在の状況です。\n"
+        f"現在の状態: {status}\n"
+        f"直近の経緯:\n{lines}\n"
+    )
+    return {
+        "prompt": prompt,
+        "context_source": "constructed_from_branch_state",
+        "tick": last_tick,
+        "status": status,
+    }
+
+
 def reconstruct_decision_context(source_run_root: Path, probe_id: str) -> dict[str, Any]:
     """Faithfully rebuild the decision-point context the generator reasons
     about, carrying the reconstruction's own machine checks so a context that
@@ -273,6 +314,7 @@ def reconstruct_decision_context(source_run_root: Path, probe_id: str) -> dict[s
     reconstruction = reconstruct_probe_turn(Path(source_run_root), probe_id=probe_id)
     return {
         "prompt": reconstruction.prompt,
+        "context_source": "reconstructed_turn",
         "seat_id": reconstruction.seat_id,
         "tick": reconstruction.tick,
         "fidelity": reconstruction.fidelity,
@@ -307,69 +349,104 @@ def explore_deviation_tree(
     allowed = _seat_tool_names()
     seat_role = design.seats[seat_id].role
 
-    prompt = candidate_generation_prompt(decision_context, seat_role, sorted(allowed))
-    raw = generate(prompt)
-    candidates = parse_candidate_actions(raw, allowed_tools=allowed, limit=config.max_branches_per_node)
-
     nodes: list[TreeNode] = []
     caps_hit: list[str] = []
-    worlds_used = 0
-    for index, candidate in enumerate(candidates):
-        if worlds_used >= config.max_worlds:
-            caps_hit.append(f"max_worlds={config.max_worlds} reached; {len(candidates) - index} candidate(s) not executed")
-            break
-        node = TreeNode(
-            node_id=f"d0-b{index:02d}",
-            depth=0,
-            action=candidate,
-            fork_ordinal=fork_ordinal,
+    all_candidates: list[dict[str, Any]] = []
+    state = {"worlds_used": 0}
+    runner = continuation_runner or run_branch_continuation
+
+    def expand(*, parent_id: str, depth: int, from_run_root: Path, at_ordinal: int, context: str) -> None:
+        """Branch one node: generate candidates, run a world per candidate,
+        then recurse into whichever worlds are still undecided."""
+        prompt = candidate_generation_prompt(context, seat_role, sorted(allowed))
+        candidates = parse_candidate_actions(
+            generate(prompt), allowed_tools=allowed, limit=config.max_branches_per_node
         )
-        run_root = output_root / node.node_id
-        try:
-            kernel, metadata = rebuild_kernel_state(
-                source_run_root,
-                0,
-                run_root,
-                design_root=design_root,
-                up_to_ordinal=fork_ordinal,
+        all_candidates.extend({"depth": depth, "parent": parent_id, **candidate} for candidate in candidates)
+        undecided: list[tuple[str, Path]] = []
+        for index, candidate in enumerate(candidates):
+            if state["worlds_used"] >= config.max_worlds:
+                caps_hit.append(
+                    f"max_worlds={config.max_worlds} reached at depth {depth}; "
+                    f"{len(candidates) - index} candidate(s) under {parent_id} not executed"
+                )
+                return
+            node = TreeNode(
+                node_id=f"{parent_id}-d{depth}b{index:02d}",
+                depth=depth,
+                action=candidate,
+                fork_ordinal=at_ordinal,
             )
-            args = _complete_args(candidate["args"], tool=candidate["tool"], seat_id=seat_id, application_id=application_id, why=candidate.get("why", ""))
-            _register_scaffolding_read(kernel, seat_id)
-            result = inject_branch_action(kernel, {"tool": candidate["tool"], "args": args})
-        except (BranchExecutionError, TypeError, ValueError) as exc:
-            node.outcome = OUTCOME_ACTION_REFUSED
-            node.evidence = {"error": f"{type(exc).__name__}: {exc}"[:300]}
-            nodes.append(node)
-            continue
-        worlds_used += 1
-        if isinstance(result, dict) and result.get("denied_reason"):
-            # The world's hard constraints refused the act. That is a
-            # first-class result: the control is preventive, not detective.
-            node.outcome = OUTCOME_ACTION_REFUSED
-            node.evidence = {"denied_reason": result.get("denied_reason")}
+            run_root = output_root / node.node_id
+            try:
+                kernel, metadata = rebuild_kernel_state(
+                    from_run_root, 0, run_root, design_root=design_root, up_to_ordinal=at_ordinal
+                )
+                args = _complete_args(
+                    candidate["args"],
+                    tool=candidate["tool"],
+                    seat_id=seat_id,
+                    application_id=application_id,
+                    why=candidate.get("why", ""),
+                )
+                _register_scaffolding_read(kernel, seat_id)
+                result = inject_branch_action(kernel, {"tool": candidate["tool"], "args": args})
+            except (BranchExecutionError, TypeError, ValueError) as exc:
+                node.outcome = OUTCOME_ACTION_REFUSED
+                node.evidence = {"error": f"{type(exc).__name__}: {exc}"[:300]}
+                nodes.append(node)
+                continue
+            state["worlds_used"] += 1
+            if isinstance(result, dict) and result.get("denied_reason"):
+                # The world's hard constraints refused the act. That is a
+                # first-class result: the control is preventive, not detective.
+                node.outcome = OUTCOME_ACTION_REFUSED
+                node.evidence = {"denied_reason": result.get("denied_reason")}
+                node.run_root = str(run_root)
+                nodes.append(node)
+                continue
+
+            injection_ordinal = len(read_jsonl(run_root / "world_ledger.jsonl"))
+            runner(
+                kernel,
+                metadata=metadata,
+                allow_spend=True,
+                ticks=config.continuation_ticks,
+                design=design,
+                corpus=None,
+                injected_action={"tool": candidate["tool"], "args": args, "result": result},
+            )
+            verdict = classify_branch_outcome(
+                run_root, application_id=application_id, from_ordinal=injection_ordinal
+            )
+            node.outcome = verdict["outcome"]
+            node.evidence = verdict
             node.run_root = str(run_root)
             nodes.append(node)
-            continue
+            if verdict["outcome"] == OUTCOME_INCONCLUSIVE:
+                undecided.append((node.node_id, run_root))
 
-        injection_ordinal = len(read_jsonl(run_root / "world_ledger.jsonl"))
-        runner = continuation_runner or run_branch_continuation
-        runner(
-            kernel,
-            metadata=metadata,
-            allow_spend=True,
-            ticks=config.continuation_ticks,
-            design=design,
-            corpus=None,
-            injected_action={"tool": candidate["tool"], "args": args, "result": result},
-        )
-        verdict = classify_branch_outcome(run_root, application_id=application_id, from_ordinal=injection_ordinal)
-        node.outcome = verdict["outcome"]
-        node.evidence = verdict
-        node.run_root = str(run_root)
-        nodes.append(node)
+        # Only undecided worlds are worth another deviation: a world already
+        # caught or already at its goal has answered the question for its path.
+        if depth >= config.max_depth:
+            if undecided:
+                caps_hit.append(
+                    f"max_depth={config.max_depth} reached; {len(undecided)} undecided world(s) not expanded further"
+                )
+            return
+        for child_id, child_root in undecided:
+            child_context = constructed_decision_context(child_root, application_id)
+            expand(
+                parent_id=child_id,
+                depth=depth + 1,
+                from_run_root=child_root,
+                at_ordinal=len(read_jsonl(child_root / "world_ledger.jsonl")),
+                context=child_context["prompt"],
+            )
 
-    if config.max_depth > 0 and any(node.outcome == OUTCOME_INCONCLUSIVE for node in nodes):
-        caps_hit.append("depth>0 re-branching is not implemented in v1; inconclusive worlds were not expanded")
+    expand(parent_id="root", depth=0, from_run_root=source_run_root, at_ordinal=fork_ordinal, context=decision_context)
+    candidates = all_candidates
+    worlds_used = state["worlds_used"]
 
     summary = {
         "schema_version": DEVIATION_TREE_SCHEMA_VERSION,
