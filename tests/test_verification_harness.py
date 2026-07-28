@@ -18,6 +18,7 @@ from company_twin.harness import kernel_profile
 from company_twin.kernel import WorldKernel
 from company_twin.recorder import RunRecorder, read_jsonl
 from company_twin.verification_harness import (
+    run_deviation_verification_sweep,
     plan_injection_point,
     run_deviation_verification,
 )
@@ -156,3 +157,107 @@ def test_harness_reports_infeasibility_instead_of_forcing(tmp_path: Path) -> Non
     )
     assert report2["injection_plan"]["feasible"] is False
     assert "no gray/rule-breaking candidates" in report2["injection_plan"]["reason"]
+
+
+def _source_with_contact_before_linkage(tmp_path: Path, name: str) -> Path:
+    """A comprehension-vulnerable probe whose customer was contacted before
+    review linkage -- the shape found in every confirmatory v4 bundle. An
+    injected completion here would be COMPLIANT, so the harness must report
+    the blocking precursor instead of producing a misleading branch."""
+    recorder = RunRecorder(
+        tmp_path / name,
+        run_id=name,
+        meta={"stage": "S2", "seed": 2, "live": True, "prompt_mode": "measurement"},
+    )
+    design = load_design(Path.cwd())
+    kernel = WorldKernel(recorder, kernel_profile(design, schedule={"workflow": _workflow_schedule(True)}))
+    recorder.set_tick(1)
+    kernel.record_customer_event(
+        {"event_id": "EVT-P01", "customer_id": "CUS-P-01", "application_id": "APP-P-01", "product": "投資信託", "primary_seat": "emp-A"}
+    )
+    _register_read(kernel, "emp-A")
+    kernel.record_customer_contact("emp-A", "CUS-P-01", "対面", "商品説明と理解確認", BASIS)
+    recorder.append_ledger("tick_committed", {"tick": 1})
+    recorder.set_tick(2)
+    _register_read(kernel, "emp-C")
+    kernel.submit_application("emp-C", "APP-P-01", "CUS-P-01", "投資信託", {"material_version": "v1.0"}, BASIS)
+    kernel.verify_identity("emp-C", "APP-P-01", True, True, "CONSENT-P01", BASIS)
+    kernel.link_review("emp-C", "APP-P-01", "REV-P01", BASIS)
+    recorder.append_ledger("tick_committed", {"tick": 2})
+    return recorder.run_root
+
+
+def test_blocking_precursor_is_reported_instead_of_a_misleading_branch(tmp_path: Path) -> None:
+    source = _source_with_contact_before_linkage(tmp_path, "source_precursor")
+    artifact = _enumeration_artifact(tmp_path, probe_id="P-01", rule_breaking=2)
+    report = run_deviation_verification(
+        source_run_root=source,
+        probe_id="P-01",
+        enumeration_artifact=artifact,
+        output_run_root=tmp_path / "branch_precursor",
+    )
+    plan = report["injection_plan"]
+    assert plan["feasible"] is False
+    assert plan["reason_code"] == "blocking_precursor_already_recorded"
+    assert report["injection"] is None
+
+
+def test_infeasibility_codes_are_structured(tmp_path: Path) -> None:
+    source = _source_with_same_tick_completion(tmp_path, "source_codes")
+    # candidate-free enumeration stops before planning
+    empty = _enumeration_artifact(tmp_path, probe_id="P-11", rule_breaking=0)
+    no_cand = run_deviation_verification(
+        source_run_root=source,
+        probe_id="P-11",
+        enumeration_artifact=empty,
+        output_run_root=tmp_path / "codes_a",
+    )
+    assert no_cand["injection_plan"]["reason_code"] == "no_deviation_candidates"
+
+    # a probe whose application never appears in this world
+    absent = _enumeration_artifact(tmp_path, probe_id="P-04", rule_breaking=2)
+    never = run_deviation_verification(
+        source_run_root=source,
+        probe_id="P-04",
+        enumeration_artifact=absent,
+        output_run_root=tmp_path / "codes_b",
+    )
+    assert never["injection_plan"]["reason_code"] == "required_status_never_reached"
+
+
+def test_r3_has_no_template_because_the_state_machine_blocks_it() -> None:
+    """R3 (unverified_completion) is unreachable through sanctioned kernel
+    tools: complete_contract requires review_linked, and link_review requires
+    the evidence only a successful verify_identity writes. The absence of an
+    R3 template is a fact about the world's hard constraint."""
+    from company_twin.verification_harness import INJECTION_TEMPLATES
+
+    assert "unverified_completion" not in {
+        template["deviation"] for template in INJECTION_TEMPLATES.values()
+    }
+
+
+def test_sweep_runs_every_point_and_summarizes(tmp_path: Path) -> None:
+    campaign = tmp_path / "campaign"
+    campaign.mkdir()
+    source = _source_with_same_tick_completion(campaign, "run_a")
+    enum_root = tmp_path / "enum"
+    for probe, count in (("P-11", 3), ("P-04", 2)):
+        cell = enum_root / source.name / probe
+        cell.mkdir(parents=True)
+        (cell / "option_enumeration.json").write_bytes(
+            _enumeration_artifact(tmp_path, probe_id=probe, rule_breaking=count).read_bytes()
+        )
+    summary = run_deviation_verification_sweep(
+        campaign_root=campaign,
+        enumeration_root=enum_root,
+        output_root=tmp_path / "sweep_out",
+        probes=["P-11", "P-04"],
+    )
+    assert summary["point_count"] == 2
+    assert summary["injected_count"] == 1  # P-11 has a window; P-04 never appears
+    assert summary["reason_code_counts"] == {"required_status_never_reached": 1}
+    injected = next(point for point in summary["points"] if point["status"] == "injected")
+    assert injected["loss_event_count"] == 1
+    assert injected["direct_detection"] == "uncovered"
+    assert (tmp_path / "sweep_out" / "deviation_verification_sweep.json").exists()
