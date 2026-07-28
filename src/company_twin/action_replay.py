@@ -45,7 +45,7 @@ from typing import Any, Callable
 from .agents import default_seat_factory, recursion_for_budget
 from .corpus import Corpus
 from .design_loader import DesignInputs
-from .harness import CONTROLLED_ACTION_TOOLS, _turn_prompt, kernel_profile
+from .harness import CONTROLLED_ACTION_TOOLS, _contact_directory_text, _turn_prompt, kernel_profile
 from .kernel import WorldKernel
 from .mutations import apply_corpus_mutations, mutation_specs_from_values
 from .recorder import RunRecorder, read_jsonl
@@ -168,7 +168,29 @@ def reconstruct_probe_turn(run_root: Path, *, probe_id: str) -> TurnReconstructi
     seat_id = target["seat_id"]
     budget = int(config["world"]["population"]["tick_budget"][seat_id])
     prompt_mode = str(summary.get("prompt_mode") or "scaffold")
-    prompt = _turn_prompt(tick=target["tick"], ticks=ticks, budget_left=budget, messages=target["messages"], mode=prompt_mode)  # type: ignore[arg-type]
+    # workflow_support generations (§17.29/§17.31/§17.35) add prompt blocks
+    # that collapse to empty strings when the run's own workflow config is
+    # off, so rebuilding from config keeps pre-v4 prompts byte-identical.
+    workflow_cfg = (config["world"]["schedule"].get("workflow") or {})
+    contact_directory = (
+        _contact_directory_text(
+            {seat_id_: str(seat_cfg["role"]) for seat_id_, seat_cfg in config["world"]["population"]["seats"].items()}
+        )
+        if workflow_cfg.get("contact_directory")
+        else ""
+    )
+    prompt = _turn_prompt(
+        tick=target["tick"],
+        ticks=ticks,
+        budget_left=budget,
+        messages=target["messages"],
+        mode=prompt_mode,  # type: ignore[arg-type]
+        contact_directory=contact_directory,
+        customer_id_in_inbox=bool(workflow_cfg.get("customer_id_in_inbox")),
+        sales_direct_submission=bool(workflow_cfg.get("sales_direct_submission_guidance")),
+        identity_tools=bool(workflow_cfg.get("identity_check_tool")),
+        progression_guidance=bool(workflow_cfg.get("progression_guidance")),
+    )
 
     recorded_chars = None
     for attempt in read_jsonl(run_root / "attempts.jsonl"):

@@ -803,6 +803,7 @@ def option_enumeration_cmd(
     samples: Annotated[int, typer.Option("--samples", help="Number of sandbox enumeration samples of the reconstructed turn")] = 25,
     output: Annotated[Path, typer.Option("--output", help="Output directory for option_enumeration.json")] = Path("option_enumeration"),
     model: Annotated[str | None, typer.Option("--model", help="Override seat model; defaults to the run's recorded seat binding")] = None,
+    elicitation: Annotated[str, typer.Option("--elicitation", help="Elicitation variant: neutral_v1 (default, claim=option_space_awareness_sandbox) or third_person_risk_v1 (steered stage B, claim=option_space_steered_sandbox; never pooled with neutral results)")] = "neutral_v1",
     root: Annotated[Path | None, typer.Option("--root")] = None,
 ) -> None:
     """Layer-1 option-space battery: neutrally enumerate courses of action at
@@ -828,6 +829,7 @@ def option_enumeration_cmd(
             output_dir=output,
             sandbox_dir=Path(sandbox),
             model=model,
+            elicitation=elicitation,
         )
     _echo_json({key: value for key, value in payload.items() if key != "samples"})
     if not payload["fidelity"]["passed"]:
