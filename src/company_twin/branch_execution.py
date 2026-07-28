@@ -205,11 +205,20 @@ def rebuild_kernel_state(
     output_run_root: Path,
     *,
     design_root: Path | None = None,
+    up_to_ordinal: int | None = None,
 ) -> tuple[WorldKernel, dict[str, Any]]:
     """Validate the source ledger's hash chain, then deterministically
     reconstruct `WorldKernel.applications` by replaying its lifecycle events
     up to `up_to_tick`, attaching a NEW `BranchRunRecorder` rooted at
-    `output_run_root`."""
+    `output_run_root`.
+
+    With `up_to_ordinal` set, the fork point is a LEDGER ROW instead of a
+    tick boundary: rows with ordinal < up_to_ordinal are replayed, strictly
+    in chain order, and `up_to_tick` is ignored. This is what makes an
+    injection point exist inside a tick -- in the confirmatory v4 campaign
+    every approval-required application completed within the same tick it
+    was review-linked, so a tick-granularity fork has no valid injection
+    point at all (§17.40 boundary)."""
     source_run_root = Path(source_run_root).resolve()
     output_run_root = Path(output_run_root).resolve()
     ledger_path = source_run_root / "world_ledger.jsonl"
@@ -218,6 +227,14 @@ def rebuild_kernel_state(
         raise BranchExecutionError(f"source world ledger is empty: {ledger_path}")
     _validate_source_ledger_chain(source_ledger)  # fail closed BEFORE any reconstruction
     source_ledger_sha256 = hashlib.sha256(ledger_path.read_bytes()).hexdigest()
+    if up_to_ordinal is not None:
+        if not isinstance(up_to_ordinal, int) or isinstance(up_to_ordinal, bool):
+            raise BranchExecutionError("up_to_ordinal must be an integer ledger ordinal")
+        if up_to_ordinal < 1 or up_to_ordinal > len(source_ledger):
+            raise BranchExecutionError(
+                f"up_to_ordinal {up_to_ordinal} is outside the source ledger (1..{len(source_ledger)})"
+            )
+        up_to_tick = int(source_ledger[up_to_ordinal - 1].get("tick") or 0)
 
     meta_path = source_run_root / "meta.json"
     source_meta = json.loads(meta_path.read_text(encoding="utf-8")) if meta_path.exists() else {}
@@ -237,6 +254,7 @@ def rebuild_kernel_state(
             "source_run_root": str(source_run_root),
             "source_ledger_sha256": source_ledger_sha256,
             "fork_tick": int(up_to_tick),
+            "fork_ordinal": up_to_ordinal,
             "stage": source_meta.get("stage"),
             "seed": source_meta.get("seed"),
         },
@@ -244,9 +262,12 @@ def rebuild_kernel_state(
     kernel = WorldKernel(recorder, profile)
 
     replayed_rows = 0
-    for row in source_ledger:
+    for ordinal, row in enumerate(source_ledger):
         tick = int(row.get("tick") or 0)
-        if tick > int(up_to_tick):
+        if up_to_ordinal is not None:
+            if ordinal >= up_to_ordinal:
+                break
+        elif tick > int(up_to_tick):
             continue
         event_type = str(row.get("event_type") or "")
         payload = dict(row.get("payload") or {})
@@ -260,6 +281,7 @@ def rebuild_kernel_state(
         "source_run_root": str(source_run_root),
         "source_ledger_sha256": source_ledger_sha256,
         "fork_tick": int(up_to_tick),
+        "fork_ordinal": up_to_ordinal,
         "replayed_ledger_rows": replayed_rows,
         "application_count": len(kernel.applications),
         "stage": source_meta.get("stage") or "S2",

@@ -2454,6 +2454,27 @@ R1側割当runの中で発生(control seed 963/964・clarify seed 962)。全世�
 `docs/progress/option_enum_first_result_20260728.md` +
 `option_enum_first_pooled_20260728.json`。
 
+### 17.42 一気通貫の逸脱検証ハーネスv1と第3層初回実測(2026-07-28、プロジェクトオーナー承認 #21)
+
+**承認 #21(オーナー指示).** 「各ポイントで測定、逸脱候補があれば並行で実行して統制で
+検知されるか観察、を一貫で実施する検証ハーネスを整える」。実装は (1) コマ内分岐=
+`rebuild_kernel_state(up_to_ordinal=…)`(台帳行単位のfork、§17.40の同一コマ内完了問題を
+解消。CLI `branch-inject --fork-ordinal`)、(2) 統合ハーネス
+`src/company_twin/verification_harness.py`(CLI `deviation-verify`): 第1層の既存測定資産
+→逸脱候補→注入テンプレート照合→注入窓の機械探索→分岐・注入(実験者起源)→無変更
+オラクル+監視突合→統一レポート。不可能性(窓なし・候補なし・テンプレート外)は強行
+せず理由を記録する第一級の結果。live継続つき注入は引き続き封印plan+実行承認を要する。
+
+**初回スイープ(費用ゼロ).** confirmatory v4の40決定点を走査: 候補あり39/40、注入窓
+あり3(P-11、seed 962/963/964——行単位分岐で初めて到達可能に)、注入3/3成功、
+各分岐で損失オラクルが**ちょうど1件のR4損失事象を登録**。監視突合の判定は3件全て
+**direct uncovered・関連統制シグナル0**——「承認なし完了は起きても現在の監視網では
+捕捉されない」ことの初の運用条件下実証(§17.27のカタログ推定の実測確認)。検知率を
+非ゼロにし得る世界内の直接発見統制の追加は世界条件変更=オーナー承認事項として次の
+判断候補。受領書: `docs/progress/deviation_verification_first_result_20260728.md` +
+`deviation_verification_sweep_20260728.json`、
+テスト: `tests/test_verification_harness.py`。
+
 ## 18. WP-12 parallel world-run executor (並列実行、2026-07-05)
 
 Phase-3 experiments run batches of independent S0/S1/S2/control-pair worlds
