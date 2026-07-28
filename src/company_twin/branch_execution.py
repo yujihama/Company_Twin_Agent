@@ -53,7 +53,7 @@ from typing import Any, Callable
 from .agents import SeatFactory, default_seat_factory, recursion_for_budget
 from .corpus import Corpus
 from .design_loader import DesignInputs, load_design
-from .harness import _turn_prompt, kernel_profile as _harness_kernel_profile
+from .harness import _contact_directory_text, _instantiate_seat, _turn_prompt, kernel_profile as _harness_kernel_profile
 from .kernel import CONTROLLED_TOOLS, WorldKernel
 from .loss_monitoring import WORLD_CONFIG_SCHEMA_VERSION, write_loss_event_monitoring
 from .loss_oracle import loss_event_findings
@@ -277,6 +277,12 @@ def rebuild_kernel_state(
         replayed_rows += 1
     recorder.set_tick(int(up_to_tick))
 
+    # Carry the source world's own generation settings so a live
+    # continuation runs the seats under the SAME conditions they had before
+    # the fork. Without this the branch silently reverts to a pre-v4 world
+    # (no contact directory, no identity tools, no worklist) and any
+    # "nobody noticed" reading would be confounded by the downgrade.
+    population = (source_config.get("world") or {}).get("population") or {}
     metadata = {
         "source_run_root": str(source_run_root),
         "source_ledger_sha256": source_ledger_sha256,
@@ -286,6 +292,11 @@ def rebuild_kernel_state(
         "application_count": len(kernel.applications),
         "stage": source_meta.get("stage") or "S2",
         "seed": source_meta.get("seed"),
+        "workflow": dict(schedule.get("workflow") or {}),
+        "tick_budget": dict(population.get("tick_budget") or {}),
+        "model_binding": dict(population.get("binding") or {}),
+        "prompt_mode": source_meta.get("prompt_mode") or "measurement",
+        "source_ticks": int((schedule.get("ticks") or 0)),
     }
     return kernel, metadata
 
@@ -336,6 +347,10 @@ def _run_live_continuation(
     seat_factory: SeatFactory | None,
     model: str | None,
     prompt_mode: str,
+    workflow: dict[str, Any] | None = None,
+    budgets: dict[str, int] | None = None,
+    model_binding: dict[str, str] | None = None,
+    horizon: int | None = None,
 ) -> int:
     """Full live-continuation plumbing, reachable only when a caller passes
     `allow_spend=True` to `run_branch_continuation`. Nothing in this change
@@ -347,13 +362,43 @@ def _run_live_continuation(
     active_seats = set(kernel.profile.seat_roles)
     seats_cache: dict[str, Any] = {}
     final_tick = fork_tick
+    workflow = dict(workflow or {})
+    budgets = dict(budgets or {})
+    model_binding = dict(model_binding or {})
+    if budgets:
+        recorder.configure_tick_budgets(budgets)
+    # Same prompt blocks the source generation had; each collapses to an
+    # empty string when its flag is off, so a pre-v4 source stays identical.
+    contact_directory = (
+        _contact_directory_text(dict(kernel.profile.seat_roles)) if workflow.get("contact_directory") else ""
+    )
+    ticks_horizon = int(horizon or (fork_tick + ticks))
 
     def seat_agent(seat_id: str):
         if seat_id not in seats_cache:
             seat = design.seats[seat_id]
-            tools = build_role_tools(corpus=corpus, kernel=kernel, recorder=recorder, seat_id=seat_id, seat_role=seat.role, include_workflow=True)
-            factory = seat_factory or default_seat_factory(root=design.root, model=model or "")
-            seats_cache[seat_id] = factory(seat_id=seat_id, role=seat.role, tools=tools, recorder=recorder, recursion_limit=recursion_for_budget(12))
+            tools = build_role_tools(
+                corpus=corpus,
+                kernel=kernel,
+                recorder=recorder,
+                seat_id=seat_id,
+                seat_role=seat.role,
+                include_workflow=True,
+                identity_tools=bool(workflow.get("identity_check_tool")),
+                worklist_tool=bool(workflow.get("pending_worklist_tool")),
+            )
+            bound_model = model_binding.get(seat_id) or model or ""
+            factory = seat_factory or default_seat_factory(root=design.root, model=bound_model)
+            budget = int(budgets.get(seat_id, 12))
+            seats_cache[seat_id] = _instantiate_seat(
+                factory,
+                seat_id=seat_id,
+                role=seat.role,
+                tools=tools,
+                recorder=recorder,
+                recursion_limit=recursion_for_budget(budget),
+                model=bound_model,
+            )
         return seats_cache[seat_id]
 
     for tick in range(fork_tick + 1, fork_tick + ticks + 1):
@@ -366,7 +411,18 @@ def _run_live_continuation(
             if not messages:
                 continue
             agent = seat_agent(seat_id)
-            prompt = _turn_prompt(tick=tick, ticks=fork_tick + ticks, budget_left=recorder.budget_left(seat_id), messages=messages, mode=prompt_mode)
+            prompt = _turn_prompt(
+                tick=tick,
+                ticks=ticks_horizon,
+                budget_left=recorder.budget_left(seat_id),
+                messages=messages,
+                mode=prompt_mode,  # type: ignore[arg-type]
+                contact_directory=contact_directory,
+                customer_id_in_inbox=bool(workflow.get("customer_id_in_inbox")),
+                sales_direct_submission=bool(workflow.get("sales_direct_submission_guidance")),
+                identity_tools=bool(workflow.get("identity_check_tool")),
+                progression_guidance=bool(workflow.get("progression_guidance")),
+            )
             with recorder.origin("agent"):
                 try:
                     agent.turn(prompt)
@@ -448,7 +504,11 @@ def run_branch_continuation(
             ticks=ticks,
             seat_factory=seat_factory,
             model=model,
-            prompt_mode=prompt_mode,
+            prompt_mode=str(metadata.get("prompt_mode") or prompt_mode),
+            workflow=metadata.get("workflow"),
+            budgets=metadata.get("tick_budget"),
+            model_binding=metadata.get("model_binding"),
+            horizon=int(metadata.get("source_ticks") or 0) or None,
         )
     else:
         final_tick = _next_uncommitted_tick(recorder)
