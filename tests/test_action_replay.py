@@ -130,3 +130,29 @@ def test_replay_battery_flags_corpus_mismatch(tmp_path: Path) -> None:
     )
     assert report["fidelity"]["corpus_hash_match"] is False
     assert report["fidelity"]["passed"] is False
+
+
+def test_reconstruction_matches_workflow_support_prompts(tmp_path: Path) -> None:
+    """v4-generation runs (--workflow-support, approvals #14-#17) add prompt
+    blocks (contact directory, progression guidance, inbox customer ids).
+    The reconstructor must rebuild them from the run's own config; before
+    the fix it rebuilt the pre-v4 prompt and the prompt_chars fidelity
+    check failed on every v4 bundle (0/20 on the confirmatory campaign)."""
+    design = load_design(Path.cwd())
+    corpus = Corpus.from_design(design)
+    run_root = tmp_path / "s2_workflow_source"
+    run_s2_world(
+        design=design,
+        corpus=corpus,
+        run_root=run_root,
+        seed=0,
+        ticks=12,
+        seat_factory=fake_seat_factory(),
+        customer_llm=_LateBoundCustomer(run_root),
+        workflow_support=True,
+    )
+    reconstruction = reconstruct_probe_turn(run_root, probe_id="P-04")
+    assert reconstruction.fidelity["prompt_chars_match"], reconstruction.fidelity
+    assert reconstruction.fidelity["passed"], reconstruction.fidelity
+    # the workflow blocks must actually be present, not merely char-padded
+    assert "社内連絡先一覧" in reconstruction.prompt
