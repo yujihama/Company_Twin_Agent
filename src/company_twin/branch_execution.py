@@ -45,6 +45,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from contextlib import contextmanager
 from collections.abc import Iterator
 from pathlib import Path
@@ -63,6 +64,14 @@ from .tools import build_role_tools
 BRANCH_RUN_CLASS = "branch_injection"
 BRANCH_CLAIM_LEVEL = "detection_coverage_probe"
 INJECTION_ORIGIN = "experimenter_injection"
+
+# Per-seat outstanding work queues, written at the end of every branch bundle
+# so a fork taken from that bundle restores the exact state rather than an
+# inferred one. See `reconstruct_pending_work` for why the inferred path still
+# has to exist (a fork taken mid-run has no snapshot to read).
+PENDING_WORK_FILE = "pending_work.json"
+
+_ID_SUFFIX = re.compile(r"^[A-Z][A-Z0-9]*-(\d{6})$")
 
 # Application-lifecycle ledger event types whose payloads carry enough state
 # to rebuild `WorldKernel.applications` faithfully (kernel.py's own
@@ -199,6 +208,84 @@ def _apply_ledger_event(applications: dict[str, dict[str, Any]], *, event_type: 
         app["progressed_tick"] = tick
 
 
+def _apply_inbox_event(
+    queues: dict[str, list[dict[str, Any]]], *, event_type: str, payload: dict[str, Any]
+) -> None:
+    """Track one ledger row's effect on the seats' outstanding work queues.
+
+    Only three row types move work: a delivery adds an item, a completed seat
+    turn removes exactly the items that turn was handed (`message_count` is
+    recorded by the harness for precisely this reason), and a failed seat turn
+    removes everything -- the pop happened before the agent raised, and the S1
+    requeue path puts the items back as fresh `inbox_delivered` rows that this
+    same loop then re-adds.
+    """
+    if event_type == "inbox_delivered":
+        seat_id = str(payload.get("to_seat") or "")
+        message = payload.get("message")
+        if seat_id and isinstance(message, dict):
+            queues.setdefault(seat_id, []).append(dict(message))
+    elif event_type == "agent_response":
+        seat_id = str(payload.get("seat_id") or "")
+        handled = int(payload.get("message_count") or 0)
+        if seat_id in queues and handled > 0:
+            del queues[seat_id][:handled]
+    elif event_type == "agent_error":
+        seat_id = str(payload.get("seat_id") or "")
+        if seat_id in queues:
+            queues[seat_id] = []
+
+
+def reconstruct_pending_work(ledger: list[dict[str, Any]], *, up_to_ordinal: int | None = None) -> dict[str, list[dict[str, Any]]]:
+    """Rebuild every seat's outstanding work queue from a run's own ledger.
+
+    A branch that starts with empty queues is not a copy of the source world:
+    the AI employees only take a turn when something is waiting for them, so
+    an empty start freezes the whole organization and makes "nobody noticed"
+    an artifact of the fork rather than an observation about the controls.
+
+    Known imprecision, deliberately left in: a seat pops its whole queue just
+    before its turn, and only the completed turn is recorded, so a fork taken
+    part-way through a seat's turn still shows that seat holding the items it
+    was already working on. That seat may therefore handle them again after
+    the fork. The error direction is more seat activity, not less -- it can
+    make a branch look caught, never falsely uncaught -- which is why it is
+    reported rather than guessed away.
+    """
+    rows = ledger if up_to_ordinal is None else ledger[: max(int(up_to_ordinal), 0)]
+    queues: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        _apply_inbox_event(
+            queues,
+            event_type=str(row.get("event_type") or ""),
+            payload=dict(row.get("payload") or {}),
+        )
+    return {seat_id: messages for seat_id, messages in queues.items() if messages}
+
+
+def _highest_generated_id(payload: dict[str, Any]) -> int:
+    """Largest `PREFIX-000123` counter appearing in one ledger payload."""
+    highest = 0
+    for value in payload.values():
+        if not isinstance(value, str):
+            continue
+        match = _ID_SUFFIX.match(value)
+        if match:
+            highest = max(highest, int(match.group(1)))
+    return highest
+
+
+def _read_pending_work_snapshot(source_run_root: Path) -> dict[str, Any] | None:
+    path = Path(source_run_root) / PENDING_WORK_FILE
+    if not path.exists():
+        return None
+    try:
+        snapshot = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise BranchExecutionError(f"pending-work snapshot is not readable: {path} ({exc})") from exc
+    return snapshot if isinstance(snapshot, dict) else None
+
+
 def rebuild_kernel_state(
     source_run_root: Path,
     up_to_tick: int,
@@ -262,6 +349,8 @@ def rebuild_kernel_state(
     kernel = WorldKernel(recorder, profile)
 
     replayed_rows = 0
+    pending_work: dict[str, list[dict[str, Any]]] = {}
+    highest_id = 0
     for ordinal, row in enumerate(source_ledger):
         tick = int(row.get("tick") or 0)
         if up_to_ordinal is not None:
@@ -274,8 +363,34 @@ def rebuild_kernel_state(
         recorder.set_tick(tick)
         recorder.append_ledger(event_type, payload)
         _apply_ledger_event(kernel.applications, event_type=event_type, tick=tick, payload=payload)
+        _apply_inbox_event(pending_work, event_type=event_type, payload=payload)
+        highest_id = max(highest_id, _highest_generated_id(payload))
         replayed_rows += 1
     recorder.set_tick(int(up_to_tick))
+    pending_work = {seat_id: messages for seat_id, messages in pending_work.items() if messages}
+
+    # Restore what each seat still had waiting. Prefer the exact snapshot the
+    # source bundle wrote for itself; fall back to the ledger reconstruction
+    # for any source that predates the snapshot or is forked mid-run. When
+    # both exist they must agree -- a disagreement means the reconstruction
+    # rule is wrong, and it is recorded rather than silently absorbed.
+    snapshot = _read_pending_work_snapshot(source_run_root)
+    snapshot_agrees: bool | None = None
+    pending_work_source = "reconstructed_from_ledger"
+    if snapshot is not None and int(snapshot.get("ordinal") or -1) == replayed_rows:
+        snapshot_queues = {
+            str(seat_id): [dict(message) for message in messages]
+            for seat_id, messages in (snapshot.get("queues") or {}).items()
+            if messages
+        }
+        snapshot_agrees = snapshot_queues == pending_work
+        pending_work = snapshot_queues
+        pending_work_source = "branch_snapshot"
+    kernel.inbox = {seat_id: list(messages) for seat_id, messages in pending_work.items()}
+    # Generated identifiers continue from where the source world left off, so
+    # a branch cannot mint an id that already exists in the replayed history.
+    kernel.event_counter = highest_id
+    kernel.action_counter = highest_id
 
     # Carry the source world's own generation settings so a live
     # continuation runs the seats under the SAME conditions they had before
@@ -297,6 +412,12 @@ def rebuild_kernel_state(
         "model_binding": dict(population.get("binding") or {}),
         "prompt_mode": source_meta.get("prompt_mode") or "measurement",
         "source_ticks": int((schedule.get("ticks") or 0)),
+        "pending_work": {
+            "source": pending_work_source,
+            "snapshot_agrees_with_ledger": snapshot_agrees,
+            "item_count": sum(len(messages) for messages in pending_work.values()),
+            "per_seat": {seat_id: len(messages) for seat_id, messages in sorted(pending_work.items())},
+        },
     }
     return kernel, metadata
 
@@ -433,6 +554,27 @@ def _run_live_continuation(
     return final_tick
 
 
+def _write_pending_work_snapshot(kernel: WorldKernel) -> dict[str, Any]:
+    """Record what each seat still has waiting, keyed to this bundle's own
+    ledger length, so a fork taken from this bundle resumes from the exact
+    state instead of re-deriving it."""
+    recorder = kernel.recorder
+    ordinal = len(read_jsonl(recorder.run_root / "world_ledger.jsonl"))
+    queues = {
+        seat_id: [dict(message) for message in messages]
+        for seat_id, messages in sorted(kernel.inbox.items())
+        if messages
+    }
+    snapshot = {
+        "ordinal": ordinal,
+        "tick": int(recorder.tick),
+        "queues": queues,
+        "item_count": sum(len(messages) for messages in queues.values()),
+    }
+    recorder.write_json(PENDING_WORK_FILE, snapshot)
+    return snapshot
+
+
 def _finalize_bundle(
     recorder: RunRecorder,
     *,
@@ -515,6 +657,7 @@ def run_branch_continuation(
         recorder.set_tick(final_tick)
         recorder.append_ledger("tick_committed", {"tick": final_tick})
 
+    pending_work = _write_pending_work_snapshot(kernel)
     _finalize_bundle(
         recorder,
         stage=str(metadata.get("stage") or "S2"),
@@ -531,6 +674,8 @@ def run_branch_continuation(
         "allow_spend": bool(allow_spend),
         "run_class": BRANCH_RUN_CLASS,
         "claim_level": BRANCH_CLAIM_LEVEL,
+        "pending_work_restored": dict(metadata.get("pending_work") or {}),
+        "pending_work_remaining": pending_work["item_count"],
     }
     recorder.write_json("branch_summary.json", summary)
     return summary
