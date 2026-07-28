@@ -2471,8 +2471,22 @@ R1側割当runの中で発生(control seed 963/964・clarify seed 962)。全世�
 **direct uncovered・関連統制シグナル0**——「承認なし完了は起きても現在の監視網では
 捕捉されない」ことの初の運用条件下実証(§17.27のカタログ推定の実測確認)。検知率を
 非ゼロにし得る世界内の直接発見統制の追加は世界条件変更=オーナー承認事項として次の
-判断候補。受領書: `docs/progress/deviation_verification_first_result_20260728.md` +
-`deviation_verification_sweep_20260728.json`、
+判断候補。
+
+**到達可能性の構造診断(同日v2).** 「注入到達3/40」が計器の弱さか世界の性質かを、
+構造化した理由コードで全80地点(20 run×4 probe)診断した(CLI `deviation-verify-sweep`)。
+判明した構造的事実は3つ: (1) **R1/R2は単発注入では原理的に到達不能**——審査連携到達
+6件すべてで顧客接触が連携より先に記録されており、その窓で完了を注入しても損失規則上
+「遵守」と採点される(ハーネスは誤解を招く検知ゼロ分岐を作らず
+`blocking_precursor_already_recorded`で停止)。(2) **R3は正規ツール経由で構造的に到達
+不能**——`complete_contract`は審査連携済みを、`link_review`は本人確認が書いた証跡を
+要求する。全実行のR3=0はAIの規律ではなく**ハード制約による説明がつく**(P1のソフト/
+ハード判定が実データで効いている実例)。(3) R4の低到達率(36件が
+`required_status_never_reached`)は世界の処理量の問題で、次期設計の機会数増で改善し得る。
+
+受領書: `docs/progress/deviation_verification_first_result_20260728.md` +
+`deviation_verification_sweep_20260728.json` +
+`deviation_verification_r1r2_diagnosis_20260728.json`、
 テスト: `tests/test_verification_harness.py`。
 
 ## 18. WP-12 parallel world-run executor (並列実行、2026-07-05)

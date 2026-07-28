@@ -922,6 +922,35 @@ def deviation_verify_cmd(
     _echo_json(payload)
 
 
+@app.command("deviation-verify-sweep")
+def deviation_verify_sweep_cmd(
+    campaign_root: Annotated[Path, typer.Option("--campaign-root", help="Campaign directory containing the source run bundles")],
+    enumeration_root: Annotated[Path, typer.Option("--enumeration-root", help="Layer-1 artifact root laid out as <root>/<run>/<probe>/option_enumeration.json")],
+    output_root: Annotated[Path, typer.Option("--output-root", help="Output directory for branch bundles and the sweep summary")],
+    probe: Annotated[list[str], typer.Option("--probe", help="Probe id to verify; repeat for multiple")],
+    root: Annotated[Path | None, typer.Option("--root")] = None,
+) -> None:
+    """Run the deviation-verification harness across every (run, probe)
+    decision point of a campaign in one pass and write a sweep summary.
+
+    Zero spend: no LLM seat is ever invoked. Each point ends in either an
+    injection with a detection verdict from the unchanged monitoring join,
+    or a structured infeasibility reason_code -- hard-constraint codes
+    describe the world's own enforcement, not a gap in this harness."""
+    from .verification_harness import run_deviation_verification_sweep
+
+    _provenance_banner()
+    base = _root(root)
+    summary = run_deviation_verification_sweep(
+        campaign_root=campaign_root.resolve(),
+        enumeration_root=enumeration_root.resolve(),
+        output_root=output_root.resolve(),
+        probes=list(probe),
+        design_root=base,
+    )
+    _echo_json({key: value for key, value in summary.items() if key != "points"})
+
+
 @app.command("sme-pack")
 def sme_pack(
     campaign_root: Annotated[Path, typer.Option("--campaign-root")],
