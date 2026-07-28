@@ -546,9 +546,15 @@ def _run_live_continuation(
             )
             with recorder.origin("agent"):
                 try:
-                    agent.turn(prompt)
+                    response = agent.turn(prompt)
                 except Exception as exc:  # noqa: BLE001 - recorded; continuation proceeds
                     recorder.append_ledger("agent_error", {"seat_id": seat_id, "error_type": type(exc).__name__, "message": str(exc)[:500]})
+                    continue
+            # Same row the ordinary harness writes. Without it a branch's own
+            # record cannot show that these items were taken off the seat's
+            # desk, and a fork from this bundle would count them as still
+            # outstanding.
+            recorder.append_ledger("agent_response", {"seat_id": seat_id, "response": response[:2000], "message_count": len(messages)})
         recorder.append_ledger("tick_committed", {"tick": tick})
         final_tick = tick
     return final_tick
