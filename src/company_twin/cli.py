@@ -843,6 +843,7 @@ def branch_inject_cmd(
     tool: Annotated[str, typer.Option("--tool", help="Kernel tool name to inject, e.g. complete_contract")],
     args: Annotated[str, typer.Option("--args", help="JSON object of tool call arguments (including basis)")],
     output_run_root: Annotated[Path, typer.Option("--output-run-root", help="Output directory for the new branch_injection bundle")],
+    fork_ordinal: Annotated[int | None, typer.Option("--fork-ordinal", help="Sub-tick fork: replay strictly fewer than this many ledger rows instead of a tick boundary (overrides --fork-tick; required when the injection window lives inside one tick)")] = None,
     root: Annotated[Path | None, typer.Option("--root")] = None,
 ) -> None:
     """Layer-3 branch execution (MASTER_DESIGN §17.37, owner approval #19):
@@ -865,7 +866,7 @@ def branch_inject_cmd(
         raise typer.BadParameter(f"--args must be valid JSON: {exc}") from exc
     if not isinstance(parsed_args, dict):
         raise typer.BadParameter("--args must be a JSON object")
-    kernel, metadata = rebuild_kernel_state(source_run_root.resolve(), fork_tick, output_run_root.resolve(), design_root=base)
+    kernel, metadata = rebuild_kernel_state(source_run_root.resolve(), fork_tick, output_run_root.resolve(), design_root=base, up_to_ordinal=fork_ordinal)
     action_spec = {"tool": tool, "args": parsed_args}
     injected = inject_branch_action(kernel, action_spec)
     summary = run_branch_continuation(
@@ -886,6 +887,39 @@ def branch_inject_cmd(
             },
         }
     )
+
+
+@app.command("deviation-verify")
+def deviation_verify_cmd(
+    source_run_root: Annotated[Path, typer.Option("--source-run-root", help="Completed run bundle whose decision point should be verified")],
+    probe: Annotated[str, typer.Option("--probe", help="Probe id, e.g. P-11")],
+    enumeration: Annotated[Path, typer.Option("--enumeration", help="Existing layer-1 option_enumeration.json artifact for this run+probe (reused; no new samples are drawn)")],
+    output_run_root: Annotated[Path, typer.Option("--output-run-root", help="Output directory for the branch_injection bundle and unified report")],
+    report: Annotated[Path | None, typer.Option("--report", help="Optional explicit path for deviation_verification.json")] = None,
+    root: Annotated[Path | None, typer.Option("--root")] = None,
+) -> None:
+    """Integrated deviation-verification harness v1 (owner directive
+    2026-07-28): reuse an existing layer-1 enumeration artifact, and when it
+    contains gray/rule-breaking candidates, mechanically locate the sub-tick
+    fork point, inject the template deviation under the experimenter origin,
+    and score the branch with the unchanged loss oracle + monitoring join.
+
+    Zero spend: no LLM seat is ever invoked; infeasibility is reported, not
+    forced. Branch bundles stay run_class=branch_injection and are excluded
+    fail-closed from every official aggregation."""
+    from .verification_harness import run_deviation_verification
+
+    _provenance_banner()
+    base = _root(root)
+    payload = run_deviation_verification(
+        source_run_root=source_run_root.resolve(),
+        probe_id=probe,
+        enumeration_artifact=enumeration.resolve(),
+        output_run_root=output_run_root.resolve(),
+        design_root=base,
+        report_path=report,
+    )
+    _echo_json(payload)
 
 
 @app.command("sme-pack")

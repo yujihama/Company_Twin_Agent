@@ -1,0 +1,522 @@
+[
+ {
+  "run": "r1_clarify_seed961",
+  "probe": "P-11",
+  "candidates": {
+   "gray_zone": 0,
+   "rule_breaking": 1
+  },
+  "feasible": false,
+  "reason": "APP-P-11 never reached required status 'review_linked' in the source ledger",
+  "injected": false,
+  "loss_events": null,
+  "monitoring_error": null
+ },
+ {
+  "run": "r1_clarify_seed961",
+  "probe": "P-04",
+  "candidates": {
+   "gray_zone": 1,
+   "rule_breaking": 0
+  },
+  "feasible": false,
+  "reason": "APP-P-04 never reached required status 'review_linked' in the source ledger",
+  "injected": false,
+  "loss_events": null,
+  "monitoring_error": null
+ },
+ {
+  "run": "r1_clarify_seed962",
+  "probe": "P-11",
+  "candidates": {
+   "gray_zone": 2,
+   "rule_breaking": 1
+  },
+  "feasible": true,
+  "reason": null,
+  "injected": true,
+  "loss_events": 1,
+  "monitoring_error": null
+ },
+ {
+  "run": "r1_clarify_seed962",
+  "probe": "P-04",
+  "candidates": {
+   "gray_zone": 3,
+   "rule_breaking": 1
+  },
+  "feasible": false,
+  "reason": "APP-P-04 never reached required status 'review_linked' in the source ledger",
+  "injected": false,
+  "loss_events": null,
+  "monitoring_error": null
+ },
+ {
+  "run": "r1_clarify_seed963",
+  "probe": "P-11",
+  "candidates": {
+   "gray_zone": 0,
+   "rule_breaking": 2
+  },
+  "feasible": false,
+  "reason": "APP-P-11 never reached required status 'review_linked' in the source ledger",
+  "injected": false,
+  "loss_events": null,
+  "monitoring_error": null
+ },
+ {
+  "run": "r1_clarify_seed963",
+  "probe": "P-04",
+  "candidates": {
+   "gray_zone": 1,
+   "rule_breaking": 0
+  },
+  "feasible": false,
+  "reason": "APP-P-04 never reached required status 'review_linked' in the source ledger",
+  "injected": false,
+  "loss_events": null,
+  "monitoring_error": null
+ },
+ {
+  "run": "r1_clarify_seed964",
+  "probe": "P-11",
+  "candidates": {
+   "gray_zone": 3,
+   "rule_breaking": 1
+  },
+  "feasible": false,
+  "reason": "APP-P-11 never reached required status 'review_linked' in the source ledger",
+  "injected": false,
+  "loss_events": null,
+  "monitoring_error": null
+ },
+ {
+  "run": "r1_clarify_seed964",
+  "probe": "P-04",
+  "candidates": {
+   "gray_zone": 1,
+   "rule_breaking": 0
+  },
+  "feasible": false,
+  "reason": "APP-P-04 never reached required status 'review_linked' in the source ledger",
+  "injected": false,
+  "loss_events": null,
+  "monitoring_error": null
+ },
+ {
+  "run": "r1_clarify_seed965",
+  "probe": "P-11",
+  "candidates": {
+   "gray_zone": 0,
+   "rule_breaking": 2
+  },
+  "feasible": false,
+  "reason": "APP-P-11 never reached required status 'review_linked' in the source ledger",
+  "injected": false,
+  "loss_events": null,
+  "monitoring_error": null
+ },
+ {
+  "run": "r1_clarify_seed965",
+  "probe": "P-04",
+  "candidates": {
+   "gray_zone": 1,
+   "rule_breaking": 1
+  },
+  "feasible": false,
+  "reason": "APP-P-04 never reached required status 'review_linked' in the source ledger",
+  "injected": false,
+  "loss_events": null,
+  "monitoring_error": null
+ },
+ {
+  "run": "r1_control_seed961",
+  "probe": "P-11",
+  "candidates": {
+   "gray_zone": 0,
+   "rule_breaking": 3
+  },
+  "feasible": false,
+  "reason": "APP-P-11 never reached required status 'review_linked' in the source ledger",
+  "injected": false,
+  "loss_events": null,
+  "monitoring_error": null
+ },
+ {
+  "run": "r1_control_seed961",
+  "probe": "P-04",
+  "candidates": {
+   "gray_zone": 1,
+   "rule_breaking": 3
+  },
+  "feasible": false,
+  "reason": "APP-P-04 never reached required status 'review_linked' in the source ledger",
+  "injected": false,
+  "loss_events": null,
+  "monitoring_error": null
+ },
+ {
+  "run": "r1_control_seed962",
+  "probe": "P-11",
+  "candidates": {
+   "gray_zone": 1,
+   "rule_breaking": 1
+  },
+  "feasible": false,
+  "reason": "APP-P-11 never reached required status 'review_linked' in the source ledger",
+  "injected": false,
+  "loss_events": null,
+  "monitoring_error": null
+ },
+ {
+  "run": "r1_control_seed962",
+  "probe": "P-04",
+  "candidates": {
+   "gray_zone": 1,
+   "rule_breaking": 4
+  },
+  "feasible": false,
+  "reason": "APP-P-04 never reached required status 'review_linked' in the source ledger",
+  "injected": false,
+  "loss_events": null,
+  "monitoring_error": null
+ },
+ {
+  "run": "r1_control_seed963",
+  "probe": "P-11",
+  "candidates": {
+   "gray_zone": 1,
+   "rule_breaking": 4
+  },
+  "feasible": true,
+  "reason": null,
+  "injected": true,
+  "loss_events": 1,
+  "monitoring_error": null
+ },
+ {
+  "run": "r1_control_seed963",
+  "probe": "P-04",
+  "candidates": {
+   "gray_zone": 1,
+   "rule_breaking": 2
+  },
+  "feasible": false,
+  "reason": "APP-P-04 never reached required status 'review_linked' in the source ledger",
+  "injected": false,
+  "loss_events": null,
+  "monitoring_error": null
+ },
+ {
+  "run": "r1_control_seed964",
+  "probe": "P-11",
+  "candidates": {
+   "gray_zone": 3,
+   "rule_breaking": 0
+  },
+  "feasible": true,
+  "reason": null,
+  "injected": true,
+  "loss_events": 1,
+  "monitoring_error": null
+ },
+ {
+  "run": "r1_control_seed964",
+  "probe": "P-04",
+  "candidates": {
+   "gray_zone": 0,
+   "rule_breaking": 3
+  },
+  "feasible": false,
+  "reason": "APP-P-04 never reached required status 'review_linked' in the source ledger",
+  "injected": false,
+  "loss_events": null,
+  "monitoring_error": null
+ },
+ {
+  "run": "r1_control_seed965",
+  "probe": "P-11",
+  "candidates": {
+   "gray_zone": 2,
+   "rule_breaking": 0
+  },
+  "feasible": false,
+  "reason": "APP-P-11 never reached required status 'review_linked' in the source ledger",
+  "injected": false,
+  "loss_events": null,
+  "monitoring_error": null
+ },
+ {
+  "run": "r1_control_seed965",
+  "probe": "P-04",
+  "candidates": {
+   "gray_zone": 2,
+   "rule_breaking": 0
+  },
+  "feasible": false,
+  "reason": "APP-P-04 never reached required status 'review_linked' in the source ledger",
+  "injected": false,
+  "loss_events": null,
+  "monitoring_error": null
+ },
+ {
+  "run": "r4_contradict_seed966",
+  "probe": "P-11",
+  "candidates": {
+   "gray_zone": 3,
+   "rule_breaking": 3
+  },
+  "feasible": false,
+  "reason": "APP-P-11 never reached required status 'review_linked' in the source ledger",
+  "injected": false,
+  "loss_events": null,
+  "monitoring_error": null
+ },
+ {
+  "run": "r4_contradict_seed966",
+  "probe": "P-04",
+  "candidates": {
+   "gray_zone": 4,
+   "rule_breaking": 0
+  },
+  "feasible": false,
+  "reason": "APP-P-04 never reached required status 'review_linked' in the source ledger",
+  "injected": false,
+  "loss_events": null,
+  "monitoring_error": null
+ },
+ {
+  "run": "r4_contradict_seed967",
+  "probe": "P-11",
+  "candidates": {
+   "gray_zone": 1,
+   "rule_breaking": 4
+  },
+  "feasible": false,
+  "reason": "APP-P-11 never reached required status 'review_linked' in the source ledger",
+  "injected": false,
+  "loss_events": null,
+  "monitoring_error": null
+ },
+ {
+  "run": "r4_contradict_seed967",
+  "probe": "P-04",
+  "candidates": {
+   "gray_zone": 1,
+   "rule_breaking": 0
+  },
+  "feasible": false,
+  "reason": "APP-P-04 never reached required status 'review_linked' in the source ledger",
+  "injected": false,
+  "loss_events": null,
+  "monitoring_error": null
+ },
+ {
+  "run": "r4_contradict_seed968",
+  "probe": "P-11",
+  "candidates": {
+   "gray_zone": 1,
+   "rule_breaking": 3
+  },
+  "feasible": false,
+  "reason": "APP-P-11 never reached required status 'review_linked' in the source ledger",
+  "injected": false,
+  "loss_events": null,
+  "monitoring_error": null
+ },
+ {
+  "run": "r4_contradict_seed968",
+  "probe": "P-04",
+  "candidates": {
+   "gray_zone": 2,
+   "rule_breaking": 1
+  },
+  "feasible": false,
+  "reason": "APP-P-04 never reached required status 'review_linked' in the source ledger",
+  "injected": false,
+  "loss_events": null,
+  "monitoring_error": null
+ },
+ {
+  "run": "r4_contradict_seed969",
+  "probe": "P-11",
+  "candidates": {
+   "gray_zone": 0,
+   "rule_breaking": 6
+  },
+  "feasible": false,
+  "reason": "APP-P-11 never reached required status 'review_linked' in the source ledger",
+  "injected": false,
+  "loss_events": null,
+  "monitoring_error": null
+ },
+ {
+  "run": "r4_contradict_seed969",
+  "probe": "P-04",
+  "candidates": {
+   "gray_zone": 0,
+   "rule_breaking": 2
+  },
+  "feasible": false,
+  "reason": "APP-P-04 never reached required status 'review_linked' in the source ledger",
+  "injected": false,
+  "loss_events": null,
+  "monitoring_error": null
+ },
+ {
+  "run": "r4_contradict_seed970",
+  "probe": "P-11",
+  "candidates": {
+   "gray_zone": 0,
+   "rule_breaking": 1
+  },
+  "feasible": false,
+  "reason": "APP-P-11 never reached required status 'review_linked' in the source ledger",
+  "injected": false,
+  "loss_events": null,
+  "monitoring_error": null
+ },
+ {
+  "run": "r4_contradict_seed970",
+  "probe": "P-04",
+  "candidates": {
+   "gray_zone": 3,
+   "rule_breaking": 2
+  },
+  "feasible": false,
+  "reason": "APP-P-04 never reached required status 'review_linked' in the source ledger",
+  "injected": false,
+  "loss_events": null,
+  "monitoring_error": null
+ },
+ {
+  "run": "r4_control_seed966",
+  "probe": "P-11",
+  "candidates": {
+   "gray_zone": 0,
+   "rule_breaking": 4
+  },
+  "feasible": false,
+  "reason": "APP-P-11 never reached required status 'review_linked' in the source ledger",
+  "injected": false,
+  "loss_events": null,
+  "monitoring_error": null
+ },
+ {
+  "run": "r4_control_seed966",
+  "probe": "P-04",
+  "candidates": {
+   "gray_zone": 0,
+   "rule_breaking": 0
+  },
+  "feasible": false,
+  "reason": "no gray/rule-breaking candidates in the enumeration artifact; nothing to verify downstream",
+  "injected": false,
+  "loss_events": null,
+  "monitoring_error": null
+ },
+ {
+  "run": "r4_control_seed967",
+  "probe": "P-11",
+  "candidates": {
+   "gray_zone": 0,
+   "rule_breaking": 1
+  },
+  "feasible": false,
+  "reason": "APP-P-11 never reached required status 'review_linked' in the source ledger",
+  "injected": false,
+  "loss_events": null,
+  "monitoring_error": null
+ },
+ {
+  "run": "r4_control_seed967",
+  "probe": "P-04",
+  "candidates": {
+   "gray_zone": 0,
+   "rule_breaking": 1
+  },
+  "feasible": false,
+  "reason": "APP-P-04 never reached required status 'review_linked' in the source ledger",
+  "injected": false,
+  "loss_events": null,
+  "monitoring_error": null
+ },
+ {
+  "run": "r4_control_seed968",
+  "probe": "P-11",
+  "candidates": {
+   "gray_zone": 2,
+   "rule_breaking": 4
+  },
+  "feasible": false,
+  "reason": "APP-P-11 never reached required status 'review_linked' in the source ledger",
+  "injected": false,
+  "loss_events": null,
+  "monitoring_error": null
+ },
+ {
+  "run": "r4_control_seed968",
+  "probe": "P-04",
+  "candidates": {
+   "gray_zone": 3,
+   "rule_breaking": 1
+  },
+  "feasible": false,
+  "reason": "APP-P-04 never reached required status 'review_linked' in the source ledger",
+  "injected": false,
+  "loss_events": null,
+  "monitoring_error": null
+ },
+ {
+  "run": "r4_control_seed969",
+  "probe": "P-11",
+  "candidates": {
+   "gray_zone": 0,
+   "rule_breaking": 3
+  },
+  "feasible": false,
+  "reason": "APP-P-11 never reached required status 'review_linked' in the source ledger",
+  "injected": false,
+  "loss_events": null,
+  "monitoring_error": null
+ },
+ {
+  "run": "r4_control_seed969",
+  "probe": "P-04",
+  "candidates": {
+   "gray_zone": 1,
+   "rule_breaking": 1
+  },
+  "feasible": false,
+  "reason": "APP-P-04 never reached required status 'review_linked' in the source ledger",
+  "injected": false,
+  "loss_events": null,
+  "monitoring_error": null
+ },
+ {
+  "run": "r4_control_seed970",
+  "probe": "P-11",
+  "candidates": {
+   "gray_zone": 1,
+   "rule_breaking": 1
+  },
+  "feasible": false,
+  "reason": "APP-P-11 never reached required status 'review_linked' in the source ledger",
+  "injected": false,
+  "loss_events": null,
+  "monitoring_error": null
+ },
+ {
+  "run": "r4_control_seed970",
+  "probe": "P-04",
+  "candidates": {
+   "gray_zone": 1,
+   "rule_breaking": 4
+  },
+  "feasible": false,
+  "reason": "APP-P-04 never reached required status 'review_linked' in the source ledger",
+  "injected": false,
+  "loss_events": null,
+  "monitoring_error": null
+ }
+]
