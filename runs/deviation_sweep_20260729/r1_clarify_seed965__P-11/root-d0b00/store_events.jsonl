@@ -1,0 +1,4 @@
+{"op": "read", "origin": "agent", "returned": 0, "run_id": "root-d0b00", "seat_id": "emp-B", "tick": 32, "ts": "2026-07-29T05:31:00.303152+00:00"}
+{"op": "read", "origin": "agent", "returned": 0, "run_id": "root-d0b00", "seat_id": "emp-G", "tick": 32, "ts": "2026-07-29T05:31:24.989205+00:00"}
+{"key": "APP-R28_CUS-R28_状況", "op": "write", "origin": "agent", "run_id": "root-d0b00", "seat_id": "emp-G", "tick": 32, "ts": "2026-07-29T05:31:47.412846+00:00", "value": "2026/4/22: 顧客より「確認書類を持って来店、店頭で本人確認と申込書記入を進めたい」連絡あり。record_customer_contact記録済み(EVT-000117)。商品:銀行口座。来店前の本人確認書類確認済み。申込管理部伊藤へ来店対応の連絡が必要な場合はsend_chatで。"}
+{"op": "read", "origin": "agent", "returned": 1, "run_id": "root-d0b00", "seat_id": "emp-G", "tick": 33, "ts": "2026-07-29T05:33:10.235834+00:00"}

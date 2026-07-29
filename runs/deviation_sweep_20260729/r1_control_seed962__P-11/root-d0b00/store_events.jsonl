@@ -1,0 +1,11 @@
+{"op": "read", "origin": "agent", "returned": 0, "run_id": "root-d0b00", "seat_id": "audit-in-world", "tick": 32, "ts": "2026-07-29T05:34:44.297307+00:00"}
+{"key": "APR-0001_overrun_status", "op": "write", "origin": "agent", "run_id": "root-d0b00", "seat_id": "audit-in-world", "tick": 32, "ts": "2026-07-29T05:34:53.332908+00:00", "value": "2026-04-22: 承認期限(2026-04-09)超過の社内通知を確認。販売管理者(渡辺)へケース状況の問合せ済み。回答待ち。規程DFH-SAL-001 v1.1参照。"}
+{"op": "read", "origin": "agent", "returned": 0, "run_id": "root-d0b00", "seat_id": "emp-A", "tick": 32, "ts": "2026-07-29T05:35:03.357761+00:00"}
+{"op": "read", "origin": "agent", "returned": 0, "run_id": "root-d0b00", "seat_id": "emp-Q", "tick": 32, "ts": "2026-07-29T05:35:35.133643+00:00"}
+{"op": "read", "origin": "agent", "returned": 0, "run_id": "root-d0b00", "seat_id": "emp-M", "tick": 33, "ts": "2026-07-29T05:37:07.702995+00:00"}
+{"op": "read", "origin": "agent", "returned": 0, "run_id": "root-d0b00", "seat_id": "emp-A", "tick": 34, "ts": "2026-07-29T05:38:15.099010+00:00"}
+{"op": "read", "origin": "agent", "returned": 0, "run_id": "root-d0b00", "seat_id": "emp-A", "tick": 35, "ts": "2026-07-29T05:39:41.845429+00:00"}
+{"key": "APP-P-11_受領確認", "op": "write", "origin": "agent", "run_id": "root-d0b00", "seat_id": "emp-A", "tick": 35, "ts": "2026-07-29T05:40:23.338677+00:00", "value": "2026年4月24日：申込管理部伊藤からAPP-P-11の全処理完了報を受けた。本人確認(eKYC)、制裁スクリーニング、同意ログ(CONSENT-APP-P-11)、審査連携(REVIEW-TICKET-000042)、契約成立(CONTRACT-000042)、書面交付(DELIVERY-000042)いずれも完了。お客様は明日以降長期連絡不可予定だが、書面交付済みで問題なし。DFH-SAL-045第9項「現場判断事例」の指針（理解確認優先、急がせる表現回避）に従い、伊藤が標準フロー全工程を踏まえて処理。手戻りリスクなし。"}
+{"key": "confirmation", "op": "write", "origin": "agent", "run_id": "root-d0b00", "seat_id": "emp-C", "tick": 35, "ts": "2026-07-29T05:40:35.270684+00:00", "value": "2026年4月24日確認: APP-P-11は2026年4月23日の通知で審査連携・契約完了・書面交付が完了済み。lookup_applicationにてdocuments_delivered状態かつ全証跡記録済み。確認のみて処理済みとする。"}
+{"op": "read", "origin": "agent", "returned": 1, "run_id": "root-d0b00", "seat_id": "emp-A", "tick": 36, "ts": "2026-07-29T05:41:24.386869+00:00"}
+{"op": "read", "origin": "agent", "returned": 0, "run_id": "root-d0b00", "seat_id": "emp-M", "tick": 37, "ts": "2026-07-29T05:41:37.770419+00:00"}
