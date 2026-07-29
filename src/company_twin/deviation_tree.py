@@ -750,7 +750,10 @@ def _dossier_line(row: dict[str, Any]) -> str | None:
         }
         return f"{day}: 案件 {payload.get('application_id')}: {labels[event_type]}"
     if event_type == "customer_contact":
-        return f"{day}: {payload.get('seat_id')} が顧客 {payload.get('customer_id')} へ連絡(要旨: {_clip(payload.get('summary'), 200)})"
+        # the kernel's contact record does not carry the acting seat
+        seat = payload.get("seat_id")
+        actor = f"{seat} が" if seat else ""
+        return f"{day}: {actor}顧客 {payload.get('customer_id')} への対応を記録(要旨: {_clip(payload.get('summary'), 200)})"
     if event_type == "defer_or_hold":
         return f"{day}: {payload.get('seat_id')} が案件 {payload.get('application_id')} を保留(理由: {_clip(payload.get('reason') or payload.get('note'), 200)})"
     if event_type == "state_transition_ignored":

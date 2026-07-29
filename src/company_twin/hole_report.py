@@ -92,6 +92,7 @@ def worlds_from_summary(summary_file: Path) -> list[dict[str, Any]]:
 def _world_from_bundle(node_file: Path) -> dict[str, Any]:
     node_dir = node_file.parent
     node = json.loads(node_file.read_text(encoding="utf-8"))
+    node.setdefault("point", node_dir.parent.name)
     judged_path = node_dir / JUDGED_FILENAME
     judged = json.loads(judged_path.read_text(encoding="utf-8")) if judged_path.exists() else None
     meta_path = node_dir / "meta.json"
@@ -116,6 +117,7 @@ def _world_record(
     action = node.get("action") or {}
     outcome = str((judged or {}).get("outcome") or node.get("outcome") or OUTCOME_UNJUDGED)
     return {
+        "point": node.get("point") or "",
         "node_id": node.get("node_id"),
         "depth": node.get("depth"),
         "operation": candidate_label(action) if action else "(不明)",
@@ -198,19 +200,23 @@ def _reproduction(world: dict[str, Any], *, continuation_ticks: int | None) -> d
 
 def _citations(world: dict[str, Any]) -> list[str]:
     """Record citations for one pass-through path: the judge's quoted
-    evidence first, then the dossier lines showing the case's own lifecycle
-    (submission through delivery), which are the world's primary record."""
+    evidence first, then only the dossier lines that are the case's own
+    lifecycle records (`案件 <id>: …` -- submission, approvals, contract,
+    delivery). Chat traffic is deliberately NOT quoted here: the judge's
+    evidence already carries what mattered, and the full chronology is one
+    file away in the world bundle."""
     quotes = [str(item) for item in (world.get("judged") or {}).get("evidence") or []]
     application_id = str(world.get("application_id") or "")
+    lifecycle_marker = f"案件 {application_id}" if application_id else None
     for line in world.get("dossier_lines") or []:
-        if application_id and application_id in line and ("案件" in line or "承認" in line):
+        if lifecycle_marker and (f"{lifecycle_marker}:" in line or f"案件 {application_id})" in line):
             if line not in quotes:
                 quotes.append(line)
     if not quotes:
         goal_at = (world.get("evidence") or {}).get("goal_at")
         if goal_at:
             quotes.append(json.dumps(goal_at, ensure_ascii=False))
-    return quotes[:12]
+    return quotes[:10]
 
 
 def build_hole_report(root: Path, *, continuation_ticks: int | None = None) -> dict[str, Any]:
@@ -230,6 +236,7 @@ def build_hole_report(root: Path, *, continuation_ticks: int | None = None) -> d
         per_operation[world["operation"]][outcome] = per_operation[world["operation"]].get(outcome, 0) + 1
         stopped_by = _stopped_by(world)
         row = {
+            "point": world["point"],
             "node_id": world["node_id"],
             "operation": world["operation"],
             "application_id": world["application_id"],
@@ -278,6 +285,15 @@ _OUTCOME_LABELS = {
     OUTCOME_INCONCLUSIVE: "期間内に決着せず",
     OUTCOME_UNJUDGED: "判定待ち",
 }
+
+
+def _world_name(row: dict[str, Any]) -> str:
+    """`<場面>/<世界>` when the decision point is known -- bare node ids like
+    root-d0b01 repeat across every point of a sweep and must never stand
+    alone in a report."""
+    point = str(row.get("point") or "")
+    node_id = str(row.get("node_id") or "")
+    return f"{point}/{node_id}" if point else node_id
 
 
 def _steps_text(steps: list[dict[str, Any]]) -> str:
@@ -329,7 +345,7 @@ def render_hole_report_md(report: dict[str, Any]) -> str:
         lines.append("")
     for index, hole in enumerate(report["holes"], start=1):
         repro = hole["reproduction"]
-        lines.append(f"### 穴の候補 {index}: {hole['operation']}(案件 {hole['application_id']}、世界 {hole['node_id']})")
+        lines.append(f"### 穴の候補 {index}: {hole['operation']}(案件 {hole['application_id']}、世界 {_world_name(hole)})")
         lines.append("")
         if hole["rationale"]:
             lines.append(f"- 確認役の判定理由: {hole['rationale']}")
@@ -354,7 +370,7 @@ def render_hole_report_md(report: dict[str, Any]) -> str:
     lines.append("")
     for row in report["stopped"]:
         detail = row["stopped_by"]["detail"]
-        lines.append(f"- {row['operation']}(案件 {row['application_id']}、世界 {row['node_id']}): {detail}")
+        lines.append(f"- {row['operation']}(案件 {row['application_id']}、世界 {_world_name(row)}): {detail}")
         for quote in row["stopped_by"]["quotes"]:
             lines.append(f"  - 引用: {quote}")
     if not report["stopped"]:
@@ -372,7 +388,7 @@ def render_hole_report_md(report: dict[str, Any]) -> str:
     lines.append(f"## 決着しなかった・判定待ちの世界({len(report['undecided'])}件)")
     lines.append("")
     for row in report["undecided"]:
-        lines.append(f"- {row['operation']}(案件 {row['application_id']}、世界 {row['node_id']}): {_OUTCOME_LABELS.get(row['outcome'], row['outcome'])}")
+        lines.append(f"- {row['operation']}(案件 {row['application_id']}、世界 {_world_name(row)}): {_OUTCOME_LABELS.get(row['outcome'], row['outcome'])}")
     if not report["undecided"]:
         lines.append("(該当なし)")
     lines.append("")
