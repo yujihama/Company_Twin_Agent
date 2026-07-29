@@ -390,3 +390,29 @@ def test_dossier_reads_as_plain_language_chronology(tmp_path: Path) -> None:
     assert "差し戻された" in text
     assert "daily_inbox_delivery" not in text
     assert "complete_contract" in text and "急ぐため" in text
+
+
+def test_fork_positions_are_selected_by_rule_not_by_hand(tmp_path: Path) -> None:
+    from company_twin.deviation_tree import next_decision_ordinal, probe_decision_point
+    from company_twin.recorder import RunRecorder
+
+    recorder = RunRecorder(tmp_path / "rule_world", run_id="rule_world", meta={})
+    recorder.set_tick(5)
+    recorder.append_ledger("customer_event", {"customer_id": "CUS-P-09", "application_id": "APP-P-09"})
+    recorder.append_ledger("customer_contact", {"customer_id": "CUS-P-09", "seat_id": "emp-Q"})
+    recorder.append_ledger("agent_response", {"seat_id": "emp-Q", "message_count": 1})
+    recorder.append_ledger("agent_response", {"seat_id": "emp-Q", "message_count": 1})
+    (recorder.run_root / "config.json").write_text(
+        json.dumps({"world": {"deck": {"events": [
+            {"probe_id": "P-09", "customer_id": "CUS-P-09", "application_id": "APP-P-09", "primary_seat": "emp-Q", "trigger_tick": 5}
+        ]}}}),
+        encoding="utf-8",
+    )
+    point = probe_decision_point(recorder.run_root, "P-09")
+    assert point["ok"] and point["rule"] == "after_first_customer_contact"
+    assert point["fork_ordinal"] == 2  # right after the contact row
+    missing = probe_decision_point(recorder.run_root, "P-99")
+    assert not missing["ok"] and "P-99" in missing["reason"]
+    # depth>0: the next decision moment is right after the seat's next turn
+    assert next_decision_ordinal(recorder.run_root, seat_id="emp-Q", after_ordinal=2) == 4
+    assert next_decision_ordinal(recorder.run_root, seat_id="emp-Z", after_ordinal=0) is None

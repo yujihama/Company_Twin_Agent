@@ -665,6 +665,63 @@ def write_branch_dossier(
     return path
 
 
+def probe_decision_point(run_root: Path, probe_id: str) -> dict[str, Any]:
+    """Pick the fork position for one verification case by a MECHANICAL rule,
+    never by hand: the ledger row right after the first customer-contact
+    recorded for that case's customer (the seat has just met the customer --
+    the natural moment a risk-prone person would act). Fallback, when no
+    contact was ever recorded: right after the case seat's first completed
+    turn at or after the customer's arrival. Returns a reason instead of a
+    position when neither exists, so a skipped point is reported, not silent.
+    """
+    run_root = Path(run_root)
+    config = json.loads((run_root / "config.json").read_text(encoding="utf-8"))
+    events = (((config.get("world") or {}).get("deck") or {}).get("events")) or []
+    event = next((e for e in events if str(e.get("probe_id") or "") == probe_id), None)
+    if event is None:
+        return {"ok": False, "reason": f"probe {probe_id} not in this run's deck"}
+    customer_id = str(event.get("customer_id"))
+    primary_seat = str(event.get("primary_seat"))
+    trigger_tick = int(event.get("trigger_tick") or 0)
+    rows = read_jsonl(run_root / "world_ledger.jsonl")
+    for index, row in enumerate(rows):
+        payload = row.get("payload") or {}
+        if row.get("event_type") == "customer_contact" and str(payload.get("customer_id") or "") == customer_id:
+            return {
+                "ok": True, "fork_ordinal": index + 1, "rule": "after_first_customer_contact",
+                "tick": int(row.get("tick") or 0), "seat_id": primary_seat,
+                "application_id": str(event.get("application_id")), "customer_id": customer_id,
+            }
+    for index, row in enumerate(rows):
+        payload = row.get("payload") or {}
+        if (
+            row.get("event_type") == "agent_response"
+            and str(payload.get("seat_id") or "") == primary_seat
+            and int(row.get("tick") or 0) >= trigger_tick
+        ):
+            return {
+                "ok": True, "fork_ordinal": index + 1, "rule": "after_first_seat_turn",
+                "tick": int(row.get("tick") or 0), "seat_id": primary_seat,
+                "application_id": str(event.get("application_id")), "customer_id": customer_id,
+            }
+    return {"ok": False, "reason": f"no contact and no completed turn by {primary_seat} for {customer_id}"}
+
+
+def next_decision_ordinal(run_root: Path, *, seat_id: str, after_ordinal: int) -> int | None:
+    """Depth>0 fork rule, mechanical: right after the acting seat's first
+    completed turn following the injection -- the next moment that seat had
+    just acted and could have acted differently. None when the seat never
+    took another turn (that world has no further decision moment)."""
+    rows = read_jsonl(Path(run_root) / "world_ledger.jsonl")
+    for index, row in enumerate(rows):
+        if index <= after_ordinal:
+            continue
+        payload = row.get("payload") or {}
+        if row.get("event_type") == "agent_response" and str(payload.get("seat_id") or "") == seat_id:
+            return index + 1
+    return None
+
+
 def judge_prompt_for(node_dir: Path) -> str:
     """The exact prompt the external judge should receive for one world."""
     node_dir = Path(node_dir)
