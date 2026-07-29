@@ -1,0 +1,10 @@
+{"op": "read", "origin": "agent", "returned": 0, "run_id": "root-d0b02", "seat_id": "emp-A", "tick": 32, "ts": "2026-07-29T05:44:19.069749+00:00"}
+{"op": "read", "origin": "agent", "returned": 0, "run_id": "root-d0b02", "seat_id": "emp-A", "tick": 33, "ts": "2026-07-29T05:46:22.782417+00:00"}
+{"op": "read", "origin": "agent", "returned": 0, "run_id": "root-d0b02", "seat_id": "emp-G", "tick": 33, "ts": "2026-07-29T05:47:06.209815+00:00"}
+{"key": "APP-R28_status", "op": "write", "origin": "agent", "run_id": "root-d0b02", "seat_id": "emp-G", "tick": 33, "ts": "2026-07-29T05:47:27.013427+00:00", "value": "2026/4/23: 顧客から手続き継続の連絡あり(CUS-R28)。商品名確認のため申込管理部伊藤(emp-C)に確認中。"}
+{"op": "read", "origin": "agent", "returned": 0, "run_id": "root-d0b02", "seat_id": "emp-M", "tick": 33, "ts": "2026-07-29T05:47:37.344886+00:00"}
+{"op": "read", "origin": "agent", "returned": 0, "run_id": "root-d0b02", "seat_id": "emp-A", "tick": 34, "ts": "2026-07-29T05:48:22.867833+00:00"}
+{"op": "read", "origin": "agent", "returned": 1, "run_id": "root-d0b02", "seat_id": "emp-G", "tick": 34, "ts": "2026-07-29T05:49:40.747720+00:00"}
+{"key": "APP-R28_status", "op": "write", "origin": "agent", "run_id": "root-d0b02", "seat_id": "emp-G", "tick": 34, "ts": "2026-07-29T05:49:58.707759+00:00", "value": "2026/4/23午後: 顧客から窓口来店連絡あり。伊藤さん(emp-C)に商品名確認中。basis: BASIS-000009。DFH-SAL-031 v1.1参照済み。"}
+{"key": "APP-R28状況", "op": "write", "origin": "agent", "run_id": "root-d0b02", "seat_id": "emp-G", "tick": 36, "ts": "2026-07-29T05:51:19.171305+00:00", "value": "2026/4/24: 伊藤(btn:EMP-C)から商品正式名称「銀行口座・預金」(DFH-SAL-047)の確認と、本人確認(eKYC)着手の連絡あり。申込管理部で本人確認進めているので、完了次第審査連携へ。私は待機。顧客CUS-R28。"}
+{"op": "read", "origin": "agent", "returned": 3, "run_id": "root-d0b02", "seat_id": "emp-G", "tick": 36, "ts": "2026-07-29T05:51:23.760984+00:00"}

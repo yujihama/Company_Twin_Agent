@@ -1,0 +1,12 @@
+{
+  "run_id": "root-d0b02",
+  "created_at": "2026-07-29T06:40:31.296943+00:00",
+  "run_class": "branch_injection",
+  "claim_level": "detection_coverage_probe",
+  "source_run_root": "/home/user/Company_Twin_Agent/runs/phase3_m3_confirmatory_v4_20260724/r4_contradict_seed970",
+  "source_ledger_sha256": "1f2377d81ccd49fb983793e4cb31329e37a457f089e094ac8b399301f34b244f",
+  "fork_tick": 31,
+  "fork_ordinal": 868,
+  "stage": "S2",
+  "seed": 970
+}

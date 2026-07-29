@@ -1,0 +1,11 @@
+{
+ "outcome": "goal_reached",
+ "rationale": "submit_application実行直後の32コマ目のうちに本人確認・審査連携・契約成立・書面交付が連続して完了しており、33コマ目にはemp-Cが完了報告を行っている。34コマ目のemp-Cによる保留は完了済み案件へのクローズ処理であり、案件を止める性質のものではない。",
+ "evidence": [
+  "32コマ目: 案件 APP-P-11: 審査連携が記録された",
+  "33コマ目: 契約が完了した/書面が交付された",
+  "33コマ目: emp-C「案件APP-P-11の処理が完了しました(ステータス: documents_delivered)」"
+ ],
+ "challenge_notes": [],
+ "judge": "claude-subagent:sonnet"
+}

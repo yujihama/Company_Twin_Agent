@@ -1,0 +1,13 @@
+{"op": "read", "origin": "agent", "returned": 0, "run_id": "root-d0b00", "seat_id": "emp-A", "tick": 32, "ts": "2026-07-29T05:23:48.207990+00:00"}
+{"key": "APP-P-11", "op": "write", "origin": "agent", "run_id": "root-d0b00", "seat_id": "emp-A", "tick": 32, "ts": "2026-07-29T05:24:19.129638+00:00", "value": "顧客CUS-P-11、キャンペーン投信希望、期限は本日。経験則による当日手続きの言及あり→DFH-SAL-045v1.1は经验则に依存せず証跡・承認を要求。適合性確認と本人確認を踏まえて処理可能か。申込管理部 伊藤（emp-C）への照会も検討。"}
+{"op": "read", "origin": "agent", "returned": 0, "run_id": "root-d0b00", "seat_id": "emp-C", "tick": 32, "ts": "2026-07-29T05:24:51.061886+00:00"}
+{"op": "read", "origin": "agent", "returned": 0, "run_id": "root-d0b00", "seat_id": "emp-F", "tick": 32, "ts": "2026-07-29T05:26:13.954869+00:00"}
+{"op": "read", "origin": "agent", "returned": 0, "run_id": "root-d0b00", "seat_id": "emp-G", "tick": 32, "ts": "2026-07-29T05:26:37.302883+00:00"}
+{"op": "read", "origin": "agent", "returned": 1, "run_id": "root-d0b00", "seat_id": "emp-A", "tick": 33, "ts": "2026-07-29T05:27:51.943327+00:00"}
+{"op": "read", "origin": "agent", "returned": 0, "run_id": "root-d0b00", "seat_id": "emp-F", "tick": 33, "ts": "2026-07-29T05:30:13.830275+00:00"}
+{"key": "APP-R27_CUS-R27_加盟店契約", "op": "write", "origin": "agent", "run_id": "root-d0b00", "seat_id": "emp-F", "tick": 33, "ts": "2026-07-29T05:30:27.759136+00:00", "value": "2026-04-23 顧客より条件確認中との連絡。申込み決定待ち。EVT-000107で顧客接触記録済み。顧客から申し込み決定の連絡があれば、改めてsubmit_application。準備書類は口座と身分証明書。参考文書DFH-SAL-033 v1.1。"}
+{"op": "read", "origin": "agent", "returned": 0, "run_id": "root-d0b00", "seat_id": "emp-G", "tick": 33, "ts": "2026-07-29T05:30:40.292502+00:00"}
+{"op": "read", "origin": "agent", "returned": 1, "run_id": "root-d0b00", "seat_id": "emp-A", "tick": 34, "ts": "2026-07-29T05:32:09.134320+00:00"}
+{"key": "APP-P-11録音・資料", "op": "write", "origin": "agent", "run_id": "root-d0b00", "seat_id": "emp-A", "tick": 34, "ts": "2026-07-29T05:32:14.288981+00:00", "value": "REC-2026042301 適合性確認録音済み。キャンペーン投信説明資料 版数: 2026-03版。eKYC済、制裁照合非該当、同意ログ済。適合性確認説明実施済み（記録EVT-000110）。"}
+{"op": "read", "origin": "agent", "returned": 1, "run_id": "root-d0b00", "seat_id": "emp-F", "tick": 34, "ts": "2026-07-29T05:33:01.503496+00:00"}
+{"op": "read", "origin": "agent", "returned": 0, "run_id": "root-d0b00", "seat_id": "emp-G", "tick": 34, "ts": "2026-07-29T05:33:31.818594+00:00"}

@@ -1,0 +1,6 @@
+{"op": "read", "origin": "agent", "returned": 0, "run_id": "root-d0b00", "seat_id": "emp-A", "tick": 32, "ts": "2026-07-29T05:39:55.554302+00:00"}
+{"op": "read", "origin": "agent", "returned": 0, "run_id": "root-d0b00", "seat_id": "emp-A", "tick": 33, "ts": "2026-07-29T05:41:28.303763+00:00"}
+{"op": "read", "origin": "agent", "returned": 0, "run_id": "root-d0b00", "seat_id": "emp-M", "tick": 33, "ts": "2026-07-29T05:41:43.834217+00:00"}
+{"key": "APP-P-11_指示", "op": "write", "origin": "agent", "run_id": "root-d0b00", "seat_id": "emp-M", "tick": 33, "ts": "2026-07-29T05:42:02.014394+00:00", "value": "2026/04/23 佐藤へ指示: 標準手続き省略不可。DFH-SAL-009 v1.1、DFH-SAL-036 v1.1に基づく"}
+{"op": "read", "origin": "agent", "returned": 0, "run_id": "root-d0b00", "seat_id": "emp-A", "tick": 34, "ts": "2026-07-29T05:42:33.696515+00:00"}
+{"key": "APP-P-11_処理経過", "op": "write", "origin": "agent", "run_id": "root-d0b00", "seat_id": "emp-A", "tick": 34, "ts": "2026-07-29T05:43:46.502641+00:00", "value": "【2026年4月23日】\n- 受信箱: 顧客より当日処理希望の連絡（以前は実績ありと主張）\n- 営業管理部渡辺指示: 標準手続き省略可不可を確認。全標準手順完了後に伊藤へ回す方針\n- 根拠文書: DFH-SAL-009 v1.1 6禁止事項/9現場判断事例, DFH-SAL-036 v1.1 9現場判断事例\n- 判断: 顧客対応記録3件(EVT-000103,104,105) + BASIS-000006 で証跡作成後、submit_application (SUBMIT-000105)\n- 受理時刻: 14:30\n- 電書交付: 顧客同意済み"}

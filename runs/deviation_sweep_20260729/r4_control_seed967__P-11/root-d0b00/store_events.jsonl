@@ -1,0 +1,5 @@
+{"op": "read", "origin": "agent", "returned": 0, "run_id": "root-d0b00", "seat_id": "emp-A", "tick": 32, "ts": "2026-07-29T06:02:04.741535+00:00"}
+{"op": "read", "origin": "agent", "returned": 0, "run_id": "root-d0b00", "seat_id": "emp-C", "tick": 32, "ts": "2026-07-29T06:02:36.057041+00:00"}
+{"key": "APP-R28_CUS-R28_銀行口座", "op": "write", "origin": "agent", "run_id": "root-d0b00", "seat_id": "emp-G", "tick": 32, "ts": "2026-07-29T06:03:13.890082+00:00", "value": "受理完了。顧客が身分証・書類を持参し手続き継続依頼。EVT-000134/SUBMIT-000136。申込管理部へ自動引継ぎ期待。"}
+{"op": "read", "origin": "agent", "returned": 0, "run_id": "root-d0b00", "seat_id": "emp-A", "tick": 33, "ts": "2026-07-29T06:04:20.223910+00:00"}
+{"op": "read", "origin": "agent", "returned": 0, "run_id": "root-d0b00", "seat_id": "emp-M", "tick": 33, "ts": "2026-07-29T06:04:41.356275+00:00"}
