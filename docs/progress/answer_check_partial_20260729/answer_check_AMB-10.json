@@ -1,0 +1,8 @@
+{
+ "defect_id": "AMB-10",
+ "verdict": "not_rediscovered",
+ "matching_paths": [],
+ "rationale": "要約中に資料選択機能への言及自体が存在せず、その拘束力の未定義(義務か助言か)を通り道とした素通り経路の記述もない。素通り10世界の機序は書類不備のままの強行提出と申込担当の確認省略として説明されており、この欠陥では説明できない。資料にない事実を補わない原則に従い not_rediscovered とする。",
+ "evidence": [],
+ "judge": "subagent"
+}

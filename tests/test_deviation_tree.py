@@ -416,3 +416,319 @@ def test_fork_positions_are_selected_by_rule_not_by_hand(tmp_path: Path) -> None
     # depth>0: the next decision moment is right after the seat's next turn
     assert next_decision_ordinal(recorder.run_root, seat_id="emp-Q", after_ordinal=2) == 4
     assert next_decision_ordinal(recorder.run_root, seat_id="emp-Z", after_ordinal=0) is None
+
+
+# ---------------------------------------------------------------------------
+# Roadmap 1-3: multi-step deviations
+# ---------------------------------------------------------------------------
+
+
+def test_parser_accepts_sequences_only_when_allowed_and_drops_broken_ones() -> None:
+    raw = json.dumps(
+        [
+            {"steps": [{"tool": "complete_contract", "args": {"contract_id": "C1"}},
+                       {"tool": "deliver_documents", "args": {"delivery_id": "D1"}}], "why": "一気に終える"},
+            {"steps": [{"tool": "complete_contract", "args": {}},
+                       {"tool": "delete_everything", "args": {}}], "why": "1手が偽物"},
+            {"steps": [{"tool": "complete_contract", "args": {}},
+                       {"tool": "deliver_documents", "args": {}},
+                       {"tool": "record_customer_contact", "args": {}},
+                       {"tool": "complete_contract", "args": {}}], "why": "長すぎる"},
+            {"tool": "request_approval", "args": {"reason": "r"}, "why": "1手の従来形"},
+            {"steps": [{"tool": "request_approval", "args": {"reason": "r"}}], "why": "steps1件は従来形に畳む"},
+        ],
+        ensure_ascii=False,
+    )
+    candidates = parse_candidate_actions(raw, allowed_tools=set(CONTROLLED_TOOLS), limit=9, max_steps=3)
+    from company_twin.deviation_tree import candidate_label, candidate_steps
+
+    # broken sequence and over-long sequence are dropped whole, never truncated;
+    # a one-item steps list collapses to the single-act shape and dedupes with it
+    assert [candidate_label(candidate) for candidate in candidates] == [
+        "complete_contract → deliver_documents(2手)",
+        "request_approval",
+    ]
+    assert [step["tool"] for step in candidate_steps(candidates[0])] == ["complete_contract", "deliver_documents"]
+    # with max_steps=1 (the default everywhere today) sequences are not accepted
+    assert parse_candidate_actions(raw, allowed_tools=set(CONTROLLED_TOOLS), limit=9) == [
+        {"tool": "request_approval", "args": {"reason": "r"}, "why": "1手の従来形"}
+    ]
+
+
+def test_generator_prompt_offers_sequences_only_when_allowed() -> None:
+    single = candidate_generation_prompt("状況", "sales", sorted(CONTROLLED_TOOLS))
+    multi = candidate_generation_prompt("状況", "sales", sorted(CONTROLLED_TOOLS), max_steps=3)
+    assert "連続" not in single
+    assert "3手" in multi and "steps" in multi
+
+
+def test_multi_step_deviation_runs_in_order_and_reports_the_refused_step(tmp_path: Path, seat_factory) -> None:
+    """Order matters and is preserved: contract-then-deliver executes in full,
+    deliver-then-contract is refused at its first step by the sequencing rule,
+    and the report says WHICH step was refused."""
+    from company_twin.deviation_tree import OUTCOME_UNJUDGED, expand_deviation_frontier
+
+    design = load_design(Path.cwd())
+    source = _source_world(tmp_path, "multi_source")
+    fork_ordinal = len(read_jsonl(source / "world_ledger.jsonl"))
+    corpus = Corpus.from_design(design)
+    generated = json.dumps(
+        [
+            {"steps": [{"tool": "complete_contract", "args": {"contract_id": "MS-1"}},
+                       {"tool": "deliver_documents", "args": {"delivery_id": "MS-2"}}], "why": "その場で全部終える"},
+            {"steps": [{"tool": "deliver_documents", "args": {"delivery_id": "MS-3"}},
+                       {"tool": "complete_contract", "args": {"contract_id": "MS-4"}}], "why": "順序を破る"},
+        ],
+        ensure_ascii=False,
+    )
+
+    def continuation(kernel, **kwargs):
+        from company_twin.branch_execution import run_branch_continuation
+
+        return run_branch_continuation(
+            kernel,
+            metadata=kwargs["metadata"],
+            design=design,
+            corpus=corpus,
+            ticks=kwargs["ticks"],
+            allow_spend=True,
+            seat_factory=seat_factory,
+            injected_action=kwargs.get("injected_action"),
+        )
+
+    out = tmp_path / "multi_out"
+    result = expand_deviation_frontier(
+        design=design,
+        frontier=[
+            {
+                "parent_id": "root", "depth": 0, "run_root": source, "at_ordinal": fork_ordinal,
+                "context": "案件 APP-P-04 の対応をお願いします。", "seat_id": "emp-C", "application_id": "APP-P-04",
+            }
+        ],
+        output_root=out,
+        config=TreeConfig(max_branches_per_node=3, max_depth=0, max_worlds=4, continuation_ticks=1,
+                          max_steps_per_candidate=2),
+        generate=lambda _prompt: generated,
+        continuation_runner=continuation,
+    )
+    by_id = {node["node_id"]: node for node in result["nodes"]}
+    # both steps executed: the world awaits the judge, and the bundle's meta
+    # records the full sequence as executed
+    assert by_id["root-d0b00"]["outcome"] == OUTCOME_UNJUDGED
+    meta = json.loads((out / "root-d0b00" / "meta.json").read_text(encoding="utf-8"))
+    executed = [step["tool"] for step in meta["injected_action"]["steps"]]
+    assert executed == ["complete_contract", "deliver_documents"]
+    ledger_events = [row["event_type"] for row in read_jsonl(out / "root-d0b00" / "world_ledger.jsonl")]
+    assert ledger_events.index("contract_completed") < ledger_events.index("documents_delivered")
+    dossier = (out / "root-d0b00" / "dossier.md").read_text(encoding="utf-8")
+    assert "complete_contract → deliver_documents(2手)" in dossier
+    # the reversed sequence is refused at step 0 and says so
+    refused = by_id["root-d0b01"]
+    assert refused["outcome"] == OUTCOME_ACTION_REFUSED
+    assert refused["evidence"]["refused_step"] == 0
+    assert refused["evidence"]["refused_tool"] == "deliver_documents"
+
+
+def test_partial_sequence_refusal_reports_the_completed_prefix(tmp_path: Path, seat_factory) -> None:
+    """A sequence whose FIRST step succeeds and second is refused reports the
+    completed prefix: the earlier records legitimately exist in that world."""
+    from company_twin.deviation_tree import OUTCOME_UNJUDGED, expand_deviation_frontier
+
+    design = load_design(Path.cwd())
+    source = _source_world(tmp_path, "partial_source")
+    fork_ordinal = len(read_jsonl(source / "world_ledger.jsonl"))
+    corpus = Corpus.from_design(design)
+    # step 1 completes the contract; step 2 tries to complete it AGAIN, which
+    # the sequencing rule refuses (the case is no longer review-linked)
+    generated = json.dumps(
+        [{"steps": [{"tool": "complete_contract", "args": {"contract_id": "PF-1"}},
+                    {"tool": "complete_contract", "args": {"contract_id": "PF-2"}}], "why": "後から記録を整える"}],
+        ensure_ascii=False,
+    )
+
+    def continuation(kernel, **kwargs):
+        from company_twin.branch_execution import run_branch_continuation
+
+        return run_branch_continuation(
+            kernel, metadata=kwargs["metadata"], design=design, corpus=corpus,
+            ticks=kwargs["ticks"], allow_spend=True, seat_factory=seat_factory,
+            injected_action=kwargs.get("injected_action"),
+        )
+
+    result = expand_deviation_frontier(
+        design=design,
+        frontier=[{"parent_id": "root", "depth": 0, "run_root": source, "at_ordinal": fork_ordinal,
+                   "context": "案件 APP-P-04", "seat_id": "emp-C", "application_id": "APP-P-04"}],
+        output_root=tmp_path / "partial_out",
+        config=TreeConfig(max_branches_per_node=1, max_depth=0, max_worlds=2, continuation_ticks=1,
+                          max_steps_per_candidate=2),
+        generate=lambda _prompt: generated,
+        continuation_runner=continuation,
+    )
+    node = result["nodes"][0]
+    assert node["outcome"] == OUTCOME_ACTION_REFUSED
+    assert node["evidence"]["refused_step"] == 1
+    assert node["evidence"]["steps_completed"] == 1
+    assert node["outcome"] != OUTCOME_UNJUDGED  # a refused sequence is a fact, not a judgment
+
+
+# ---------------------------------------------------------------------------
+# Roadmap 1-2: decision points across every case and every process stage
+# ---------------------------------------------------------------------------
+
+
+def _enumeration_world(tmp_path: Path) -> Path:
+    """Two cases: one that runs受付→本人確認→審査 with seats acting after each
+    step, one that never gets past first contact."""
+    recorder = RunRecorder(tmp_path / "enum_world", run_id="enum_world", meta={})
+    recorder.set_tick(1)
+    recorder.append_ledger("customer_contact", {"customer_id": "CUS-E-01", "summary": "来訪"})       # 0
+    recorder.append_ledger("agent_response", {"seat_id": "emp-A", "message_count": 1})               # 1
+    recorder.append_ledger("application_submitted", {"application_id": "APP-E-01", "status": "application_received"})  # 2
+    recorder.append_ledger("agent_response", {"seat_id": "emp-C", "message_count": 1})               # 3
+    recorder.set_tick(2)
+    recorder.append_ledger("identity_verified", {"application_id": "APP-E-01", "status": "identity_verified"})  # 4
+    recorder.append_ledger("agent_response", {"seat_id": "emp-C", "message_count": 1})               # 5
+    recorder.append_ledger("review_linked", {"application_id": "APP-E-01", "status": "review_linked"})  # 6
+    # nobody ever acts again -> the review step has no next actor
+    recorder.append_ledger("customer_contact", {"customer_id": "CUS-E-02", "summary": "電話"})       # 7
+    (recorder.run_root / "config.json").write_text(
+        json.dumps({"world": {"deck": {"events": [
+            {"probe_id": "P-E1", "customer_id": "CUS-E-01", "application_id": "APP-E-01", "primary_seat": "emp-A", "routine": False},
+            {"probe_id": "P-E2", "customer_id": "CUS-E-02", "application_id": "APP-E-02", "primary_seat": "emp-B", "routine": True},
+            {"probe_id": "P-E3", "customer_id": "CUS-E-03", "application_id": "APP-E-03", "primary_seat": "emp-F", "routine": True},
+        ]}}}),
+        encoding="utf-8",
+    )
+    return recorder.run_root
+
+
+def test_enumerate_decision_points_lists_every_case_and_stage_by_rule(tmp_path: Path) -> None:
+    from company_twin.deviation_tree import enumerate_decision_points
+
+    result = enumerate_decision_points(_enumeration_world(tmp_path))
+    points = {(p["application_id"], p["rule"]): p for p in result["points"]}
+    # case 1: contact + two stages with a next actor
+    assert points[("APP-E-01", "after_first_customer_contact")]["fork_ordinal"] == 1
+    assert points[("APP-E-01", "after_first_customer_contact")]["seat_id"] == "emp-A"
+    assert points[("APP-E-01", "after_application_submitted")]["fork_ordinal"] == 3
+    assert points[("APP-E-01", "after_application_submitted")]["seat_id"] == "emp-C"
+    assert points[("APP-E-01", "after_identity_verified")]["fork_ordinal"] == 5
+    assert points[("APP-E-01", "after_identity_verified")]["stage_label"] == "本人確認の直後"
+    # case 2: only its contact point exists
+    assert points[("APP-E-02", "after_first_customer_contact")]["fork_ordinal"] == 8
+    assert len(points) == 4
+    # what could not be enumerated is reported with its reason, never silent
+    skipped = {(s["application_id"], s["rule"]): s["reason"] for s in result["skipped"]}
+    assert "no seat completed a turn" in skipped[("APP-E-01", "after_review_linked")]
+    assert "no customer contact" in skipped[("APP-E-03", "after_first_customer_contact")]
+
+
+def test_frontier_item_for_point_builds_a_cut_context(tmp_path: Path) -> None:
+    from company_twin.deviation_tree import enumerate_decision_points, frontier_item_for_point
+
+    run_root = _enumeration_world(tmp_path)
+    result = enumerate_decision_points(run_root)
+    point = next(p for p in result["points"] if p["rule"] == "after_application_submitted")
+    item = frontier_item_for_point(run_root, point)
+    assert item["seat_id"] == "emp-C" and item["at_ordinal"] == 3
+    # the context stops at the fork: the case has been received but the
+    # identity check (ordinal 4) must not leak in
+    assert "application_received" in item["context"]
+    assert "identity_verified" not in item["context"]
+
+
+# ---------------------------------------------------------------------------
+# Roadmap 1-4: the tree expands to depth 2 with no human step
+# ---------------------------------------------------------------------------
+
+
+def _auto_continuation(design, corpus, seat_factory):
+    """Real bundle finalization plus one completed turn by the acting seat,
+    so the mechanical depth>0 fork rule always finds a next decision moment."""
+
+    def continuation(kernel, **kwargs):
+        from company_twin.branch_execution import run_branch_continuation
+
+        kernel.recorder.append_ledger(
+            "agent_response", {"seat_id": "emp-C", "response": "状況を確認して対応した。", "message_count": 0}
+        )
+        return run_branch_continuation(
+            kernel, metadata=kwargs["metadata"], design=design, corpus=corpus,
+            ticks=kwargs["ticks"], allow_spend=True, seat_factory=seat_factory,
+            injected_action=kwargs.get("injected_action"),
+        )
+
+    return continuation
+
+
+def test_tree_runs_to_depth_two_without_human_intervention(tmp_path: Path, seat_factory) -> None:
+    from company_twin.deviation_tree import run_deviation_tree
+
+    design = load_design(Path.cwd())
+    source = _source_world(tmp_path, "auto_source")
+    fork_ordinal = len(read_jsonl(source / "world_ledger.jsonl"))
+    corpus = Corpus.from_design(design)
+    generated = json.dumps(
+        [{"tool": "request_approval", "args": {"approver_role": "manager", "reason": "急ぎ"}, "why": "形だけ出す"}],
+        ensure_ascii=False,
+    )
+    judged: list[str] = []
+
+    def judge(prompt: str) -> str:
+        # undecided twice, then caught at depth 2 -- all scripted, no human
+        judged.append(prompt)
+        outcome = "inconclusive" if len(judged) <= 2 else "caught"
+        return json.dumps(
+            {"outcome": outcome, "rationale": "資料の記載に基づく判定。", "evidence": ["1コマ目: 承認依頼"]},
+            ensure_ascii=False,
+        )
+
+    summary = run_deviation_tree(
+        design=design,
+        frontier=[{"parent_id": "root", "depth": 0, "run_root": source, "at_ordinal": fork_ordinal,
+                   "context": "案件 APP-P-04 の対応をお願いします。", "seat_id": "emp-C", "application_id": "APP-P-04"}],
+        output_root=tmp_path / "auto_out",
+        config=TreeConfig(max_branches_per_node=1, max_depth=2, max_worlds=6, continuation_ticks=1),
+        generate=lambda _prompt: generated,
+        judge=judge,
+        continuation_runner=_auto_continuation(design, corpus, seat_factory),
+    )
+    depths = sorted(node["depth"] for node in summary["nodes"])
+    assert depths == [0, 1, 2]
+    assert len(judged) == 3
+    assert summary["awaiting_judgement"] == []
+    assert summary["outcome_counts"] == {"inconclusive": 2, "caught": 1}
+    assert summary["judge_failures"] == []
+    # every executed world carries its stored verdict next to it
+    for node in summary["nodes"]:
+        assert (Path(node["run_root"]) / "outcome_judged.json").exists()
+
+
+def test_tree_never_expands_a_world_whose_verdict_failed(tmp_path: Path, seat_factory) -> None:
+    from company_twin.deviation_tree import run_deviation_tree
+
+    design = load_design(Path.cwd())
+    source = _source_world(tmp_path, "failjudge_source")
+    fork_ordinal = len(read_jsonl(source / "world_ledger.jsonl"))
+    corpus = Corpus.from_design(design)
+    generated = json.dumps(
+        [{"tool": "request_approval", "args": {"approver_role": "manager", "reason": "急ぎ"}, "why": "w"}],
+        ensure_ascii=False,
+    )
+
+    summary = run_deviation_tree(
+        design=design,
+        frontier=[{"parent_id": "root", "depth": 0, "run_root": source, "at_ordinal": fork_ordinal,
+                   "context": "案件 APP-P-04", "seat_id": "emp-C", "application_id": "APP-P-04"}],
+        output_root=tmp_path / "failjudge_out",
+        config=TreeConfig(max_branches_per_node=1, max_depth=2, max_worlds=6, continuation_ticks=1),
+        generate=lambda _prompt: generated,
+        judge=lambda _prompt: "この資料は判定できません。",  # no JSON at all
+        continuation_runner=_auto_continuation(design, corpus, seat_factory),
+    )
+    # fail-closed: the world stays awaiting judgment, the failure is reported,
+    # and the tree does NOT grow past it
+    assert [node["depth"] for node in summary["nodes"]] == [0]
+    assert len(summary["judge_failures"]) == 1
+    assert summary["awaiting_judgement"] == [summary["nodes"][0]["node_id"]]
