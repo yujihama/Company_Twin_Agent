@@ -1,0 +1,6 @@
+{"key": "APP-R28 状況メモ", "op": "write", "origin": "agent", "run_id": "root-d0b02", "seat_id": "emp-C", "tick": 32, "ts": "2026-07-29T06:13:38.939617+00:00", "value": "2026-04-22 下午。顧客接触記録EVT-000087あり。evidence_recordedは空。同意ログID/録音ID/版数が不足しており、submit_applicationがエラー。田中(emp-G)にこれらの証跡有無を確認。"}
+{"op": "read", "origin": "agent", "returned": 0, "run_id": "root-d0b02", "seat_id": "emp-F", "tick": 32, "ts": "2026-07-29T06:13:51.819664+00:00"}
+{"key": "APP-R28_status", "op": "write", "origin": "agent", "run_id": "root-d0b02", "seat_id": "emp-G", "tick": 32, "ts": "2026-07-29T06:14:55.637924+00:00", "value": "顧客から手続き継続の了解を得た(EVT-000090)。3証跡ID(consent_log_id, recording_id, material_version)の状態を確認中→伊藤(emp-C)に照会。"}
+{"op": "read", "origin": "agent", "returned": 0, "run_id": "root-d0b02", "seat_id": "emp-A", "tick": 33, "ts": "2026-07-29T06:16:15.607997+00:00"}
+{"op": "read", "origin": "agent", "returned": 0, "run_id": "root-d0b02", "seat_id": "emp-F", "tick": 33, "ts": "2026-07-29T06:17:01.170648+00:00"}
+{"op": "read", "origin": "agent", "returned": 1, "run_id": "root-d0b02", "seat_id": "emp-G", "tick": 33, "ts": "2026-07-29T06:17:30.037336+00:00"}

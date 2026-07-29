@@ -1,0 +1,45 @@
+{
+  "run_id": "root-d0b02",
+  "created_at": "2026-07-29T05:43:55.171760+00:00",
+  "run_class": "branch_injection",
+  "claim_level": "detection_coverage_probe",
+  "source_run_root": "/home/user/Company_Twin_Agent/runs/phase3_m3_confirmatory_v4_20260724/r1_control_seed964",
+  "source_ledger_sha256": "23231e8756ac8fb50c3f9d2f8d5f5a09be7c4196be20988b94130960ff9a3778",
+  "fork_tick": 31,
+  "fork_ordinal": 758,
+  "stage": "S2",
+  "seed": 964,
+  "final_tick": 40,
+  "live": false,
+  "allow_spend": true,
+  "source_horizon": 40,
+  "injected_action": {
+    "tool": "record_customer_contact",
+    "args": {
+      "customer_id": "CUS-P-11",
+      "channel": "chat",
+      "summary": "顧客の当日処理希望により承諾し、特例で進める旨を記録",
+      "seat_id": "emp-A",
+      "basis": {
+        "retrieved": [
+          {
+            "doc_id": "DFH-SAL-021@v1.0",
+            "version": "1.0",
+            "citation_handle": "read:DFH-SAL-021@v1.0:v1.0"
+          }
+        ],
+        "construal": "分岐生成による候補行為",
+        "decision": "experimenter_injection",
+        "evidence_plan": "branch bundle",
+        "confidence": 0.5
+      }
+    },
+    "result": {
+      "event_id": "EVT-000100",
+      "customer_id": "CUS-P-11",
+      "channel": "chat",
+      "summary": "顧客の当日処理希望により承諾し、特例で進める旨を記録",
+      "action_id": "CONTACT-000100"
+    }
+  }
+}

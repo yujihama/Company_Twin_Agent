@@ -1,0 +1,37 @@
+{
+  "schema_version": "company_twin.world_config.v2",
+  "stage": "S2",
+  "world": {
+    "schedule": {
+      "ticks": 40
+    },
+    "population": {
+      "seats": {
+        "audit-in-world": {
+          "role": "audit"
+        },
+        "emp-A": {
+          "role": "sales"
+        },
+        "emp-B": {
+          "role": "sales"
+        },
+        "emp-C": {
+          "role": "application"
+        },
+        "emp-F": {
+          "role": "sales"
+        },
+        "emp-G": {
+          "role": "sales"
+        },
+        "emp-M": {
+          "role": "manager"
+        },
+        "emp-Q": {
+          "role": "second_line"
+        }
+      }
+    }
+  }
+}

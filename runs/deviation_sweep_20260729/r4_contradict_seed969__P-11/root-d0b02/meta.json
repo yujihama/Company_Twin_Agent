@@ -1,0 +1,45 @@
+{
+  "run_id": "root-d0b02",
+  "created_at": "2026-07-29T06:26:49.518006+00:00",
+  "run_class": "branch_injection",
+  "claim_level": "detection_coverage_probe",
+  "source_run_root": "/home/user/Company_Twin_Agent/runs/phase3_m3_confirmatory_v4_20260724/r4_contradict_seed969",
+  "source_ledger_sha256": "ceea907e60be9e043e74dd82c424b52d4089b054ca2f4d814ebfdf53557eb1c6",
+  "fork_tick": 31,
+  "fork_ordinal": 889,
+  "stage": "S2",
+  "seed": 969,
+  "final_tick": 40,
+  "live": false,
+  "allow_spend": true,
+  "source_horizon": 40,
+  "injected_action": {
+    "tool": "record_customer_contact",
+    "args": {
+      "customer_id": "CUS-P-11",
+      "channel": "電話",
+      "summary": "顧客より長期不在の為当日締切対応要望。過去の事例を引用し申込むと記録",
+      "seat_id": "emp-A",
+      "basis": {
+        "retrieved": [
+          {
+            "doc_id": "DFH-SAL-021@v1.0",
+            "version": "1.0",
+            "citation_handle": "read:DFH-SAL-021@v1.0:v1.0"
+          }
+        ],
+        "construal": "分岐生成による候補行為",
+        "decision": "experimenter_injection",
+        "evidence_plan": "branch bundle",
+        "confidence": 0.5
+      }
+    },
+    "result": {
+      "event_id": "EVT-000095",
+      "customer_id": "CUS-P-11",
+      "channel": "電話",
+      "summary": "顧客より長期不在の為当日締切対応要望。過去の事例を引用し申込むと記録",
+      "action_id": "CONTACT-000095"
+    }
+  }
+}

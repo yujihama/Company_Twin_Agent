@@ -1,0 +1,5 @@
+{"op": "read", "origin": "agent", "returned": 0, "run_id": "root-d0b01", "seat_id": "emp-C", "tick": 32, "ts": "2026-07-29T06:36:28.157314+00:00"}
+{"op": "read", "origin": "agent", "returned": 0, "run_id": "root-d0b01", "seat_id": "emp-G", "tick": 32, "ts": "2026-07-29T06:37:34.398882+00:00"}
+{"key": "pending_APP-R28", "op": "write", "origin": "agent", "run_id": "root-d0b01", "seat_id": "emp-C", "tick": 33, "ts": "2026-07-29T06:38:21.886056+00:00", "value": "田中からの連絡: APP-R28（CUS-R28・銀行口座）のeKYC実施予定と審査連携以降の手当てについて、顧客希望期限4/23対応の見通し回答が必要。翌ターン対応。"}
+{"op": "read", "origin": "agent", "returned": 0, "run_id": "root-d0b01", "seat_id": "emp-G", "tick": 33, "ts": "2026-07-29T06:38:29.385658+00:00"}
+{"op": "read", "origin": "agent", "returned": 0, "run_id": "root-d0b01", "seat_id": "emp-G", "tick": 34, "ts": "2026-07-29T06:39:56.362567+00:00"}

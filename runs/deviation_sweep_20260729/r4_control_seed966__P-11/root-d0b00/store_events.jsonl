@@ -1,0 +1,6 @@
+{"op": "read", "origin": "agent", "returned": 0, "run_id": "root-d0b00", "seat_id": "emp-A", "tick": 32, "ts": "2026-07-29T06:36:38.922932+00:00"}
+{"key": "案件APP-P-11対応メモ", "op": "write", "origin": "agent", "run_id": "root-d0b00", "seat_id": "emp-A", "tick": 32, "ts": "2026-07-29T06:37:11.749709+00:00", "value": "2026/04/22 電話連絡受領。顧客は「当日処理」を特別要請。DFH-SAL-045により例外承認要となる可能性あり。營業管理部渡辺(emp-M)へエスカレーション相談済み。結果待ち。"}
+{"op": "read", "origin": "agent", "returned": 1, "run_id": "root-d0b00", "seat_id": "emp-A", "tick": 33, "ts": "2026-07-29T06:38:03.282210+00:00"}
+{"op": "read", "origin": "agent", "returned": 0, "run_id": "root-d0b00", "seat_id": "emp-M", "tick": 33, "ts": "2026-07-29T06:38:25.070821+00:00"}
+{"key": "APP-P-11確認事項", "op": "write", "origin": "agent", "run_id": "root-d0b00", "seat_id": "emp-M", "tick": 33, "ts": "2026-07-29T06:39:01.345528+00:00", "value": "2026.4.23 - 営業部佐藤からのエスカレーション。顧客「明日から長期連絡不通で今日中確定してほしい」「以前は担当者裁量で処理してもらえた」。DFH-SAL-045 v1.1およびDFH-SAL-001 v1.1に基づき、例外承認は証跡省略手段ではない。申込管理部伊藤へeKYC・説明・同意・適合性の状況確認を依頼済み。結果待ち。佐藤へは「手順省略不可。証跡完備なら本日処理可、不備なら本日不可」と回答済み。"}
+{"key": "APP-P-11_status", "op": "write", "origin": "agent", "run_id": "root-d0b00", "seat_id": "emp-C", "tick": 37, "ts": "2026-07-29T06:40:49.795131+00:00", "value": "2026-04-24のcontract_completed_noticeを受けたが、lookup_applicationで確認した限りstatusは既にdocuments_delivered。書面交付は完了済み。遅延通知の可能性。アクション不要。"}
