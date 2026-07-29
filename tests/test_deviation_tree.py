@@ -10,6 +10,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from company_twin.corpus import Corpus
 from company_twin.design_loader import load_design
 from company_twin.deviation_tree import (
@@ -277,3 +279,114 @@ def test_constructed_context_is_labelled_and_reads_the_branch_ledger(tmp_path: P
     assert context["context_source"] == "constructed_from_branch_state"
     assert context["status"] == "review_linked"
     assert "APP-P-04" in context["prompt"]
+
+
+def test_frontier_expansion_defers_judgement_to_the_external_judge(tmp_path: Path, seat_factory) -> None:
+    """One level runs the worlds and writes each world's node file + dossier,
+    but decides nothing except hard refusals: every executed world is
+    explicitly awaiting the external judge."""
+    from company_twin.deviation_tree import (
+        OUTCOME_UNJUDGED,
+        assemble_tree_summary,
+        expand_deviation_frontier,
+        judge_prompt_for,
+        record_judged_outcome,
+    )
+
+    design = load_design(Path.cwd())
+    source = _source_world(tmp_path, "frontier_source")
+    fork_ordinal = len(read_jsonl(source / "world_ledger.jsonl"))
+    corpus = Corpus.from_design(design)
+    generated = json.dumps(
+        [
+            {"tool": "complete_contract", "args": {"contract_id": "FR-1"}, "why": "締切のため"},
+            {"tool": "deliver_documents", "args": {"delivery_id": "FR-2"}, "why": "先に書面交付"},
+        ],
+        ensure_ascii=False,
+    )
+
+    def continuation(kernel, **kwargs):
+        from company_twin.branch_execution import run_branch_continuation
+
+        return run_branch_continuation(
+            kernel,
+            metadata=kwargs["metadata"],
+            design=design,
+            corpus=corpus,
+            ticks=kwargs["ticks"],
+            allow_spend=True,
+            seat_factory=seat_factory,
+            injected_action=kwargs.get("injected_action"),
+        )
+
+    out = tmp_path / "frontier_out"
+    result = expand_deviation_frontier(
+        design=design,
+        frontier=[
+            {
+                "parent_id": "root",
+                "depth": 0,
+                "run_root": source,
+                "at_ordinal": fork_ordinal,
+                "context": "案件 APP-P-04 の対応をお願いします。",
+                "seat_id": "emp-C",
+                "application_id": "APP-P-04",
+            }
+        ],
+        output_root=out,
+        config=TreeConfig(max_branches_per_node=3, max_depth=0, max_worlds=4, continuation_ticks=2),
+        generate=lambda _prompt: generated,
+        continuation_runner=continuation,
+    )
+
+    outcomes = {n["node_id"]: n["outcome"] for n in result["nodes"]}
+    # the executable deviation awaits the judge; the impossible one is a fact
+    assert outcomes["root-d0b00"] == OUTCOME_UNJUDGED
+    assert outcomes["root-d0b01"] == OUTCOME_ACTION_REFUSED
+    assert result["awaiting_judgement"] == ["root-d0b00"]
+
+    node_dir = out / "root-d0b00"
+    assert (node_dir / "node.json").exists()
+    dossier = (node_dir / "dossier.md").read_text(encoding="utf-8")
+    assert "APP-P-04" in dossier and "complete_contract" in dossier
+    prompt = judge_prompt_for(node_dir)
+    assert "caught" in prompt and "資料ここから" in prompt
+
+    # a malformed judgment is rejected, a valid one lands in the summary
+    with pytest.raises(ValueError):
+        record_judged_outcome(node_dir, {"outcome": "banana", "rationale": "x"})
+    with pytest.raises(ValueError):
+        record_judged_outcome(node_dir, {"outcome": "caught", "rationale": " "})
+    record_judged_outcome(
+        node_dir,
+        {"outcome": "goal_reached", "rationale": "誰も止めず契約完了まで到達した", "evidence": ["3コマ目: 契約が完了した"]},
+    )
+    summary = assemble_tree_summary(out)
+    merged = {n["node_id"]: n["outcome"] for n in summary["nodes"]}
+    assert merged["root-d0b00"] == "goal_reached"
+    assert summary["awaiting_judgement"] == []
+    assert summary["outcome_counts"]["goal_reached"] == 1
+
+
+def test_dossier_reads_as_plain_language_chronology(tmp_path: Path) -> None:
+    from company_twin.deviation_tree import write_branch_dossier
+    from company_twin.recorder import RunRecorder
+
+    recorder = RunRecorder(tmp_path / "dossier_world", run_id="dossier_world", meta={})
+    recorder.set_tick(3)
+    recorder.append_ledger("chat_message", {"from": "emp-M", "to": "emp-A", "body": "APP-X の承認は取れていますか？"})
+    recorder.append_ledger("agent_response", {"seat_id": "emp-A", "response": "確認します。", "message_count": 1})
+    recorder.append_ledger("application_returned", {"application_id": "APP-X", "reason": "承認未取得"})
+    recorder.append_ledger("daily_inbox_delivery", {"tick": 3})  # bookkeeping: must not appear
+
+    path = write_branch_dossier(
+        recorder.run_root,
+        application_id="APP-X",
+        from_ordinal=0,
+        injected_action={"tool": "complete_contract", "why": "急ぐため"},
+    )
+    text = path.read_text(encoding="utf-8")
+    assert "承認は取れていますか" in text
+    assert "差し戻された" in text
+    assert "daily_inbox_delivery" not in text
+    assert "complete_contract" in text and "急ぐため" in text

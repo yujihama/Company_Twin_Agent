@@ -355,3 +355,79 @@ def test_branch_bundle_saves_its_own_outstanding_work_for_the_next_fork(tmp_path
     assert next_metadata["pending_work"]["snapshot_agrees_with_ledger"] is True
     assert next_kernel.inbox.get("emp-M")
     assert next_kernel.inbox.get("emp-A")
+
+
+def test_branch_continuation_hosts_the_scheduled_customers(tmp_path: Path) -> None:
+    """After the fork, customers keep living: visits still ahead of the fork
+    happen on their scheduled day, and a contacted customer answers on the
+    next tick. Without this the branch world starves once the restored
+    pending work is handled."""
+    from company_twin.corpus import Corpus
+    from company_twin.deck import CustomerEvent
+    from tests.conftest import FakeCustomerLLM, fake_seat_factory
+
+    kernel = _source_kernel(tmp_path, "source_customers")
+    recorder = kernel.recorder
+    recorder.set_tick(1)
+    recorder.append_ledger("tick_committed", {"tick": 1})
+    recorder.set_tick(2)
+    recorder.append_ledger("tick_committed", {"tick": 2})
+
+    event = CustomerEvent(
+        event_id="EVT-T1",
+        probe_id="",
+        customer_id="CUS-T1",
+        application_id="APP-T1",
+        product="投資信託",
+        trigger_tick=3,
+        deadline_tick=8,
+        primary_seat="emp-A",
+        participant_seats=("emp-A", "emp-C"),
+        required_doc_ids=("DFH-SAL-021",),
+        span_ids=(),
+        world_visible="投資信託の申込を進めたい。",
+        latent_truth="unit-test customer",
+        routine=True,
+    )
+    (recorder.run_root / "config.json").write_text(
+        json.dumps(
+            {
+                "world": {
+                    "deck": {"events": [event.to_dict()]},
+                    "schedule": {"ticks": 6, "workflow": {}},
+                    "population": {},
+                },
+                "model": {"customer": "fake:unit"},
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    design = load_design(Path.cwd())
+    corpus = Corpus.from_design(design)
+    output_root = tmp_path / "branch_customers"
+    new_kernel, metadata = rebuild_kernel_state(recorder.run_root, 2, output_root)
+    assert metadata["deck_events"], "the visit schedule must ride along in the branch metadata"
+
+    summary = run_branch_continuation(
+        new_kernel,
+        metadata=metadata,
+        design=design,
+        corpus=corpus,
+        ticks=99,  # capped to the source horizon
+        allow_spend=True,
+        seat_factory=fake_seat_factory(),
+        customer_llm=FakeCustomerLLM(new_kernel.recorder),
+    )
+    assert summary["final_tick"] == 6  # horizon cap bit: 2 + min(99, 6-2)
+
+    rows = read_jsonl(output_root / "world_ledger.jsonl")
+    arrivals = [r for r in rows if r.get("event_type") == "customer_utterance" and not (r.get("payload") or {}).get("reply")]
+    assert any((r.get("payload") or {}).get("customer_id") == "CUS-T1" and r.get("tick") == 3 for r in arrivals), (
+        "the visit scheduled for day 3 must still happen in the branch"
+    )
+    replies = [r for r in rows if r.get("event_type") == "customer_utterance" and (r.get("payload") or {}).get("reply")]
+    assert replies, "a contacted customer must answer on the next tick"
+    responses = [r for r in rows if r.get("event_type") == "agent_response" and (r.get("payload") or {}).get("seat_id") == "emp-A"]
+    assert responses, "the seat must actually take a turn on the delivered visit"

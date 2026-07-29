@@ -51,8 +51,10 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import Any, Callable
 
-from .agents import SeatFactory, default_seat_factory, recursion_for_budget
+from .agents import CustomerLLM, SeatFactory, default_customer_llm, default_seat_factory, recursion_for_budget
 from .corpus import Corpus
+from .customer_agent import CustomerActor, emit_customer_followup, emit_customer_reply, emit_customer_turn
+from .deck import CustomerEvent
 from .design_loader import DesignInputs, load_design
 from .harness import _contact_directory_text, _instantiate_seat, _turn_prompt, kernel_profile as _harness_kernel_profile
 from .kernel import CONTROLLED_TOOLS, WorldKernel
@@ -330,6 +332,15 @@ def rebuild_kernel_state(
 
     design = load_design(Path(design_root) if design_root is not None else Path.cwd())
     schedule = ((source_config.get("world") or {}).get("schedule") or {})
+    # A branch bundle's own schedule.ticks is just where ITS run stopped; the
+    # real horizon of the world line is the original source world's, carried
+    # through every generation via meta["source_horizon"]. The key's PRESENCE
+    # is what matters: an explicit 0 means "the original never declared a
+    # horizon" and must not fall back to the branch's own stop tick.
+    if "source_horizon" in source_meta:
+        source_horizon = int(source_meta.get("source_horizon") or 0)
+    else:
+        source_horizon = int(schedule.get("ticks") or 0)
     profile = _harness_kernel_profile(design, schedule=schedule, scc_switch_enabled=False, valid_doc_ids=set())
 
     recorder = BranchRunRecorder(
@@ -411,7 +422,13 @@ def rebuild_kernel_state(
         "tick_budget": dict(population.get("tick_budget") or {}),
         "model_binding": dict(population.get("binding") or {}),
         "prompt_mode": source_meta.get("prompt_mode") or "measurement",
-        "source_ticks": int((schedule.get("ticks") or 0)),
+        "source_ticks": source_horizon,
+        # Customer machinery for the continuation: the full visit schedule is
+        # persisted in every run's config, so a branch can host the SAME
+        # customers, on the same days, with the same personas and seed.
+        "deck_events": list(((source_config.get("world") or {}).get("deck") or {}).get("events") or []),
+        "customer_model": str(((source_config.get("model") or {}).get("customer")) or ""),
+        "absence": dict(population.get("absence") or {}),
         "pending_work": {
             "source": pending_work_source,
             "snapshot_agrees_with_ledger": snapshot_agrees,
@@ -458,6 +475,30 @@ def inject_branch_action(kernel: WorldKernel, action_spec: dict[str, Any]) -> di
     return result if isinstance(result, dict) else {"value": result}
 
 
+def _event_from_dict(raw: dict[str, Any]) -> CustomerEvent | None:
+    """Rebuild a CustomerEvent from the dict shape config.json stores."""
+    try:
+        return CustomerEvent(
+            event_id=str(raw["event_id"]),
+            probe_id=str(raw.get("probe_id") or ""),
+            customer_id=str(raw["customer_id"]),
+            application_id=str(raw["application_id"]),
+            product=str(raw.get("product") or ""),
+            trigger_tick=int(raw.get("trigger_tick") or 0),
+            deadline_tick=int(raw.get("deadline_tick") or 0),
+            primary_seat=str(raw.get("primary_seat") or ""),
+            participant_seats=tuple(raw.get("participant_seats") or ()),
+            required_doc_ids=tuple(raw.get("required_doc_ids") or ()),
+            span_ids=tuple(raw.get("span_ids") or ()),
+            world_visible=str(raw.get("world_visible") or ""),
+            latent_truth=str(raw.get("latent_truth") or ""),
+            routine=bool(raw.get("routine")),
+            customer_stage=str(raw.get("customer_stage") or "application_intent"),
+        )
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
 def _run_live_continuation(
     kernel: WorldKernel,
     *,
@@ -472,6 +513,11 @@ def _run_live_continuation(
     budgets: dict[str, int] | None = None,
     model_binding: dict[str, str] | None = None,
     horizon: int | None = None,
+    deck_events: list[dict[str, Any]] | None = None,
+    customer_model: str | None = None,
+    customer_llm: CustomerLLM | None = None,
+    seed: int | None = None,
+    absence: dict[str, list[int]] | None = None,
 ) -> int:
     """Full live-continuation plumbing, reachable only when a caller passes
     `allow_spend=True` to `run_branch_continuation`. Nothing in this change
@@ -486,6 +532,7 @@ def _run_live_continuation(
     workflow = dict(workflow or {})
     budgets = dict(budgets or {})
     model_binding = dict(model_binding or {})
+    absence = {seat_id: list(map(int, ticks_)) for seat_id, ticks_ in dict(absence or {}).items()}
     if budgets:
         recorder.configure_tick_budgets(budgets)
     # Same prompt blocks the source generation had; each collapses to an
@@ -494,6 +541,70 @@ def _run_live_continuation(
         _contact_directory_text(dict(kernel.profile.seat_roles)) if workflow.get("contact_directory") else ""
     )
     ticks_horizon = int(horizon or (fork_tick + ticks))
+
+    # ------------------------------------------------------------------
+    # Customer machinery, same parts the ordinary harness uses: scheduled
+    # visits still ahead of the fork happen on their scheduled day, contacted
+    # customers answer on the next tick, and stalled customers send their own
+    # follow-ups (when the source world had that layer on). Without this a
+    # branch world starves once the restored pending work is handled.
+    # ------------------------------------------------------------------
+    events = [event for event in (
+        _event_from_dict(raw) for raw in (deck_events or [])
+    ) if event is not None]
+    events_by_tick: dict[int, list[CustomerEvent]] = {}
+    events_by_customer: dict[str, CustomerEvent] = {}
+    for event in events:
+        events_by_customer[event.customer_id] = event
+        if event.trigger_tick > fork_tick:
+            events_by_tick.setdefault(event.trigger_tick, []).append(event)
+    customer_cache: dict[str, CustomerLLM] = {}
+
+    def customer_model_llm() -> CustomerLLM:
+        # Built lazily: a continuation with no customer activity never needs
+        # (or pays for) a customer model at all.
+        if "llm" not in customer_cache:
+            customer_cache["llm"] = customer_llm or default_customer_llm(model=customer_model or model, recorder=recorder)
+        return customer_cache["llm"]
+
+    persona_seed = int(seed or 0)
+    actors: dict[str, CustomerActor] = {}
+
+    def actor_for(customer_id: str) -> CustomerActor | None:
+        """Actor for a customer already in the world before the fork.
+
+        Known approximation, recorded in the bundle: the pre-fork
+        conversation memory is not restored, so such a customer answers from
+        their persona and the staff message alone. Post-fork arrivals have
+        full memory (their whole conversation happens in this branch).
+        """
+        if customer_id not in actors:
+            event = events_by_customer.get(customer_id)
+            if event is None:
+                return None
+            actors[customer_id] = CustomerActor(event, customer_model_llm(), persona_seed=persona_seed)
+            recorder.append_ledger(
+                "branch_customer_actor_reconstructed",
+                {"customer_id": customer_id, "note": "pre-fork conversation memory not restored"},
+            )
+        return actors[customer_id]
+
+    pending_replies: list[dict[str, str]] = []
+    pending_reply_keys: set[tuple[int, str]] = set()
+
+    def schedule_customer_reply(contact: dict[str, str]) -> None:
+        customer_id = str(contact.get("customer_id") or "")
+        key = (recorder.tick, customer_id)
+        if key in pending_reply_keys:
+            recorder.append_ledger(
+                "customer_reply_suppressed_duplicate",
+                {"customer_id": customer_id, "seat_id": contact.get("seat_id")},
+            )
+            return
+        pending_reply_keys.add(key)
+        pending_replies.append(dict(contact))
+
+    kernel.on_customer_contact = schedule_customer_reply
 
     def seat_agent(seat_id: str):
         if seat_id not in seats_cache:
@@ -525,9 +636,41 @@ def _run_live_continuation(
     for tick in range(fork_tick + 1, fork_tick + ticks + 1):
         recorder.set_tick(tick)
         kernel.fire_timed_events(tick)
+        # Stalled-case follow-ups from the customers themselves (only fires
+        # when the source world's consequence layer is on in the profile).
+        for followup in kernel.take_customer_followups():
+            follow_actor = actor_for(str(followup.get("customer_id") or ""))
+            to_seat = str(followup.get("to_seat") or "")
+            if follow_actor is None or to_seat not in active_seats:
+                recorder.append_ledger("consequence_followup_skipped", {**followup, "reason": "no actor or inactive seat"})
+                continue
+            emit_customer_followup(
+                kernel=kernel, recorder=recorder, actor=follow_actor, to_seat=to_seat,
+                tick=tick, level=int(followup.get("level") or 1),
+            )
+        # Replies to yesterday's staff contacts.
+        replies = list(pending_replies)
+        pending_replies.clear()
+        pending_reply_keys.clear()
+        for contact in replies:
+            reply_actor = actor_for(str(contact.get("customer_id") or ""))
+            if reply_actor is None:
+                continue
+            emit_customer_reply(
+                kernel=kernel, recorder=recorder, actor=reply_actor,
+                to_seat=str(contact.get("seat_id") or ""), staff_message=str(contact.get("summary") or ""), tick=tick,
+            )
+        # Scheduled arrivals still ahead of the fork.
+        for event in events_by_tick.get(tick, []):
+            actors[event.customer_id] = emit_customer_turn(
+                kernel=kernel, recorder=recorder, event=event, tick=tick,
+                customer_llm=customer_model_llm(), persona_seed=persona_seed,
+            )
         for seat_id in sorted(kernel.inbox_nonempty_seats()):
             if seat_id not in active_seats:
                 continue
+            if tick in absence.get(seat_id, []):
+                continue  # absent seat keeps its queue until return, same as the ordinary harness
             messages = kernel.pop_inbox(seat_id)
             if not messages:
                 continue
@@ -589,6 +732,7 @@ def _finalize_bundle(
     final_tick: int,
     injected_action: dict[str, Any] | None,
     allow_spend: bool,
+    source_horizon: int = 0,
 ) -> None:
     config = {
         "schema_version": WORLD_CONFIG_SCHEMA_VERSION,
@@ -607,6 +751,7 @@ def _finalize_bundle(
             "final_tick": final_tick,
             "live": False,
             "allow_spend": bool(allow_spend),
+            "source_horizon": int(source_horizon),
         }
     )
     if injected_action is not None:
@@ -626,6 +771,7 @@ def run_branch_continuation(
     model: str | None = None,
     prompt_mode: str = "measurement",
     injected_action: dict[str, Any] | None = None,
+    customer_llm: CustomerLLM | None = None,
 ) -> dict[str, Any]:
     """Finalize a branch bundle. With `allow_spend=False` (the only path any
     caller in this change ever takes -- no CLI flag exists to set it True)
@@ -644,6 +790,16 @@ def run_branch_continuation(
             raise BranchExecutionError("allow_spend=True requires design and corpus for live seat tool-building")
         if ticks <= 0:
             raise BranchExecutionError("allow_spend=True requires ticks > 0")
+        # Never run past the source world's own end: pass a large `ticks` to
+        # mean "observe until the world's horizon". The cap that bit is
+        # visible in the summary (requested vs executed).
+        source_ticks = int(metadata.get("source_ticks") or 0)
+        if source_ticks > 0:
+            ticks = max(min(ticks, source_ticks - fork_tick), 0)
+        if ticks <= 0:
+            raise BranchExecutionError(
+                f"no observation window left: fork_tick={fork_tick} is at or past the source horizon {source_ticks}"
+            )
         final_tick = _run_live_continuation(
             kernel,
             design=design,
@@ -657,6 +813,11 @@ def run_branch_continuation(
             budgets=metadata.get("tick_budget"),
             model_binding=metadata.get("model_binding"),
             horizon=int(metadata.get("source_ticks") or 0) or None,
+            deck_events=metadata.get("deck_events"),
+            customer_model=str(metadata.get("customer_model") or "") or None,
+            customer_llm=customer_llm,
+            seed=metadata.get("seed"),
+            absence=metadata.get("absence"),
         )
     else:
         final_tick = _next_uncommitted_tick(recorder)
@@ -671,6 +832,7 @@ def run_branch_continuation(
         final_tick=final_tick,
         injected_action=injected_action,
         allow_spend=allow_spend,
+        source_horizon=int(metadata.get("source_ticks") or 0),
     )
     summary = {
         "run_root": str(recorder.run_root),
