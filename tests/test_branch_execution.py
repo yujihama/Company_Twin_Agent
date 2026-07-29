@@ -290,3 +290,144 @@ def test_no_spend_without_flag(tmp_path: Path) -> None:
     final_meta = json.loads((output_root / "meta.json").read_text(encoding="utf-8"))
     assert final_meta["live"] is False
     assert final_meta["final_tick"] == summary["final_tick"]
+
+
+def test_branch_restores_the_work_each_seat_still_had_waiting(tmp_path: Path) -> None:
+    """A fork must not hand the organization an empty desk.
+
+    The seats only take a turn when something is waiting for them, so a
+    branch that starts with every queue empty freezes the whole company and
+    turns "nobody noticed the deviation" into an artifact of the fork.
+    """
+    kernel = _source_kernel(tmp_path, "source_pending")
+    recorder = kernel.recorder
+
+    recorder.set_tick(1)
+    kernel.record_customer_event(
+        {"event_id": "EVT-BR06", "customer_id": "CUS-BR06", "application_id": "APP-BR06", "product": "投資信託", "primary_seat": "emp-A"}
+    )
+    # emp-A handles what it was given; emp-M is handed something and never
+    # gets to it, so that item is still outstanding at the fork.
+    kernel.enqueue_inbox("emp-A", {"kind": "chat", "tick": 1, "from": "emp-M", "channel": "chat", "body": "案件をお願いします"})
+    handed_to_a = len(kernel.pop_inbox("emp-A"))
+    assert handed_to_a == 1
+    recorder.append_ledger("agent_response", {"seat_id": "emp-A", "response": "対応しました", "message_count": handed_to_a})
+    kernel.enqueue_inbox("emp-M", {"kind": "chat", "tick": 1, "from": "emp-A", "channel": "chat", "body": "確認をお願いします"})
+    recorder.append_ledger("tick_committed", {"tick": 1})
+
+    output_root = tmp_path / "branch_pending"
+    new_kernel, metadata = rebuild_kernel_state(recorder.run_root, 1, output_root)
+
+    assert new_kernel.inbox.get("emp-M"), "the manager's outstanding item was dropped by the fork"
+    assert new_kernel.inbox["emp-M"][0]["body"] == "確認をお願いします"
+    assert not new_kernel.inbox.get("emp-A"), "emp-A had already finished its turn before the fork"
+    assert metadata["pending_work"]["source"] == "reconstructed_from_ledger"
+    assert metadata["pending_work"]["per_seat"] == {"emp-M": 1}
+
+
+def test_branch_bundle_saves_its_own_outstanding_work_for_the_next_fork(tmp_path: Path) -> None:
+    """Second-level branching reads the exact state the first level ended
+    with, rather than re-deriving it -- and the two must agree."""
+    kernel = _source_kernel(tmp_path, "source_snapshot")
+    recorder = kernel.recorder
+    recorder.set_tick(1)
+    kernel.record_customer_event(
+        {"event_id": "EVT-BR07", "customer_id": "CUS-BR07", "application_id": "APP-BR07", "product": "投資信託", "primary_seat": "emp-A"}
+    )
+    kernel.enqueue_inbox("emp-M", {"kind": "chat", "tick": 1, "from": "emp-A", "channel": "chat", "body": "承認をお願いします"})
+    kernel.enqueue_inbox("emp-A", {"kind": "chat", "tick": 1, "from": "emp-M", "channel": "chat", "body": "案件をお願いします"})
+    recorder.append_ledger("tick_committed", {"tick": 1})
+
+    first = tmp_path / "branch_level1"
+    branch_kernel, metadata = rebuild_kernel_state(recorder.run_root, 1, first)
+    run_branch_continuation(branch_kernel, metadata=metadata, allow_spend=False)
+
+    snapshot = json.loads((first / "pending_work.json").read_text(encoding="utf-8"))
+    assert snapshot["item_count"] >= 2  # the customer's message and the chat
+    assert snapshot["ordinal"] == len(read_jsonl(first / "world_ledger.jsonl"))
+
+    second = tmp_path / "branch_level2"
+    next_kernel, next_metadata = rebuild_kernel_state(
+        first, 0, second, up_to_ordinal=snapshot["ordinal"]
+    )
+    assert next_metadata["pending_work"]["source"] == "branch_snapshot"
+    # the independent ledger reconstruction reaches the same answer
+    assert next_metadata["pending_work"]["snapshot_agrees_with_ledger"] is True
+    assert next_kernel.inbox.get("emp-M")
+    assert next_kernel.inbox.get("emp-A")
+
+
+def test_branch_continuation_hosts_the_scheduled_customers(tmp_path: Path) -> None:
+    """After the fork, customers keep living: visits still ahead of the fork
+    happen on their scheduled day, and a contacted customer answers on the
+    next tick. Without this the branch world starves once the restored
+    pending work is handled."""
+    from company_twin.corpus import Corpus
+    from company_twin.deck import CustomerEvent
+    from tests.conftest import FakeCustomerLLM, fake_seat_factory
+
+    kernel = _source_kernel(tmp_path, "source_customers")
+    recorder = kernel.recorder
+    recorder.set_tick(1)
+    recorder.append_ledger("tick_committed", {"tick": 1})
+    recorder.set_tick(2)
+    recorder.append_ledger("tick_committed", {"tick": 2})
+
+    event = CustomerEvent(
+        event_id="EVT-T1",
+        probe_id="",
+        customer_id="CUS-T1",
+        application_id="APP-T1",
+        product="投資信託",
+        trigger_tick=3,
+        deadline_tick=8,
+        primary_seat="emp-A",
+        participant_seats=("emp-A", "emp-C"),
+        required_doc_ids=("DFH-SAL-021",),
+        span_ids=(),
+        world_visible="投資信託の申込を進めたい。",
+        latent_truth="unit-test customer",
+        routine=True,
+    )
+    (recorder.run_root / "config.json").write_text(
+        json.dumps(
+            {
+                "world": {
+                    "deck": {"events": [event.to_dict()]},
+                    "schedule": {"ticks": 6, "workflow": {}},
+                    "population": {},
+                },
+                "model": {"customer": "fake:unit"},
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    design = load_design(Path.cwd())
+    corpus = Corpus.from_design(design)
+    output_root = tmp_path / "branch_customers"
+    new_kernel, metadata = rebuild_kernel_state(recorder.run_root, 2, output_root)
+    assert metadata["deck_events"], "the visit schedule must ride along in the branch metadata"
+
+    summary = run_branch_continuation(
+        new_kernel,
+        metadata=metadata,
+        design=design,
+        corpus=corpus,
+        ticks=99,  # capped to the source horizon
+        allow_spend=True,
+        seat_factory=fake_seat_factory(),
+        customer_llm=FakeCustomerLLM(new_kernel.recorder),
+    )
+    assert summary["final_tick"] == 6  # horizon cap bit: 2 + min(99, 6-2)
+
+    rows = read_jsonl(output_root / "world_ledger.jsonl")
+    arrivals = [r for r in rows if r.get("event_type") == "customer_utterance" and not (r.get("payload") or {}).get("reply")]
+    assert any((r.get("payload") or {}).get("customer_id") == "CUS-T1" and r.get("tick") == 3 for r in arrivals), (
+        "the visit scheduled for day 3 must still happen in the branch"
+    )
+    replies = [r for r in rows if r.get("event_type") == "customer_utterance" and (r.get("payload") or {}).get("reply")]
+    assert replies, "a contacted customer must answer on the next tick"
+    responses = [r for r in rows if r.get("event_type") == "agent_response" and (r.get("payload") or {}).get("seat_id") == "emp-A"]
+    assert responses, "the seat must actually take a turn on the delivered visit"

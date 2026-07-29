@@ -45,15 +45,18 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from contextlib import contextmanager
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any, Callable
 
-from .agents import SeatFactory, default_seat_factory, recursion_for_budget
+from .agents import CustomerLLM, SeatFactory, default_customer_llm, default_seat_factory, recursion_for_budget
 from .corpus import Corpus
+from .customer_agent import CustomerActor, emit_customer_followup, emit_customer_reply, emit_customer_turn
+from .deck import CustomerEvent
 from .design_loader import DesignInputs, load_design
-from .harness import _turn_prompt, kernel_profile as _harness_kernel_profile
+from .harness import _contact_directory_text, _instantiate_seat, _turn_prompt, kernel_profile as _harness_kernel_profile
 from .kernel import CONTROLLED_TOOLS, WorldKernel
 from .loss_monitoring import WORLD_CONFIG_SCHEMA_VERSION, write_loss_event_monitoring
 from .loss_oracle import loss_event_findings
@@ -63,6 +66,14 @@ from .tools import build_role_tools
 BRANCH_RUN_CLASS = "branch_injection"
 BRANCH_CLAIM_LEVEL = "detection_coverage_probe"
 INJECTION_ORIGIN = "experimenter_injection"
+
+# Per-seat outstanding work queues, written at the end of every branch bundle
+# so a fork taken from that bundle restores the exact state rather than an
+# inferred one. See `reconstruct_pending_work` for why the inferred path still
+# has to exist (a fork taken mid-run has no snapshot to read).
+PENDING_WORK_FILE = "pending_work.json"
+
+_ID_SUFFIX = re.compile(r"^[A-Z][A-Z0-9]*-(\d{6})$")
 
 # Application-lifecycle ledger event types whose payloads carry enough state
 # to rebuild `WorldKernel.applications` faithfully (kernel.py's own
@@ -199,6 +210,84 @@ def _apply_ledger_event(applications: dict[str, dict[str, Any]], *, event_type: 
         app["progressed_tick"] = tick
 
 
+def _apply_inbox_event(
+    queues: dict[str, list[dict[str, Any]]], *, event_type: str, payload: dict[str, Any]
+) -> None:
+    """Track one ledger row's effect on the seats' outstanding work queues.
+
+    Only three row types move work: a delivery adds an item, a completed seat
+    turn removes exactly the items that turn was handed (`message_count` is
+    recorded by the harness for precisely this reason), and a failed seat turn
+    removes everything -- the pop happened before the agent raised, and the S1
+    requeue path puts the items back as fresh `inbox_delivered` rows that this
+    same loop then re-adds.
+    """
+    if event_type == "inbox_delivered":
+        seat_id = str(payload.get("to_seat") or "")
+        message = payload.get("message")
+        if seat_id and isinstance(message, dict):
+            queues.setdefault(seat_id, []).append(dict(message))
+    elif event_type == "agent_response":
+        seat_id = str(payload.get("seat_id") or "")
+        handled = int(payload.get("message_count") or 0)
+        if seat_id in queues and handled > 0:
+            del queues[seat_id][:handled]
+    elif event_type == "agent_error":
+        seat_id = str(payload.get("seat_id") or "")
+        if seat_id in queues:
+            queues[seat_id] = []
+
+
+def reconstruct_pending_work(ledger: list[dict[str, Any]], *, up_to_ordinal: int | None = None) -> dict[str, list[dict[str, Any]]]:
+    """Rebuild every seat's outstanding work queue from a run's own ledger.
+
+    A branch that starts with empty queues is not a copy of the source world:
+    the AI employees only take a turn when something is waiting for them, so
+    an empty start freezes the whole organization and makes "nobody noticed"
+    an artifact of the fork rather than an observation about the controls.
+
+    Known imprecision, deliberately left in: a seat pops its whole queue just
+    before its turn, and only the completed turn is recorded, so a fork taken
+    part-way through a seat's turn still shows that seat holding the items it
+    was already working on. That seat may therefore handle them again after
+    the fork. The error direction is more seat activity, not less -- it can
+    make a branch look caught, never falsely uncaught -- which is why it is
+    reported rather than guessed away.
+    """
+    rows = ledger if up_to_ordinal is None else ledger[: max(int(up_to_ordinal), 0)]
+    queues: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        _apply_inbox_event(
+            queues,
+            event_type=str(row.get("event_type") or ""),
+            payload=dict(row.get("payload") or {}),
+        )
+    return {seat_id: messages for seat_id, messages in queues.items() if messages}
+
+
+def _highest_generated_id(payload: dict[str, Any]) -> int:
+    """Largest `PREFIX-000123` counter appearing in one ledger payload."""
+    highest = 0
+    for value in payload.values():
+        if not isinstance(value, str):
+            continue
+        match = _ID_SUFFIX.match(value)
+        if match:
+            highest = max(highest, int(match.group(1)))
+    return highest
+
+
+def _read_pending_work_snapshot(source_run_root: Path) -> dict[str, Any] | None:
+    path = Path(source_run_root) / PENDING_WORK_FILE
+    if not path.exists():
+        return None
+    try:
+        snapshot = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise BranchExecutionError(f"pending-work snapshot is not readable: {path} ({exc})") from exc
+    return snapshot if isinstance(snapshot, dict) else None
+
+
 def rebuild_kernel_state(
     source_run_root: Path,
     up_to_tick: int,
@@ -243,6 +332,15 @@ def rebuild_kernel_state(
 
     design = load_design(Path(design_root) if design_root is not None else Path.cwd())
     schedule = ((source_config.get("world") or {}).get("schedule") or {})
+    # A branch bundle's own schedule.ticks is just where ITS run stopped; the
+    # real horizon of the world line is the original source world's, carried
+    # through every generation via meta["source_horizon"]. The key's PRESENCE
+    # is what matters: an explicit 0 means "the original never declared a
+    # horizon" and must not fall back to the branch's own stop tick.
+    if "source_horizon" in source_meta:
+        source_horizon = int(source_meta.get("source_horizon") or 0)
+    else:
+        source_horizon = int(schedule.get("ticks") or 0)
     profile = _harness_kernel_profile(design, schedule=schedule, scc_switch_enabled=False, valid_doc_ids=set())
 
     recorder = BranchRunRecorder(
@@ -262,6 +360,8 @@ def rebuild_kernel_state(
     kernel = WorldKernel(recorder, profile)
 
     replayed_rows = 0
+    pending_work: dict[str, list[dict[str, Any]]] = {}
+    highest_id = 0
     for ordinal, row in enumerate(source_ledger):
         tick = int(row.get("tick") or 0)
         if up_to_ordinal is not None:
@@ -274,9 +374,41 @@ def rebuild_kernel_state(
         recorder.set_tick(tick)
         recorder.append_ledger(event_type, payload)
         _apply_ledger_event(kernel.applications, event_type=event_type, tick=tick, payload=payload)
+        _apply_inbox_event(pending_work, event_type=event_type, payload=payload)
+        highest_id = max(highest_id, _highest_generated_id(payload))
         replayed_rows += 1
     recorder.set_tick(int(up_to_tick))
+    pending_work = {seat_id: messages for seat_id, messages in pending_work.items() if messages}
 
+    # Restore what each seat still had waiting. Prefer the exact snapshot the
+    # source bundle wrote for itself; fall back to the ledger reconstruction
+    # for any source that predates the snapshot or is forked mid-run. When
+    # both exist they must agree -- a disagreement means the reconstruction
+    # rule is wrong, and it is recorded rather than silently absorbed.
+    snapshot = _read_pending_work_snapshot(source_run_root)
+    snapshot_agrees: bool | None = None
+    pending_work_source = "reconstructed_from_ledger"
+    if snapshot is not None and int(snapshot.get("ordinal") or -1) == replayed_rows:
+        snapshot_queues = {
+            str(seat_id): [dict(message) for message in messages]
+            for seat_id, messages in (snapshot.get("queues") or {}).items()
+            if messages
+        }
+        snapshot_agrees = snapshot_queues == pending_work
+        pending_work = snapshot_queues
+        pending_work_source = "branch_snapshot"
+    kernel.inbox = {seat_id: list(messages) for seat_id, messages in pending_work.items()}
+    # Generated identifiers continue from where the source world left off, so
+    # a branch cannot mint an id that already exists in the replayed history.
+    kernel.event_counter = highest_id
+    kernel.action_counter = highest_id
+
+    # Carry the source world's own generation settings so a live
+    # continuation runs the seats under the SAME conditions they had before
+    # the fork. Without this the branch silently reverts to a pre-v4 world
+    # (no contact directory, no identity tools, no worklist) and any
+    # "nobody noticed" reading would be confounded by the downgrade.
+    population = (source_config.get("world") or {}).get("population") or {}
     metadata = {
         "source_run_root": str(source_run_root),
         "source_ledger_sha256": source_ledger_sha256,
@@ -286,6 +418,23 @@ def rebuild_kernel_state(
         "application_count": len(kernel.applications),
         "stage": source_meta.get("stage") or "S2",
         "seed": source_meta.get("seed"),
+        "workflow": dict(schedule.get("workflow") or {}),
+        "tick_budget": dict(population.get("tick_budget") or {}),
+        "model_binding": dict(population.get("binding") or {}),
+        "prompt_mode": source_meta.get("prompt_mode") or "measurement",
+        "source_ticks": source_horizon,
+        # Customer machinery for the continuation: the full visit schedule is
+        # persisted in every run's config, so a branch can host the SAME
+        # customers, on the same days, with the same personas and seed.
+        "deck_events": list(((source_config.get("world") or {}).get("deck") or {}).get("events") or []),
+        "customer_model": str(((source_config.get("model") or {}).get("customer")) or ""),
+        "absence": dict(population.get("absence") or {}),
+        "pending_work": {
+            "source": pending_work_source,
+            "snapshot_agrees_with_ledger": snapshot_agrees,
+            "item_count": sum(len(messages) for messages in pending_work.values()),
+            "per_seat": {seat_id: len(messages) for seat_id, messages in sorted(pending_work.items())},
+        },
     }
     return kernel, metadata
 
@@ -326,6 +475,30 @@ def inject_branch_action(kernel: WorldKernel, action_spec: dict[str, Any]) -> di
     return result if isinstance(result, dict) else {"value": result}
 
 
+def _event_from_dict(raw: dict[str, Any]) -> CustomerEvent | None:
+    """Rebuild a CustomerEvent from the dict shape config.json stores."""
+    try:
+        return CustomerEvent(
+            event_id=str(raw["event_id"]),
+            probe_id=str(raw.get("probe_id") or ""),
+            customer_id=str(raw["customer_id"]),
+            application_id=str(raw["application_id"]),
+            product=str(raw.get("product") or ""),
+            trigger_tick=int(raw.get("trigger_tick") or 0),
+            deadline_tick=int(raw.get("deadline_tick") or 0),
+            primary_seat=str(raw.get("primary_seat") or ""),
+            participant_seats=tuple(raw.get("participant_seats") or ()),
+            required_doc_ids=tuple(raw.get("required_doc_ids") or ()),
+            span_ids=tuple(raw.get("span_ids") or ()),
+            world_visible=str(raw.get("world_visible") or ""),
+            latent_truth=str(raw.get("latent_truth") or ""),
+            routine=bool(raw.get("routine")),
+            customer_stage=str(raw.get("customer_stage") or "application_intent"),
+        )
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
 def _run_live_continuation(
     kernel: WorldKernel,
     *,
@@ -336,6 +509,15 @@ def _run_live_continuation(
     seat_factory: SeatFactory | None,
     model: str | None,
     prompt_mode: str,
+    workflow: dict[str, Any] | None = None,
+    budgets: dict[str, int] | None = None,
+    model_binding: dict[str, str] | None = None,
+    horizon: int | None = None,
+    deck_events: list[dict[str, Any]] | None = None,
+    customer_model: str | None = None,
+    customer_llm: CustomerLLM | None = None,
+    seed: int | None = None,
+    absence: dict[str, list[int]] | None = None,
 ) -> int:
     """Full live-continuation plumbing, reachable only when a caller passes
     `allow_spend=True` to `run_branch_continuation`. Nothing in this change
@@ -347,34 +529,199 @@ def _run_live_continuation(
     active_seats = set(kernel.profile.seat_roles)
     seats_cache: dict[str, Any] = {}
     final_tick = fork_tick
+    workflow = dict(workflow or {})
+    budgets = dict(budgets or {})
+    model_binding = dict(model_binding or {})
+    absence = {seat_id: list(map(int, ticks_)) for seat_id, ticks_ in dict(absence or {}).items()}
+    if budgets:
+        recorder.configure_tick_budgets(budgets)
+    # Same prompt blocks the source generation had; each collapses to an
+    # empty string when its flag is off, so a pre-v4 source stays identical.
+    contact_directory = (
+        _contact_directory_text(dict(kernel.profile.seat_roles)) if workflow.get("contact_directory") else ""
+    )
+    ticks_horizon = int(horizon or (fork_tick + ticks))
+
+    # ------------------------------------------------------------------
+    # Customer machinery, same parts the ordinary harness uses: scheduled
+    # visits still ahead of the fork happen on their scheduled day, contacted
+    # customers answer on the next tick, and stalled customers send their own
+    # follow-ups (when the source world had that layer on). Without this a
+    # branch world starves once the restored pending work is handled.
+    # ------------------------------------------------------------------
+    events = [event for event in (
+        _event_from_dict(raw) for raw in (deck_events or [])
+    ) if event is not None]
+    events_by_tick: dict[int, list[CustomerEvent]] = {}
+    events_by_customer: dict[str, CustomerEvent] = {}
+    for event in events:
+        events_by_customer[event.customer_id] = event
+        if event.trigger_tick > fork_tick:
+            events_by_tick.setdefault(event.trigger_tick, []).append(event)
+    customer_cache: dict[str, CustomerLLM] = {}
+
+    def customer_model_llm() -> CustomerLLM:
+        # Built lazily: a continuation with no customer activity never needs
+        # (or pays for) a customer model at all.
+        if "llm" not in customer_cache:
+            customer_cache["llm"] = customer_llm or default_customer_llm(model=customer_model or model, recorder=recorder)
+        return customer_cache["llm"]
+
+    persona_seed = int(seed or 0)
+    actors: dict[str, CustomerActor] = {}
+
+    def actor_for(customer_id: str) -> CustomerActor | None:
+        """Actor for a customer already in the world before the fork.
+
+        Known approximation, recorded in the bundle: the pre-fork
+        conversation memory is not restored, so such a customer answers from
+        their persona and the staff message alone. Post-fork arrivals have
+        full memory (their whole conversation happens in this branch).
+        """
+        if customer_id not in actors:
+            event = events_by_customer.get(customer_id)
+            if event is None:
+                return None
+            actors[customer_id] = CustomerActor(event, customer_model_llm(), persona_seed=persona_seed)
+            recorder.append_ledger(
+                "branch_customer_actor_reconstructed",
+                {"customer_id": customer_id, "note": "pre-fork conversation memory not restored"},
+            )
+        return actors[customer_id]
+
+    pending_replies: list[dict[str, str]] = []
+    pending_reply_keys: set[tuple[int, str]] = set()
+
+    def schedule_customer_reply(contact: dict[str, str]) -> None:
+        customer_id = str(contact.get("customer_id") or "")
+        key = (recorder.tick, customer_id)
+        if key in pending_reply_keys:
+            recorder.append_ledger(
+                "customer_reply_suppressed_duplicate",
+                {"customer_id": customer_id, "seat_id": contact.get("seat_id")},
+            )
+            return
+        pending_reply_keys.add(key)
+        pending_replies.append(dict(contact))
+
+    kernel.on_customer_contact = schedule_customer_reply
 
     def seat_agent(seat_id: str):
         if seat_id not in seats_cache:
             seat = design.seats[seat_id]
-            tools = build_role_tools(corpus=corpus, kernel=kernel, recorder=recorder, seat_id=seat_id, seat_role=seat.role, include_workflow=True)
-            factory = seat_factory or default_seat_factory(root=design.root, model=model or "")
-            seats_cache[seat_id] = factory(seat_id=seat_id, role=seat.role, tools=tools, recorder=recorder, recursion_limit=recursion_for_budget(12))
+            tools = build_role_tools(
+                corpus=corpus,
+                kernel=kernel,
+                recorder=recorder,
+                seat_id=seat_id,
+                seat_role=seat.role,
+                include_workflow=True,
+                identity_tools=bool(workflow.get("identity_check_tool")),
+                worklist_tool=bool(workflow.get("pending_worklist_tool")),
+            )
+            bound_model = model_binding.get(seat_id) or model or ""
+            factory = seat_factory or default_seat_factory(root=design.root, model=bound_model)
+            budget = int(budgets.get(seat_id, 12))
+            seats_cache[seat_id] = _instantiate_seat(
+                factory,
+                seat_id=seat_id,
+                role=seat.role,
+                tools=tools,
+                recorder=recorder,
+                recursion_limit=recursion_for_budget(budget),
+                model=bound_model,
+            )
         return seats_cache[seat_id]
 
     for tick in range(fork_tick + 1, fork_tick + ticks + 1):
         recorder.set_tick(tick)
         kernel.fire_timed_events(tick)
+        # Stalled-case follow-ups from the customers themselves (only fires
+        # when the source world's consequence layer is on in the profile).
+        for followup in kernel.take_customer_followups():
+            follow_actor = actor_for(str(followup.get("customer_id") or ""))
+            to_seat = str(followup.get("to_seat") or "")
+            if follow_actor is None or to_seat not in active_seats:
+                recorder.append_ledger("consequence_followup_skipped", {**followup, "reason": "no actor or inactive seat"})
+                continue
+            emit_customer_followup(
+                kernel=kernel, recorder=recorder, actor=follow_actor, to_seat=to_seat,
+                tick=tick, level=int(followup.get("level") or 1),
+            )
+        # Replies to yesterday's staff contacts.
+        replies = list(pending_replies)
+        pending_replies.clear()
+        pending_reply_keys.clear()
+        for contact in replies:
+            reply_actor = actor_for(str(contact.get("customer_id") or ""))
+            if reply_actor is None:
+                continue
+            emit_customer_reply(
+                kernel=kernel, recorder=recorder, actor=reply_actor,
+                to_seat=str(contact.get("seat_id") or ""), staff_message=str(contact.get("summary") or ""), tick=tick,
+            )
+        # Scheduled arrivals still ahead of the fork.
+        for event in events_by_tick.get(tick, []):
+            actors[event.customer_id] = emit_customer_turn(
+                kernel=kernel, recorder=recorder, event=event, tick=tick,
+                customer_llm=customer_model_llm(), persona_seed=persona_seed,
+            )
         for seat_id in sorted(kernel.inbox_nonempty_seats()):
             if seat_id not in active_seats:
                 continue
+            if tick in absence.get(seat_id, []):
+                continue  # absent seat keeps its queue until return, same as the ordinary harness
             messages = kernel.pop_inbox(seat_id)
             if not messages:
                 continue
             agent = seat_agent(seat_id)
-            prompt = _turn_prompt(tick=tick, ticks=fork_tick + ticks, budget_left=recorder.budget_left(seat_id), messages=messages, mode=prompt_mode)
+            prompt = _turn_prompt(
+                tick=tick,
+                ticks=ticks_horizon,
+                budget_left=recorder.budget_left(seat_id),
+                messages=messages,
+                mode=prompt_mode,  # type: ignore[arg-type]
+                contact_directory=contact_directory,
+                customer_id_in_inbox=bool(workflow.get("customer_id_in_inbox")),
+                sales_direct_submission=bool(workflow.get("sales_direct_submission_guidance")),
+                identity_tools=bool(workflow.get("identity_check_tool")),
+                progression_guidance=bool(workflow.get("progression_guidance")),
+            )
             with recorder.origin("agent"):
                 try:
-                    agent.turn(prompt)
+                    response = agent.turn(prompt)
                 except Exception as exc:  # noqa: BLE001 - recorded; continuation proceeds
                     recorder.append_ledger("agent_error", {"seat_id": seat_id, "error_type": type(exc).__name__, "message": str(exc)[:500]})
+                    continue
+            # Same row the ordinary harness writes. Without it a branch's own
+            # record cannot show that these items were taken off the seat's
+            # desk, and a fork from this bundle would count them as still
+            # outstanding.
+            recorder.append_ledger("agent_response", {"seat_id": seat_id, "response": response[:2000], "message_count": len(messages)})
         recorder.append_ledger("tick_committed", {"tick": tick})
         final_tick = tick
     return final_tick
+
+
+def _write_pending_work_snapshot(kernel: WorldKernel) -> dict[str, Any]:
+    """Record what each seat still has waiting, keyed to this bundle's own
+    ledger length, so a fork taken from this bundle resumes from the exact
+    state instead of re-deriving it."""
+    recorder = kernel.recorder
+    ordinal = len(read_jsonl(recorder.run_root / "world_ledger.jsonl"))
+    queues = {
+        seat_id: [dict(message) for message in messages]
+        for seat_id, messages in sorted(kernel.inbox.items())
+        if messages
+    }
+    snapshot = {
+        "ordinal": ordinal,
+        "tick": int(recorder.tick),
+        "queues": queues,
+        "item_count": sum(len(messages) for messages in queues.values()),
+    }
+    recorder.write_json(PENDING_WORK_FILE, snapshot)
+    return snapshot
 
 
 def _finalize_bundle(
@@ -385,6 +732,7 @@ def _finalize_bundle(
     final_tick: int,
     injected_action: dict[str, Any] | None,
     allow_spend: bool,
+    source_horizon: int = 0,
 ) -> None:
     config = {
         "schema_version": WORLD_CONFIG_SCHEMA_VERSION,
@@ -403,6 +751,7 @@ def _finalize_bundle(
             "final_tick": final_tick,
             "live": False,
             "allow_spend": bool(allow_spend),
+            "source_horizon": int(source_horizon),
         }
     )
     if injected_action is not None:
@@ -422,6 +771,7 @@ def run_branch_continuation(
     model: str | None = None,
     prompt_mode: str = "measurement",
     injected_action: dict[str, Any] | None = None,
+    customer_llm: CustomerLLM | None = None,
 ) -> dict[str, Any]:
     """Finalize a branch bundle. With `allow_spend=False` (the only path any
     caller in this change ever takes -- no CLI flag exists to set it True)
@@ -440,6 +790,16 @@ def run_branch_continuation(
             raise BranchExecutionError("allow_spend=True requires design and corpus for live seat tool-building")
         if ticks <= 0:
             raise BranchExecutionError("allow_spend=True requires ticks > 0")
+        # Never run past the source world's own end: pass a large `ticks` to
+        # mean "observe until the world's horizon". The cap that bit is
+        # visible in the summary (requested vs executed).
+        source_ticks = int(metadata.get("source_ticks") or 0)
+        if source_ticks > 0:
+            ticks = max(min(ticks, source_ticks - fork_tick), 0)
+        if ticks <= 0:
+            raise BranchExecutionError(
+                f"no observation window left: fork_tick={fork_tick} is at or past the source horizon {source_ticks}"
+            )
         final_tick = _run_live_continuation(
             kernel,
             design=design,
@@ -448,13 +808,23 @@ def run_branch_continuation(
             ticks=ticks,
             seat_factory=seat_factory,
             model=model,
-            prompt_mode=prompt_mode,
+            prompt_mode=str(metadata.get("prompt_mode") or prompt_mode),
+            workflow=metadata.get("workflow"),
+            budgets=metadata.get("tick_budget"),
+            model_binding=metadata.get("model_binding"),
+            horizon=int(metadata.get("source_ticks") or 0) or None,
+            deck_events=metadata.get("deck_events"),
+            customer_model=str(metadata.get("customer_model") or "") or None,
+            customer_llm=customer_llm,
+            seed=metadata.get("seed"),
+            absence=metadata.get("absence"),
         )
     else:
         final_tick = _next_uncommitted_tick(recorder)
         recorder.set_tick(final_tick)
         recorder.append_ledger("tick_committed", {"tick": final_tick})
 
+    pending_work = _write_pending_work_snapshot(kernel)
     _finalize_bundle(
         recorder,
         stage=str(metadata.get("stage") or "S2"),
@@ -462,6 +832,7 @@ def run_branch_continuation(
         final_tick=final_tick,
         injected_action=injected_action,
         allow_spend=allow_spend,
+        source_horizon=int(metadata.get("source_ticks") or 0),
     )
     summary = {
         "run_root": str(recorder.run_root),
@@ -471,6 +842,8 @@ def run_branch_continuation(
         "allow_spend": bool(allow_spend),
         "run_class": BRANCH_RUN_CLASS,
         "claim_level": BRANCH_CLAIM_LEVEL,
+        "pending_work_restored": dict(metadata.get("pending_work") or {}),
+        "pending_work_remaining": pending_work["item_count"],
     }
     recorder.write_json("branch_summary.json", summary)
     return summary
