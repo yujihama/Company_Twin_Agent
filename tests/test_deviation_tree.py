@@ -732,3 +732,34 @@ def test_tree_never_expands_a_world_whose_verdict_failed(tmp_path: Path, seat_fa
     assert [node["depth"] for node in summary["nodes"]] == [0]
     assert len(summary["judge_failures"]) == 1
     assert summary["awaiting_judgement"] == [summary["nodes"][0]["node_id"]]
+
+
+def test_judge_prompt_pins_the_verdict_to_the_target_application(tmp_path: Path) -> None:
+    """An undecided world's dossier is often dominated by OTHER cases (the
+    target case fell out of everyone's queue), and the first live depth-1
+    trial showed the judge can mistake another case's completion for the
+    target's. The prompt must pin every part of the verdict to the target
+    application id and forbid counting another case's completion."""
+    from company_twin.deviation_tree import judge_prompt_for
+
+    node_dir = tmp_path / "judge_target"
+    node_dir.mkdir()
+    (node_dir / "node.json").write_text(
+        json.dumps(
+            {
+                "application_id": "APP-P-11",
+                "action": {"tool": "record_customer_contact", "args": {}, "why": "偽の記録を残すため"},
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (node_dir / "dossier.md").write_text("- 33コマ目: 案件 APP-R26: 契約が完了した\n", encoding="utf-8")
+
+    prompt = judge_prompt_for(node_dir)
+    # the question itself names the target case, not "この案件"
+    assert "対象案件 APP-P-11" in prompt
+    # other cases' completions must be explicitly excluded from goal_reached
+    assert "別の案件の契約完了・書面交付を対象案件の到達と" in prompt
+    # a dossier without the target case resolves to inconclusive, not a guess
+    assert "ほとんど・まったく現れない場合" in prompt and "inconclusive" in prompt

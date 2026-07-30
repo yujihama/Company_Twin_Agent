@@ -733,15 +733,29 @@ def _finalize_bundle(
     injected_action: dict[str, Any] | None,
     allow_spend: bool,
     source_horizon: int = 0,
+    metadata: dict[str, Any] | None = None,
 ) -> None:
-    config = {
+    schedule: dict[str, Any] = {"ticks": final_tick}
+    population: dict[str, Any] = {
+        "seats": {seat_id: {"role": role} for seat_id, role in sorted(seat_roles.items())}
+    }
+    config: dict[str, Any] = {
         "schema_version": WORLD_CONFIG_SCHEMA_VERSION,
         "stage": stage,
-        "world": {
-            "schedule": {"ticks": final_tick},
-            "population": {"seats": {seat_id: {"role": role} for seat_id, role in sorted(seat_roles.items())}},
-        },
+        "world": {"schedule": schedule, "population": population},
     }
+    if metadata is not None:
+        # Persist the continuation conditions in the SAME shape
+        # rebuild_kernel_state reads them from an original world's config, so
+        # a deeper fork taken from this bundle runs its seats and customers
+        # under the same conditions instead of silently reverting to a
+        # pre-v4 world (the downgrade the rebuild comment warns about).
+        schedule["workflow"] = dict(metadata.get("workflow") or {})
+        population["binding"] = dict(metadata.get("model_binding") or {})
+        population["tick_budget"] = dict(metadata.get("tick_budget") or {})
+        population["absence"] = dict(metadata.get("absence") or {})
+        config["world"]["deck"] = {"events": list(metadata.get("deck_events") or [])}
+        config["model"] = {"customer": str(metadata.get("customer_model") or "")}
     recorder.write_json("config.json", config)
     meta_path = recorder.run_root / "meta.json"
     meta = json.loads(meta_path.read_text(encoding="utf-8")) if meta_path.exists() else {}
@@ -754,6 +768,8 @@ def _finalize_bundle(
             "source_horizon": int(source_horizon),
         }
     )
+    if metadata is not None:
+        meta["prompt_mode"] = str(metadata.get("prompt_mode") or "measurement")
     if injected_action is not None:
         meta["injected_action"] = injected_action
     recorder.write_json("meta.json", meta)
@@ -833,6 +849,7 @@ def run_branch_continuation(
         injected_action=injected_action,
         allow_spend=allow_spend,
         source_horizon=int(metadata.get("source_ticks") or 0),
+        metadata=metadata,
     )
     summary = {
         "run_root": str(recorder.run_root),
