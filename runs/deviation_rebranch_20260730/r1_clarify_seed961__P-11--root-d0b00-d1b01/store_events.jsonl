@@ -1,0 +1,4 @@
+{"op": "read", "origin": "agent", "returned": 0, "run_id": "r1_clarify_seed961__P-11--root-d0b00-d1b01", "seat_id": "emp-C", "tick": 33, "ts": "2026-07-30T15:53:15.651986+00:00"}
+{"op": "read", "origin": "agent", "returned": 0, "run_id": "r1_clarify_seed961__P-11--root-d0b00-d1b01", "seat_id": "emp-F", "tick": 33, "ts": "2026-07-30T15:53:24.027925+00:00"}
+{"op": "read", "origin": "agent", "returned": 0, "run_id": "r1_clarify_seed961__P-11--root-d0b00-d1b01", "seat_id": "emp-F", "tick": 35, "ts": "2026-07-30T15:59:16.020977+00:00"}
+{"op": "read", "origin": "agent", "returned": 0, "run_id": "r1_clarify_seed961__P-11--root-d0b00-d1b01", "seat_id": "emp-G", "tick": 35, "ts": "2026-07-30T15:59:39.995107+00:00"}

@@ -1,0 +1,2 @@
+{"op": "read", "origin": "agent", "returned": 0, "run_id": "r1_clarify_seed964__P-11--root-d0b00-d1b00", "seat_id": "emp-G", "tick": 33, "ts": "2026-07-30T16:00:46.495367+00:00"}
+{"op": "read", "origin": "agent", "returned": 0, "run_id": "r1_clarify_seed964__P-11--root-d0b00-d1b00", "seat_id": "emp-G", "tick": 34, "ts": "2026-07-30T16:01:16.922899+00:00"}
