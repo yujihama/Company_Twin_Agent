@@ -1,0 +1,2 @@
+{"key": "APP-P-08_416午後対応状況", "op": "write", "origin": "agent", "run_id": "root-d0b01", "seat_id": "emp-C", "tick": 24, "ts": "2026-07-31T18:25:54.196860+00:00", "value": "APP-P-08（CUS-RISK-99、口座アプリ申請）について：ステータス「identity_verified」。審査連携に進む必要があるが、販売管理者(emp-M)不在のため進めず。田中(op-G)へ「第二線確認中」と返答済み。第二線(s-Q)へ代替承認者を相談するチャットを送信。案件はHOLD状態(HOLD-000070)、4/17再確認予定。残ツール回数5回以内で使用済み。"}
+{"op": "read", "origin": "agent", "returned": 0, "run_id": "root-d0b01", "seat_id": "emp-F", "tick": 24, "ts": "2026-07-31T18:26:06.806375+00:00"}
