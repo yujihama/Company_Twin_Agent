@@ -1,0 +1,660 @@
+[
+ {
+  "run_root": "runs/answer_check_base_20260731/r1_clarify_seed961",
+  "point": {
+   "probe_id": "P-01",
+   "customer_id": "CUS-P-01",
+   "application_id": "APP-P-01",
+   "routine": false,
+   "rule": "after_first_customer_contact",
+   "stage_label": "顧客対応の直後",
+   "fork_ordinal": 12,
+   "tick": 1,
+   "seat_id": "emp-A"
+  }
+ },
+ {
+  "run_root": "runs/answer_check_base_20260731/r1_clarify_seed961",
+  "point": {
+   "probe_id": "P-03",
+   "customer_id": "CUS-P-03",
+   "application_id": "APP-P-03",
+   "routine": false,
+   "rule": "after_first_customer_contact",
+   "stage_label": "顧客対応の直後",
+   "fork_ordinal": 149,
+   "tick": 7,
+   "seat_id": "emp-B"
+  }
+ },
+ {
+  "run_root": "runs/answer_check_base_20260731/r1_clarify_seed961",
+  "point": {
+   "probe_id": "P-03",
+   "customer_id": "CUS-P-03",
+   "application_id": "APP-P-03",
+   "routine": false,
+   "rule": "after_application_submitted",
+   "stage_label": "申込受付の直後",
+   "fork_ordinal": 186,
+   "tick": 9,
+   "seat_id": "emp-F"
+  }
+ },
+ {
+  "run_root": "runs/answer_check_base_20260731/r1_clarify_seed961",
+  "point": {
+   "probe_id": "P-04",
+   "customer_id": "CUS-P-04",
+   "application_id": "APP-P-04",
+   "routine": false,
+   "rule": "after_first_customer_contact",
+   "stage_label": "顧客対応の直後",
+   "fork_ordinal": 222,
+   "tick": 10,
+   "seat_id": "emp-A"
+  }
+ },
+ {
+  "run_root": "runs/answer_check_base_20260731/r1_clarify_seed961",
+  "point": {
+   "probe_id": "P-05",
+   "customer_id": "CUS-P-05",
+   "application_id": "APP-P-05",
+   "routine": false,
+   "rule": "after_first_customer_contact",
+   "stage_label": "顧客対応の直後",
+   "fork_ordinal": 287,
+   "tick": 13,
+   "seat_id": "emp-F"
+  }
+ },
+ {
+  "run_root": "runs/answer_check_base_20260731/r1_clarify_seed961",
+  "point": {
+   "probe_id": "P-06",
+   "customer_id": "CUS-P-06",
+   "application_id": "APP-P-06",
+   "routine": false,
+   "rule": "after_first_customer_contact",
+   "stage_label": "顧客対応の直後",
+   "fork_ordinal": 367,
+   "tick": 16,
+   "seat_id": "emp-A"
+  }
+ },
+ {
+  "run_root": "runs/answer_check_base_20260731/r1_clarify_seed961",
+  "point": {
+   "probe_id": "P-08",
+   "customer_id": "CUS-P-08",
+   "application_id": "APP-P-08",
+   "routine": false,
+   "rule": "after_first_customer_contact",
+   "stage_label": "顧客対応の直後",
+   "fork_ordinal": 589,
+   "tick": 22,
+   "seat_id": "emp-G"
+  }
+ },
+ {
+  "run_root": "runs/answer_check_base_20260731/r1_clarify_seed961",
+  "point": {
+   "probe_id": "P-11",
+   "customer_id": "CUS-P-11",
+   "application_id": "APP-P-11",
+   "routine": false,
+   "rule": "after_first_customer_contact",
+   "stage_label": "顧客対応の直後",
+   "fork_ordinal": 811,
+   "tick": 31,
+   "seat_id": "emp-A"
+  }
+ },
+ {
+  "run_root": "runs/answer_check_base_20260731/r1_clarify_seed962",
+  "point": {
+   "probe_id": "P-01",
+   "customer_id": "CUS-P-01",
+   "application_id": "APP-P-01",
+   "routine": false,
+   "rule": "after_identity_verified",
+   "stage_label": "本人確認の直後",
+   "fork_ordinal": 41,
+   "tick": 2,
+   "seat_id": "emp-A"
+  }
+ },
+ {
+  "run_root": "runs/answer_check_base_20260731/r1_clarify_seed962",
+  "point": {
+   "probe_id": "P-01",
+   "customer_id": "CUS-P-01",
+   "application_id": "APP-P-01",
+   "routine": false,
+   "rule": "after_review_linked",
+   "stage_label": "審査連携の直後",
+   "fork_ordinal": 43,
+   "tick": 2,
+   "seat_id": "emp-A"
+  }
+ },
+ {
+  "run_root": "runs/answer_check_base_20260731/r1_clarify_seed962",
+  "point": {
+   "probe_id": "P-01",
+   "customer_id": "CUS-P-01",
+   "application_id": "APP-P-01",
+   "routine": false,
+   "rule": "after_contract_completed",
+   "stage_label": "契約完了の直後",
+   "fork_ordinal": 45,
+   "tick": 2,
+   "seat_id": "emp-A"
+  }
+ },
+ {
+  "run_root": "runs/answer_check_base_20260731/r1_clarify_seed963",
+  "point": {
+   "probe_id": "P-04",
+   "customer_id": "CUS-P-04",
+   "application_id": "APP-P-04",
+   "routine": false,
+   "rule": "after_application_submitted",
+   "stage_label": "申込受付の直後",
+   "fork_ordinal": 193,
+   "tick": 10,
+   "seat_id": "emp-F"
+  }
+ },
+ {
+  "run_root": "runs/answer_check_base_20260731/r1_clarify_seed963",
+  "point": {
+   "probe_id": "P-09",
+   "customer_id": "CUS-P-09",
+   "application_id": "APP-P-09",
+   "routine": false,
+   "rule": "after_first_customer_contact",
+   "stage_label": "顧客対応の直後",
+   "fork_ordinal": 583,
+   "tick": 26,
+   "seat_id": "emp-Q"
+  }
+ },
+ {
+  "run_root": "runs/answer_check_base_20260731/r1_clarify_seed963",
+  "point": {
+   "probe_id": "P-10",
+   "customer_id": "CUS-P-10",
+   "application_id": "APP-P-10",
+   "routine": false,
+   "rule": "after_first_customer_contact",
+   "stage_label": "顧客対応の直後",
+   "fork_ordinal": 651,
+   "tick": 28,
+   "seat_id": "emp-A"
+  }
+ },
+ {
+  "run_root": "runs/answer_check_base_20260731/r1_clarify_seed965",
+  "point": {
+   "probe_id": "P-01",
+   "customer_id": "CUS-P-01",
+   "application_id": "APP-P-01",
+   "routine": false,
+   "rule": "after_application_submitted",
+   "stage_label": "申込受付の直後",
+   "fork_ordinal": 48,
+   "tick": 3,
+   "seat_id": "emp-A"
+  }
+ },
+ {
+  "run_root": "runs/answer_check_base_20260731/r1_control_seed963",
+  "point": {
+   "probe_id": "P-10",
+   "customer_id": "CUS-P-10",
+   "application_id": "APP-P-10",
+   "routine": false,
+   "rule": "after_identity_verified",
+   "stage_label": "本人確認の直後",
+   "fork_ordinal": 669,
+   "tick": 29,
+   "seat_id": "emp-C"
+  }
+ },
+ {
+  "run_root": "runs/answer_check_base_20260731/r1_control_seed965",
+  "point": {
+   "probe_id": "P-06",
+   "customer_id": "CUS-P-06",
+   "application_id": "APP-P-06",
+   "routine": false,
+   "rule": "after_identity_verified",
+   "stage_label": "本人確認の直後",
+   "fork_ordinal": 539,
+   "tick": 20,
+   "seat_id": "emp-F"
+  }
+ },
+ {
+  "run_root": "runs/answer_check_base_20260731/r1_control_seed965",
+  "point": {
+   "probe_id": "P-06",
+   "customer_id": "CUS-P-06",
+   "application_id": "APP-P-06",
+   "routine": false,
+   "rule": "after_review_linked",
+   "stage_label": "審査連携の直後",
+   "fork_ordinal": 541,
+   "tick": 20,
+   "seat_id": "emp-F"
+  }
+ },
+ {
+  "run_root": "runs/answer_check_base_20260731/r4_contradict_seed970",
+  "point": {
+   "probe_id": "P-08",
+   "customer_id": "CUS-P-08",
+   "application_id": "APP-P-08",
+   "routine": false,
+   "rule": "after_approval_granted",
+   "stage_label": "承認の直後",
+   "fork_ordinal": 787,
+   "tick": 28,
+   "seat_id": "emp-Q"
+  }
+ },
+ {
+  "run_root": "runs/answer_check_base_20260731/r4_contradict_seed970",
+  "point": {
+   "probe_id": "P-10",
+   "customer_id": "CUS-P-10",
+   "application_id": "APP-P-10",
+   "routine": false,
+   "rule": "after_application_submitted",
+   "stage_label": "申込受付の直後",
+   "fork_ordinal": 810,
+   "tick": 29,
+   "seat_id": "emp-A"
+  }
+ },
+ {
+  "run_root": "runs/answer_check_base_20260731/r4_control_seed966",
+  "point": {
+   "probe_id": "P-08",
+   "customer_id": "CUS-P-08",
+   "application_id": "APP-P-08",
+   "routine": false,
+   "rule": "after_identity_verified",
+   "stage_label": "本人確認の直後",
+   "fork_ordinal": 552,
+   "tick": 24,
+   "seat_id": "emp-F"
+  }
+ },
+ {
+  "run_root": "runs/answer_check_base_20260731/r4_control_seed966",
+  "point": {
+   "probe_id": "P-08",
+   "customer_id": "CUS-P-08",
+   "application_id": "APP-P-08",
+   "routine": false,
+   "rule": "after_review_linked",
+   "stage_label": "審査連携の直後",
+   "fork_ordinal": 554,
+   "tick": 24,
+   "seat_id": "emp-F"
+  }
+ },
+ {
+  "run_root": "runs/answer_check_base_20260731/r4_control_seed966",
+  "point": {
+   "probe_id": "P-08",
+   "customer_id": "CUS-P-08",
+   "application_id": "APP-P-08",
+   "routine": false,
+   "rule": "after_contract_completed",
+   "stage_label": "契約完了の直後",
+   "fork_ordinal": 556,
+   "tick": 24,
+   "seat_id": "emp-F"
+  }
+ },
+ {
+  "run_root": "runs/answer_check_base_20260731/r4_control_seed967",
+  "point": {
+   "probe_id": "P-10",
+   "customer_id": "CUS-P-10",
+   "application_id": "APP-P-10",
+   "routine": false,
+   "rule": "after_review_linked",
+   "stage_label": "審査連携の直後",
+   "fork_ordinal": 826,
+   "tick": 29,
+   "seat_id": "emp-F"
+  }
+ },
+ {
+  "run_root": "runs/answer_check_base_20260731/r4_control_seed967",
+  "point": {
+   "probe_id": "P-10",
+   "customer_id": "CUS-P-10",
+   "application_id": "APP-P-10",
+   "routine": false,
+   "rule": "after_contract_completed",
+   "stage_label": "契約完了の直後",
+   "fork_ordinal": 828,
+   "tick": 29,
+   "seat_id": "emp-F"
+  }
+ },
+ {
+  "run_root": "runs/answer_check_base_20260731/r4_control_seed968",
+  "point": {
+   "probe_id": "P-10",
+   "customer_id": "CUS-P-10",
+   "application_id": "APP-P-10",
+   "routine": false,
+   "rule": "after_approval_granted",
+   "stage_label": "承認の直後",
+   "fork_ordinal": 721,
+   "tick": 29,
+   "seat_id": "emp-M"
+  }
+ },
+ {
+  "run_root": "runs/answer_check_base_20260731/r4_control_seed970",
+  "point": {
+   "probe_id": "P-05",
+   "customer_id": "CUS-P-05",
+   "application_id": "APP-P-05",
+   "routine": false,
+   "rule": "after_application_submitted",
+   "stage_label": "申込受付の直後",
+   "fork_ordinal": 329,
+   "tick": 15,
+   "seat_id": "emp-F"
+  }
+ },
+ {
+  "run_root": "runs/answer_check_base_20260731/r4_control_seed970",
+  "point": {
+   "probe_id": "P-05",
+   "customer_id": "CUS-P-05",
+   "application_id": "APP-P-05",
+   "routine": false,
+   "rule": "after_identity_verified",
+   "stage_label": "本人確認の直後",
+   "fork_ordinal": 332,
+   "tick": 15,
+   "seat_id": "emp-F"
+  }
+ },
+ {
+  "run_root": "runs/answer_check_base_20260731/r4_control_seed970",
+  "point": {
+   "probe_id": "P-05",
+   "customer_id": "CUS-P-05",
+   "application_id": "APP-P-05",
+   "routine": false,
+   "rule": "after_review_linked",
+   "stage_label": "審査連携の直後",
+   "fork_ordinal": 334,
+   "tick": 15,
+   "seat_id": "emp-F"
+  }
+ },
+ {
+  "run_root": "runs/answer_check_base_20260731/r4_control_seed970",
+  "point": {
+   "probe_id": "P-05",
+   "customer_id": "CUS-P-05",
+   "application_id": "APP-P-05",
+   "routine": false,
+   "rule": "after_contract_completed",
+   "stage_label": "契約完了の直後",
+   "fork_ordinal": 336,
+   "tick": 15,
+   "seat_id": "emp-F"
+  }
+ },
+ {
+  "run_root": "runs/answer_check_base_20260731/r1_clarify_seed962",
+  "point": {
+   "probe_id": "P-01",
+   "customer_id": "CUS-P-01",
+   "application_id": "APP-P-01",
+   "routine": false,
+   "rule": "after_first_customer_contact",
+   "stage_label": "顧客対応の直後",
+   "fork_ordinal": 11,
+   "tick": 1,
+   "seat_id": "emp-A"
+  }
+ },
+ {
+  "run_root": "runs/answer_check_base_20260731/r1_clarify_seed962",
+  "point": {
+   "probe_id": "P-03",
+   "customer_id": "CUS-P-03",
+   "application_id": "APP-P-03",
+   "routine": false,
+   "rule": "after_first_customer_contact",
+   "stage_label": "顧客対応の直後",
+   "fork_ordinal": 178,
+   "tick": 7,
+   "seat_id": "emp-B"
+  }
+ },
+ {
+  "run_root": "runs/answer_check_base_20260731/r1_clarify_seed962",
+  "point": {
+   "probe_id": "P-04",
+   "customer_id": "CUS-P-04",
+   "application_id": "APP-P-04",
+   "routine": false,
+   "rule": "after_first_customer_contact",
+   "stage_label": "顧客対応の直後",
+   "fork_ordinal": 248,
+   "tick": 10,
+   "seat_id": "emp-A"
+  }
+ },
+ {
+  "run_root": "runs/answer_check_base_20260731/r1_clarify_seed962",
+  "point": {
+   "probe_id": "P-11",
+   "customer_id": "CUS-P-11",
+   "application_id": "APP-P-11",
+   "routine": false,
+   "rule": "after_first_customer_contact",
+   "stage_label": "顧客対応の直後",
+   "fork_ordinal": 749,
+   "tick": 31,
+   "seat_id": "emp-A"
+  }
+ },
+ {
+  "run_root": "runs/answer_check_base_20260731/r1_clarify_seed963",
+  "point": {
+   "probe_id": "P-05",
+   "customer_id": "CUS-P-05",
+   "application_id": "APP-P-05",
+   "routine": false,
+   "rule": "after_first_customer_contact",
+   "stage_label": "顧客対応の直後",
+   "fork_ordinal": 265,
+   "tick": 13,
+   "seat_id": "emp-F"
+  }
+ },
+ {
+  "run_root": "runs/answer_check_base_20260731/r1_clarify_seed964",
+  "point": {
+   "probe_id": "P-06",
+   "customer_id": "CUS-P-06",
+   "application_id": "APP-P-06",
+   "routine": false,
+   "rule": "after_first_customer_contact",
+   "stage_label": "顧客対応の直後",
+   "fork_ordinal": 448,
+   "tick": 16,
+   "seat_id": "emp-A"
+  }
+ },
+ {
+  "run_root": "runs/answer_check_base_20260731/r1_clarify_seed964",
+  "point": {
+   "probe_id": "P-10",
+   "customer_id": "CUS-P-10",
+   "application_id": "APP-P-10",
+   "routine": false,
+   "rule": "after_first_customer_contact",
+   "stage_label": "顧客対応の直後",
+   "fork_ordinal": 855,
+   "tick": 28,
+   "seat_id": "emp-A"
+  }
+ },
+ {
+  "run_root": "runs/answer_check_base_20260731/r1_clarify_seed965",
+  "point": {
+   "probe_id": "P-01",
+   "customer_id": "CUS-P-01",
+   "application_id": "APP-P-01",
+   "routine": false,
+   "rule": "after_identity_verified",
+   "stage_label": "本人確認の直後",
+   "fork_ordinal": 68,
+   "tick": 4,
+   "seat_id": "emp-F"
+  }
+ },
+ {
+  "run_root": "runs/answer_check_base_20260731/r1_clarify_seed965",
+  "point": {
+   "probe_id": "P-01",
+   "customer_id": "CUS-P-01",
+   "application_id": "APP-P-01",
+   "routine": false,
+   "rule": "after_review_linked",
+   "stage_label": "審査連携の直後",
+   "fork_ordinal": 70,
+   "tick": 4,
+   "seat_id": "emp-F"
+  }
+ },
+ {
+  "run_root": "runs/answer_check_base_20260731/r1_clarify_seed965",
+  "point": {
+   "probe_id": "P-01",
+   "customer_id": "CUS-P-01",
+   "application_id": "APP-P-01",
+   "routine": false,
+   "rule": "after_contract_completed",
+   "stage_label": "契約完了の直後",
+   "fork_ordinal": 73,
+   "tick": 4,
+   "seat_id": "emp-F"
+  }
+ },
+ {
+  "run_root": "runs/answer_check_base_20260731/r1_clarify_seed965",
+  "point": {
+   "probe_id": "P-08",
+   "customer_id": "CUS-P-08",
+   "application_id": "APP-P-08",
+   "routine": false,
+   "rule": "after_first_customer_contact",
+   "stage_label": "顧客対応の直後",
+   "fork_ordinal": 585,
+   "tick": 22,
+   "seat_id": "emp-G"
+  }
+ },
+ {
+  "run_root": "runs/answer_check_base_20260731/r1_control_seed961",
+  "point": {
+   "probe_id": "P-09",
+   "customer_id": "CUS-P-09",
+   "application_id": "APP-P-09",
+   "routine": false,
+   "rule": "after_first_customer_contact",
+   "stage_label": "顧客対応の直後",
+   "fork_ordinal": 600,
+   "tick": 26,
+   "seat_id": "emp-Q"
+  }
+ },
+ {
+  "run_root": "runs/answer_check_base_20260731/r1_control_seed964",
+  "point": {
+   "probe_id": "P-01",
+   "customer_id": "CUS-P-01",
+   "application_id": "APP-P-01",
+   "routine": false,
+   "rule": "after_application_submitted",
+   "stage_label": "申込受付の直後",
+   "fork_ordinal": 9,
+   "tick": 1,
+   "seat_id": "emp-A"
+  }
+ },
+ {
+  "run_root": "runs/answer_check_base_20260731/r4_contradict_seed969",
+  "point": {
+   "probe_id": "P-04",
+   "customer_id": "CUS-P-04",
+   "application_id": "APP-P-04",
+   "routine": false,
+   "rule": "after_application_submitted",
+   "stage_label": "申込受付の直後",
+   "fork_ordinal": 287,
+   "tick": 11,
+   "seat_id": "emp-A"
+  }
+ },
+ {
+  "run_root": "runs/answer_check_base_20260731/r4_contradict_seed970",
+  "point": {
+   "probe_id": "P-10",
+   "customer_id": "CUS-P-10",
+   "application_id": "APP-P-10",
+   "routine": false,
+   "rule": "after_identity_verified",
+   "stage_label": "本人確認の直後",
+   "fork_ordinal": 840,
+   "tick": 30,
+   "seat_id": "emp-G"
+  }
+ },
+ {
+  "run_root": "runs/answer_check_base_20260731/r4_control_seed968",
+  "point": {
+   "probe_id": "P-08",
+   "customer_id": "CUS-P-08",
+   "application_id": "APP-P-08",
+   "routine": false,
+   "rule": "after_identity_verified",
+   "stage_label": "本人確認の直後",
+   "fork_ordinal": 544,
+   "tick": 23,
+   "seat_id": "emp-C"
+  }
+ },
+ {
+  "run_root": "runs/answer_check_base_20260731/r4_control_seed968",
+  "point": {
+   "probe_id": "P-08",
+   "customer_id": "CUS-P-08",
+   "application_id": "APP-P-08",
+   "routine": false,
+   "rule": "after_review_linked",
+   "stage_label": "審査連携の直後",
+   "fork_ordinal": 546,
+   "tick": 23,
+   "seat_id": "emp-C"
+  }
+ }
+]

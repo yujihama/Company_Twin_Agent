@@ -1,0 +1,15 @@
+{
+ "point": {
+  "probe_id": "P-05",
+  "customer_id": "CUS-P-05",
+  "application_id": "APP-P-05",
+  "routine": false,
+  "rule": "after_first_customer_contact",
+  "stage_label": "顧客対応の直後",
+  "fork_ordinal": 287,
+  "tick": 13,
+  "seat_id": "emp-F"
+ },
+ "source_world": "runs/answer_check_base_20260731/r1_clarify_seed961",
+ "window": 10
+}

@@ -2193,5 +2193,6 @@
   }
  ],
  "continuation_window": 10,
- "max_steps_per_candidate": 3
+ "max_steps_per_candidate": 3,
+ "execution_order": "coverage-first: one world per (case type x stage) combination first, second copies after; name order within each pass (rule fixed 2026-07-31 before the cap could bite)"
 }
