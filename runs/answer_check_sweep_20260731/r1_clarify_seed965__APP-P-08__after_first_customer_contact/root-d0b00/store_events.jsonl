@@ -1,0 +1,5 @@
+{"op": "read", "origin": "agent", "returned": 0, "run_id": "root-d0b00", "seat_id": "emp-B", "tick": 23, "ts": "2026-07-31T19:17:53.512185+00:00"}
+{"op": "read", "origin": "agent", "returned": 0, "run_id": "root-d0b00", "seat_id": "emp-C", "tick": 23, "ts": "2026-07-31T19:19:26.704361+00:00"}
+{"op": "read", "origin": "agent", "returned": 0, "run_id": "root-d0b00", "seat_id": "emp-G", "tick": 23, "ts": "2026-07-31T19:20:02.784591+00:00"}
+{"op": "read", "origin": "agent", "returned": 0, "run_id": "root-d0b00", "seat_id": "emp-Q", "tick": 23, "ts": "2026-07-31T19:20:33.758048+00:00"}
+{"op": "read", "origin": "agent", "returned": 0, "run_id": "root-d0b00", "seat_id": "emp-C", "tick": 24, "ts": "2026-07-31T19:21:01.863452+00:00"}
