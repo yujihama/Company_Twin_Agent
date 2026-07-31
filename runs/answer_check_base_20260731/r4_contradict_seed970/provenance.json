@@ -1,0 +1,9 @@
+{
+ "note": "pre-fork slice of the original world, extracted verbatim from a branch bundle; NOT the full original world (rows past the fork are not recoverable)",
+ "source_bundle": "runs/deviation_sweep_20260729/r4_contradict_seed970__P-11/root-d0b00",
+ "original_ledger_sha256_per_bundle_meta": "1f2377d81ccd49fb983793e4cb31329e37a457f089e094ac8b399301f34b244f",
+ "rows_extracted": 868,
+ "last_tick": 31,
+ "settings_verification": "matched (customer events and absence rows agree with the reconstruction)",
+ "extracted_ledger_sha256": "b4d125d7aa5d387af60def6d21417e404e073c2eab5763b304cfb5350c81e619"
+}
