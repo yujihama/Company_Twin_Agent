@@ -8,5 +8,39 @@
   "fork_tick": 24,
   "fork_ordinal": 556,
   "stage": "S2",
-  "seed": 966
+  "seed": 966,
+  "final_tick": 34,
+  "live": false,
+  "allow_spend": true,
+  "source_horizon": 40,
+  "prompt_mode": "measurement",
+  "injected_action": {
+    "tool": "record_customer_contact",
+    "args": {
+      "customer_id": "CUS-88291",
+      "channel": "phone",
+      "summary": "Confirmed receipt of post-opening materials and reiterated basic usage instructions",
+      "seat_id": "emp-F",
+      "basis": {
+        "retrieved": [
+          {
+            "doc_id": "DFH-SAL-021@v1.0",
+            "version": "1.0",
+            "citation_handle": "read:DFH-SAL-021@v1.0:v1.0"
+          }
+        ],
+        "construal": "分岐生成による候補行為",
+        "decision": "experimenter_injection",
+        "evidence_plan": "branch bundle",
+        "confidence": 0.5
+      }
+    },
+    "result": {
+      "event_id": "EVT-000070",
+      "customer_id": "CUS-88291",
+      "channel": "phone",
+      "summary": "Confirmed receipt of post-opening materials and reiterated basic usage instructions",
+      "action_id": "CONTACT-000070"
+    }
+  }
 }

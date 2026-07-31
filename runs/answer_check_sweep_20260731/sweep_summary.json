@@ -2197,11 +2197,11 @@
   "max_steps_per_candidate": 3,
   "execution_order": "coverage-first: one world per (case type x stage) combination first, second copies after; name order within each pass (rule fixed 2026-07-31 before the cap could bite)"
  },
- "executed_points": 14,
- "resumed_points": 1,
+ "executed_points": 13,
+ "resumed_points": 3,
  "failures": [],
  "stopped_by_cap": null,
- "credits_spent": 7.08,
+ "credits_spent": 7.88,
  "awaiting_judgement": [
   "r1_clarify_seed961__APP-P-01__after_first_customer_contact/root-d0b01",
   "r1_clarify_seed961__APP-P-04__after_first_customer_contact/root-d0b01",
@@ -2218,6 +2218,8 @@
   "r1_control_seed964__APP-P-01__after_application_submitted/root-d0b01",
   "r1_control_seed965__APP-P-06__after_identity_verified/root-d0b00",
   "r1_control_seed965__APP-P-06__after_identity_verified/root-d0b01",
+  "r4_control_seed966__APP-P-08__after_contract_completed/root-d0b00",
+  "r4_control_seed968__APP-P-08__after_identity_verified/root-d0b01",
   "r4_control_seed970__APP-P-05__after_application_submitted/root-d0b01"
  ]
 }
