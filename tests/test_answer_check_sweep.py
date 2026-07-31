@@ -49,8 +49,11 @@ def test_bare_invocation_enumerates_and_stops_before_any_spend(tmp_path: Path, m
     assert plan["estimate"]["worlds"] == 9
     assert plan["dropped_routine_points"] == 1
     assert plan["not_enumerable"], "skipped points must be carried into the plan"
-    # the gate: nothing but the plan document may exist -- no world was run
-    assert [p.name for p in output.iterdir()] == ["plan.json"]
+    # the gate: nothing but the plan documents may exist -- no world was run
+    assert sorted(p.name for p in output.iterdir()) == ["plan.json", "selected_points.json"]
+    # the fixed selection is what a partitioned run will consume verbatim
+    selection = json.loads((output / "selected_points.json").read_text(encoding="utf-8"))
+    assert len(selection) == 3 and all("run_root" in e and "point" in e for e in selection)
 
 
 def test_per_combo_cap_keeps_the_first_worlds_in_name_order() -> None:

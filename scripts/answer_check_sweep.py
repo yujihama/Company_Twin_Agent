@@ -114,56 +114,79 @@ def remaining_credits() -> float:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("run_roots", type=Path, nargs="+", help="the finished source worlds")
+    parser.add_argument("run_roots", type=Path, nargs="*", help="the finished source worlds (not needed with --from-selection)")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--execute", action="store_true", help="run the paid phase (default: enumerate + estimate only)")
     parser.add_argument("--max-credits", type=float, default=None, help="hard spend cap for this invocation, measured against the provider balance")
     parser.add_argument("--defect-bound-only", action="store_true", help="keep only case types whose scenario binds a planted-defect span")
     parser.add_argument("--per-combo-cap", type=int, default=None, help="at most N worlds per (case type x stage) combination, in name order")
+    parser.add_argument("--from-selection", type=Path, default=None, help="run the exact point list a previous invocation fixed in selected_points.json, skipping enumeration -- the ONLY safe way to split one approved scope across processes")
+    parser.add_argument("--partition", type=str, default=None, help="'i/n': with --from-selection, run only every n-th point starting at i (1-based)")
     args = parser.parse_args()
 
-    # ---- Phase 1: enumerate, filter, estimate (zero spend) ----------------
-    from company_twin.design_loader import load_design as _load_design
-
-    all_points: list[tuple[Path, dict[str, Any]]] = []
-    all_skipped: list[dict[str, Any]] = []
-    dropped_total = 0
-    for run_root in sorted(args.run_roots):
-        result = enumerate_decision_points(run_root)
-        kept, dropped = plan_b_filter(result["points"])
-        dropped_total += len(dropped)
-        all_skipped.extend({**item, "world": Path(run_root).name} for item in result["skipped"])
-        all_points.extend((Path(run_root), point) for point in kept)
-
-    dropped_unbound = 0
-    if args.defect_bound_only:
-        bound_types = defect_bound_case_types(_load_design(Path.cwd()))
-        before = len(all_points)
-        all_points = [(root, point) for root, point in all_points if point.get("probe_id") in bound_types]
-        dropped_unbound = before - len(all_points)
-    dropped_over_cap = 0
-    if args.per_combo_cap is not None:
-        all_points, dropped_over_cap = cap_per_combo(all_points, args.per_combo_cap)
-
-    stage_counts = Counter(point["stage_label"] for _, point in all_points)
-    plan = {
-        "scope": "plan B: authored verification cases x every stage; routine cases dropped",
-        "defect_bound_only": bool(args.defect_bound_only),
-        "per_combo_cap": args.per_combo_cap,
-        "worlds_scanned": len(args.run_roots),
-        "estimate": estimate(len(all_points)),
-        "points_by_stage": dict(stage_counts.most_common()),
-        "dropped_routine_points": dropped_total,
-        "dropped_unbound_case_points": dropped_unbound,
-        "dropped_over_combo_cap": dropped_over_cap,
-        "not_enumerable": all_skipped,
-        "continuation_window": CONTINUATION_WINDOW,
-        "max_steps_per_candidate": MAX_STEPS_PER_CANDIDATE,
-    }
     args.output.mkdir(parents=True, exist_ok=True)
-    (args.output / "plan.json").write_text(json.dumps(plan, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
-    print(json.dumps({k: plan[k] for k in ("estimate", "points_by_stage", "dropped_routine_points")}, ensure_ascii=False, indent=1))
-    print(f"列挙できなかった場面: {len(all_skipped)}(理由は plan.json に記録)")
+    if args.from_selection is not None:
+        # The scope was fixed once, globally; re-filtering per process could
+        # widen it, so a partitioned run never re-enumerates.
+        selection = json.loads(Path(args.from_selection).read_text(encoding="utf-8"))
+        all_points = [(Path(entry["run_root"]), entry["point"]) for entry in selection]
+        all_skipped = []
+        plan = json.loads((args.output / "plan.json").read_text(encoding="utf-8")) if (args.output / "plan.json").exists() else {}
+        if args.partition:
+            index, count = (int(part) for part in args.partition.split("/"))
+            all_points = all_points[index - 1 :: count]
+            print(f"分担 {args.partition}: {len(all_points)} 場面")
+    else:
+        # ---- Phase 1: enumerate, filter, estimate (zero spend) ------------
+        from company_twin.design_loader import load_design as _load_design
+
+        all_points = []
+        all_skipped = []
+        dropped_total = 0
+        for run_root in sorted(args.run_roots):
+            result = enumerate_decision_points(run_root)
+            kept, dropped = plan_b_filter(result["points"])
+            dropped_total += len(dropped)
+            all_skipped.extend({**item, "world": Path(run_root).name} for item in result["skipped"])
+            all_points.extend((Path(run_root), point) for point in kept)
+
+        dropped_unbound = 0
+        if args.defect_bound_only:
+            bound_types = defect_bound_case_types(_load_design(Path.cwd()))
+            before = len(all_points)
+            all_points = [(root, point) for root, point in all_points if point.get("probe_id") in bound_types]
+            dropped_unbound = before - len(all_points)
+        dropped_over_cap = 0
+        if args.per_combo_cap is not None:
+            all_points, dropped_over_cap = cap_per_combo(all_points, args.per_combo_cap)
+
+        stage_counts = Counter(point["stage_label"] for _, point in all_points)
+        plan = {
+            "scope": "plan B: authored verification cases x every stage; routine cases dropped",
+            "defect_bound_only": bool(args.defect_bound_only),
+            "per_combo_cap": args.per_combo_cap,
+            "worlds_scanned": len(args.run_roots),
+            "estimate": estimate(len(all_points)),
+            "points_by_stage": dict(stage_counts.most_common()),
+            "dropped_routine_points": dropped_total,
+            "dropped_unbound_case_points": dropped_unbound,
+            "dropped_over_combo_cap": dropped_over_cap,
+            "not_enumerable": all_skipped,
+            "continuation_window": CONTINUATION_WINDOW,
+            "max_steps_per_candidate": MAX_STEPS_PER_CANDIDATE,
+        }
+        (args.output / "plan.json").write_text(json.dumps(plan, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
+        (args.output / "selected_points.json").write_text(
+            json.dumps(
+                [{"run_root": str(root), "point": point} for root, point in all_points],
+                ensure_ascii=False,
+                indent=1,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        print(json.dumps({k: plan[k] for k in ("estimate", "points_by_stage", "dropped_routine_points")}, ensure_ascii=False, indent=1))
+        print(f"列挙できなかった場面: {len(all_skipped)}(理由は plan.json に記録)")
     if not args.execute:
         print("見積りのみ(--execute で実行。費用のかかる実行の現行ルールに従い、承認を得てから)")
         return 0
