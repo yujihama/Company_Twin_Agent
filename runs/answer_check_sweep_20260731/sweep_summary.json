@@ -2201,7 +2201,7 @@
  "resumed_points": 3,
  "failures": [],
  "stopped_by_cap": null,
- "credits_spent": 7.88,
+ "credits_spent": 9.78,
  "awaiting_judgement": [
   "r1_clarify_seed961__APP-P-01__after_first_customer_contact/root-d0b01",
   "r1_clarify_seed961__APP-P-04__after_first_customer_contact/root-d0b01",
@@ -2210,9 +2210,12 @@
   "r1_clarify_seed962__APP-P-01__after_contract_completed/root-d0b01",
   "r1_clarify_seed962__APP-P-01__after_identity_verified/root-d0b00",
   "r1_clarify_seed962__APP-P-01__after_identity_verified/root-d0b01",
+  "r1_clarify_seed962__APP-P-03__after_first_customer_contact/root-d0b00",
   "r1_clarify_seed962__APP-P-04__after_first_customer_contact/root-d0b00",
+  "r1_clarify_seed963__APP-P-05__after_first_customer_contact/root-d0b01",
   "r1_clarify_seed964__APP-P-10__after_first_customer_contact/root-d0b01",
   "r1_clarify_seed965__APP-P-01__after_contract_completed/root-d0b01",
+  "r1_clarify_seed965__APP-P-08__after_first_customer_contact/root-d0b00",
   "r1_control_seed963__APP-P-10__after_identity_verified/root-d0b01",
   "r1_control_seed963__APP-P-10__after_identity_verified/root-d0b02",
   "r1_control_seed964__APP-P-01__after_application_submitted/root-d0b01",
@@ -2220,6 +2223,7 @@
   "r1_control_seed965__APP-P-06__after_identity_verified/root-d0b01",
   "r4_control_seed966__APP-P-08__after_contract_completed/root-d0b00",
   "r4_control_seed968__APP-P-08__after_identity_verified/root-d0b01",
+  "r4_control_seed968__APP-P-08__after_review_linked/root-d0b01",
   "r4_control_seed970__APP-P-05__after_application_submitted/root-d0b01"
  ]
 }

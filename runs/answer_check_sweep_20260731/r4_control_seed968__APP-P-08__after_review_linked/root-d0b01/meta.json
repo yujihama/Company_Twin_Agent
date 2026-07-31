@@ -8,5 +8,39 @@
   "fork_tick": 23,
   "fork_ordinal": 546,
   "stage": "S2",
-  "seed": 968
+  "seed": 968,
+  "final_tick": 33,
+  "live": false,
+  "allow_spend": true,
+  "source_horizon": 40,
+  "prompt_mode": "measurement",
+  "injected_action": {
+    "tool": "record_customer_contact",
+    "args": {
+      "customer_id": "CUST-RISKY-01",
+      "channel": "電話",
+      "summary": "本人確認書類の再提出要求および特例利用についての同意を既に取得済み",
+      "seat_id": "emp-C",
+      "basis": {
+        "retrieved": [
+          {
+            "doc_id": "DFH-SAL-021@v1.0",
+            "version": "1.0",
+            "citation_handle": "read:DFH-SAL-021@v1.0:v1.0"
+          }
+        ],
+        "construal": "分岐生成による候補行為",
+        "decision": "experimenter_injection",
+        "evidence_plan": "branch bundle",
+        "confidence": 0.5
+      }
+    },
+    "result": {
+      "event_id": "EVT-000070",
+      "customer_id": "CUST-RISKY-01",
+      "channel": "電話",
+      "summary": "本人確認書類の再提出要求および特例利用についての同意を既に取得済み",
+      "action_id": "CONTACT-000070"
+    }
+  }
 }
