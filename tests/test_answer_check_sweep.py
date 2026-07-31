@@ -51,3 +51,26 @@ def test_bare_invocation_enumerates_and_stops_before_any_spend(tmp_path: Path, m
     assert plan["not_enumerable"], "skipped points must be carried into the plan"
     # the gate: nothing but the plan document may exist -- no world was run
     assert [p.name for p in output.iterdir()] == ["plan.json"]
+
+
+def test_per_combo_cap_keeps_the_first_worlds_in_name_order() -> None:
+    points = [
+        (Path("runs/w1"), {"probe_id": "P-01", "rule": "after_x"}),
+        (Path("runs/w2"), {"probe_id": "P-01", "rule": "after_x"}),
+        (Path("runs/w3"), {"probe_id": "P-01", "rule": "after_x"}),
+        (Path("runs/w1"), {"probe_id": "P-01", "rule": "after_y"}),
+    ]
+    kept, dropped = sweep.cap_per_combo(points, 2)
+    assert [str(root.name) for root, p in kept if p["rule"] == "after_x"] == ["w1", "w2"]
+    assert dropped == 1
+    # a different stage is its own combination, untouched by the cap
+    assert any(p["rule"] == "after_y" for _, p in kept)
+
+
+def test_defect_bound_case_types_reads_the_design() -> None:
+    from company_twin.design_loader import load_design
+
+    bound = sweep.defect_bound_case_types(load_design(Path.cwd()))
+    # the two cases whose scenarios bind no planted-defect span stay out
+    assert "P-11" in bound and "P-10" in bound
+    assert "P-02" not in bound and "P-07" not in bound

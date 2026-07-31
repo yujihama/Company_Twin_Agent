@@ -58,6 +58,36 @@ def plan_b_filter(points: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], l
     return kept, dropped
 
 
+def defect_bound_case_types(design) -> set[str]:
+    """Case types whose scenario binds at least one planted-defect span --
+    the mechanical reading of 'cases the defects were designed around'."""
+    return {
+        probe_id
+        for probe_id in design.probes
+        if any(span in design.spans for span in design.probes[probe_id].binds)
+    }
+
+
+def cap_per_combo(
+    points: list[tuple[Path, dict[str, Any]]], cap: int
+) -> tuple[list[tuple[Path, dict[str, Any]]], int]:
+    """Keep at most `cap` worlds per (case type x stage) combination, in
+    run-root name order (never chosen by hand). Returns (kept, dropped_count).
+    Assumes `points` is already sorted by run root."""
+    seen: dict[tuple[str, str], int] = {}
+    kept: list[tuple[Path, dict[str, Any]]] = []
+    dropped = 0
+    for run_root, point in points:
+        combo = (str(point.get("probe_id")), str(point.get("rule")))
+        count = seen.get(combo, 0)
+        if count >= cap:
+            dropped += 1
+            continue
+        seen[combo] = count + 1
+        kept.append((run_root, point))
+    return kept, dropped
+
+
 def estimate(point_count: int) -> dict[str, Any]:
     worlds = point_count * BRANCHES_PER_POINT
     return {
@@ -88,26 +118,44 @@ def main() -> int:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--execute", action="store_true", help="run the paid phase (default: enumerate + estimate only)")
     parser.add_argument("--max-credits", type=float, default=None, help="hard spend cap for this invocation, measured against the provider balance")
+    parser.add_argument("--defect-bound-only", action="store_true", help="keep only case types whose scenario binds a planted-defect span")
+    parser.add_argument("--per-combo-cap", type=int, default=None, help="at most N worlds per (case type x stage) combination, in name order")
     args = parser.parse_args()
 
     # ---- Phase 1: enumerate, filter, estimate (zero spend) ----------------
+    from company_twin.design_loader import load_design as _load_design
+
     all_points: list[tuple[Path, dict[str, Any]]] = []
     all_skipped: list[dict[str, Any]] = []
     dropped_total = 0
-    for run_root in args.run_roots:
+    for run_root in sorted(args.run_roots):
         result = enumerate_decision_points(run_root)
         kept, dropped = plan_b_filter(result["points"])
         dropped_total += len(dropped)
         all_skipped.extend({**item, "world": Path(run_root).name} for item in result["skipped"])
         all_points.extend((Path(run_root), point) for point in kept)
 
+    dropped_unbound = 0
+    if args.defect_bound_only:
+        bound_types = defect_bound_case_types(_load_design(Path.cwd()))
+        before = len(all_points)
+        all_points = [(root, point) for root, point in all_points if point.get("probe_id") in bound_types]
+        dropped_unbound = before - len(all_points)
+    dropped_over_cap = 0
+    if args.per_combo_cap is not None:
+        all_points, dropped_over_cap = cap_per_combo(all_points, args.per_combo_cap)
+
     stage_counts = Counter(point["stage_label"] for _, point in all_points)
     plan = {
         "scope": "plan B: authored verification cases x every stage; routine cases dropped",
+        "defect_bound_only": bool(args.defect_bound_only),
+        "per_combo_cap": args.per_combo_cap,
         "worlds_scanned": len(args.run_roots),
         "estimate": estimate(len(all_points)),
         "points_by_stage": dict(stage_counts.most_common()),
         "dropped_routine_points": dropped_total,
+        "dropped_unbound_case_points": dropped_unbound,
+        "dropped_over_combo_cap": dropped_over_cap,
         "not_enumerable": all_skipped,
         "continuation_window": CONTINUATION_WINDOW,
         "max_steps_per_candidate": MAX_STEPS_PER_CANDIDATE,
