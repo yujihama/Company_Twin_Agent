@@ -1,3 +1,6 @@
 {"op": "read", "origin": "agent", "returned": 0, "run_id": "root-d0b00", "seat_id": "emp-C", "tick": 21, "ts": "2026-07-31T17:17:42.194303+00:00"}
 {"key": "APP-P-06_status", "op": "write", "origin": "agent", "run_id": "root-d0b00", "seat_id": "emp-C", "tick": 21, "ts": "2026-07-31T17:18:08.718195+00:00", "value": "2026/4/15午前 link_review完了(REV-000001)。complete_contractに進むには審査通過の確認が必要。営業部鈴木様へ「審査中」と連絡済み。"}
 {"op": "read", "origin": "agent", "returned": 0, "run_id": "root-d0b00", "seat_id": "emp-F", "tick": 21, "ts": "2026-07-31T17:18:18.694847+00:00"}
+{"op": "read", "origin": "agent", "returned": 0, "run_id": "root-d0b00", "seat_id": "emp-G", "tick": 21, "ts": "2026-07-31T17:18:51.536124+00:00"}
+{"key": "20260415_campaign", "op": "write", "origin": "agent", "run_id": "root-d0b00", "seat_id": "emp-G", "tick": 21, "ts": "2026-07-31T17:19:02.066855+00:00", "value": "【本日の状況】キャンペーン締切日(4/15)。APP-P-07(CUS-P-07)は明日4/16期限。顧客へ必要な書類・手順を案内済み(APP-MESSAGE)。APP-R20(CUS-R20)は4/17期限。同様に案内済み。両案件とも申請にはまだ至っておらず、本人確認(eKYC)や同意取得の証跡が不足している可能性あり。APP-P-07は緊急性高い。申込管理部(伊藤emp-C)へ状況確認と申請方針を相談する必要がある。可能なら本日中にAPP-P-07をsubmit_applicationへ持ち込みたいが、evidence_jsonに何を入れるか要確認。"}
+{"op": "read", "origin": "agent", "returned": 0, "run_id": "root-d0b00", "seat_id": "emp-Q", "tick": 21, "ts": "2026-07-31T17:19:15.867513+00:00"}
