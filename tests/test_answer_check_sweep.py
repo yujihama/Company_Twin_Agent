@@ -1,0 +1,53 @@
+"""Plan-B sweep driver (scripts/answer_check_sweep.py): the zero-spend phase.
+
+The paid phase is the same expand/judge machinery test_deviation_tree.py
+already covers; what needs its own coverage is the driver's scope filter,
+its firm estimate, and the gate that keeps a bare invocation zero-spend.
+"""
+from __future__ import annotations
+
+import importlib.util
+import json
+import sys
+from pathlib import Path
+
+from company_twin.deviation_tree import enumerate_decision_points
+
+from tests.test_deviation_tree import _enumeration_world
+
+_SPEC = importlib.util.spec_from_file_location(
+    "answer_check_sweep", Path(__file__).resolve().parent.parent / "scripts" / "answer_check_sweep.py"
+)
+sweep = importlib.util.module_from_spec(_SPEC)
+assert _SPEC.loader is not None
+_SPEC.loader.exec_module(sweep)
+
+
+def test_plan_b_filter_keeps_authored_cases_and_reports_the_dropped(tmp_path: Path) -> None:
+    result = enumerate_decision_points(_enumeration_world(tmp_path))
+    kept, dropped = sweep.plan_b_filter(result["points"])
+    assert {p["application_id"] for p in kept} == {"APP-E-01"}
+    assert {p["application_id"] for p in dropped} == {"APP-E-02"}  # routine case
+    assert len(kept) + len(dropped) == len(result["points"])
+
+
+def test_estimate_is_a_count_not_a_guess() -> None:
+    figure = sweep.estimate(140)
+    assert figure["worlds"] == 140 * sweep.BRANCHES_PER_POINT
+    assert figure["credits_low"] == round(figure["worlds"] * sweep.COST_PER_WORLD_LOW, 1)
+    assert figure["credits_high"] == round(figure["worlds"] * sweep.COST_PER_WORLD_HIGH, 1)
+
+
+def test_bare_invocation_enumerates_and_stops_before_any_spend(tmp_path: Path, monkeypatch) -> None:
+    world = _enumeration_world(tmp_path)
+    output = tmp_path / "sweep_out"
+    monkeypatch.setattr(sys, "argv", ["answer_check_sweep.py", str(world), "--output", str(output)])
+    assert sweep.main() == 0
+
+    plan = json.loads((output / "plan.json").read_text(encoding="utf-8"))
+    assert plan["estimate"]["decision_points"] == 3  # APP-E-01's contact + 2 stages
+    assert plan["estimate"]["worlds"] == 9
+    assert plan["dropped_routine_points"] == 1
+    assert plan["not_enumerable"], "skipped points must be carried into the plan"
+    # the gate: nothing but the plan document may exist -- no world was run
+    assert [p.name for p in output.iterdir()] == ["plan.json"]
