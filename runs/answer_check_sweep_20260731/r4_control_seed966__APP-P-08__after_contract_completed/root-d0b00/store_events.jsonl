@@ -8,3 +8,4 @@
 {"op": "read", "origin": "agent", "returned": 0, "run_id": "root-d0b00", "seat_id": "emp-B", "tick": 27, "ts": "2026-07-31T18:16:58.006691+00:00"}
 {"op": "read", "origin": "agent", "returned": 2, "run_id": "root-d0b00", "seat_id": "emp-C", "tick": 27, "ts": "2026-07-31T18:17:24.194377+00:00"}
 {"key": "APP-P-10対応メモ", "op": "write", "origin": "agent", "run_id": "root-d0b00", "seat_id": "emp-A", "tick": 28, "ts": "2026-07-31T18:19:25.460899+00:00", "value": "【顧客ID CUS-P-10 / 案件 APP-P-10】\n4/20 午後：アプリでの申込に失敗。電話で案内を希望（期限4/23まで）。高齢者対応が必要。\n→ 4/21(火)午前中に電話連絡の予定。まず商品説明と適合性確認を行う。\n※記録: EVT-000074 / CONTACT-000085"}
+{"op": "read", "origin": "agent", "returned": 0, "run_id": "root-d0b00", "seat_id": "emp-B", "tick": 28, "ts": "2026-07-31T18:19:56.392222+00:00"}
