@@ -1,0 +1,15 @@
+{
+ "point": {
+  "probe_id": "P-10",
+  "customer_id": "CUS-P-10",
+  "application_id": "APP-P-10",
+  "routine": false,
+  "rule": "after_identity_verified",
+  "stage_label": "本人確認の直後",
+  "fork_ordinal": 669,
+  "tick": 29,
+  "seat_id": "emp-C"
+ },
+ "source_world": "runs/answer_check_base_20260731/r1_control_seed963",
+ "window": 10
+}

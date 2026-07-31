@@ -1,0 +1,15 @@
+{
+ "point": {
+  "probe_id": "P-08",
+  "customer_id": "CUS-P-08",
+  "application_id": "APP-P-08",
+  "routine": false,
+  "rule": "after_approval_granted",
+  "stage_label": "承認の直後",
+  "fork_ordinal": 787,
+  "tick": 28,
+  "seat_id": "emp-Q"
+ },
+ "source_world": "runs/answer_check_base_20260731/r4_contradict_seed970",
+ "window": 10
+}

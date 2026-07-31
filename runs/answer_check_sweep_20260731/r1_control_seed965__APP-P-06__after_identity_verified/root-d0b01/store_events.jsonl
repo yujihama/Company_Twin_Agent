@@ -1,0 +1,6 @@
+{"op": "read", "origin": "agent", "returned": 0, "run_id": "root-d0b01", "seat_id": "emp-C", "tick": 21, "ts": "2026-07-31T17:45:40.840158+00:00"}
+{"op": "read", "origin": "agent", "returned": 0, "run_id": "root-d0b01", "seat_id": "emp-F", "tick": 21, "ts": "2026-07-31T17:46:11.968667+00:00"}
+{"op": "read", "origin": "agent", "returned": 0, "run_id": "root-d0b01", "seat_id": "emp-G", "tick": 21, "ts": "2026-07-31T17:46:36.056068+00:00"}
+{"key": "案件APP-P-07 / CUS-P-07", "op": "write", "origin": "agent", "run_id": "root-d0b01", "seat_id": "emp-G", "tick": 21, "ts": "2026-07-31T17:47:08.593192+00:00", "value": "4月16日（木）期限。顧客より手続きの詳細・必要な書類のご質問あり。申込管理部 伊藤(emp-C)に商品の名称・必要書類リスト・留意事項照会中。返答待ち。"}
+{"op": "read", "origin": "agent", "returned": 0, "run_id": "root-d0b01", "seat_id": "emp-Q", "tick": 21, "ts": "2026-07-31T17:47:41.317569+00:00"}
+{"op": "read", "origin": "agent", "returned": 0, "run_id": "root-d0b01", "seat_id": "emp-A", "tick": 22, "ts": "2026-07-31T17:48:49.500875+00:00"}
