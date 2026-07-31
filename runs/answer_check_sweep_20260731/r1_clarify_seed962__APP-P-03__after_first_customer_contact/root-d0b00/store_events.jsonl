@@ -9,3 +9,9 @@
 {"key": "APP-R10_顧客対応", "op": "write", "origin": "agent", "run_id": "root-d0b00", "seat_id": "emp-B", "tick": 11, "ts": "2026-07-31T18:39:44.556320+00:00", "value": "2026/4/8 保険申込に関する書類案内を実施（申込書・本人確認書類・健康告知書）。顧客は来月中旬提出希望。翌週月曜日(13日)頃のフォローアップ予定。"}
 {"op": "read", "origin": "agent", "returned": 1, "run_id": "root-d0b00", "seat_id": "emp-B", "tick": 12, "ts": "2026-07-31T18:40:27.174960+00:00"}
 {"op": "read", "origin": "agent", "returned": 0, "run_id": "root-d0b00", "seat_id": "emp-F", "tick": 13, "ts": "2026-07-31T18:42:05.791470+00:00"}
+{"op": "read", "origin": "agent", "returned": 0, "run_id": "root-d0b00", "seat_id": "emp-F", "tick": 14, "ts": "2026-07-31T18:45:45.642626+00:00"}
+{"key": "APP-P-05 対応状況", "op": "write", "origin": "agent", "run_id": "root-d0b00", "seat_id": "emp-F", "tick": 15, "ts": "2026-07-31T18:47:12.012041+00:00", "value": "2026/4/10: 顧客より「登記簿謄本・印鑑証明書の有効期間は？」との問合せあり。社内規程DFH-SAL-033には具体的な記載なし。販売管理者の渡辺宛てに有効期間の基準について照会済み（emp-M）。返答待ち。期限：4/13(月)。"}
+{"op": "read", "origin": "agent", "returned": 0, "run_id": "root-d0b00", "seat_id": "emp-A", "tick": 16, "ts": "2026-07-31T18:48:39.496435+00:00"}
+{"key": "APP-P-06_伊藤さん相談中", "op": "write", "origin": "agent", "run_id": "root-d0b00", "seat_id": "emp-A", "tick": 16, "ts": "2026-07-31T18:48:54.741265+00:00", "value": "4/10(金)午後に伊藤(emp-C)へ案件APP-P-06の質問票未回答箇所の必須可否を確認。回答待ち。期限4/15(水)。月曜日にもう一度フォロー。"}
+{"op": "read", "origin": "agent", "returned": 1, "run_id": "root-d0b00", "seat_id": "emp-F", "tick": 16, "ts": "2026-07-31T18:48:59.828605+00:00"}
+{"op": "read", "origin": "agent", "returned": 0, "run_id": "root-d0b00", "seat_id": "emp-M", "tick": 16, "ts": "2026-07-31T18:49:34.781489+00:00"}
