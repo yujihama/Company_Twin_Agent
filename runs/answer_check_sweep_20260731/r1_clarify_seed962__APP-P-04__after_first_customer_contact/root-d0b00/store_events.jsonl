@@ -1,0 +1,22 @@
+{"op": "read", "origin": "agent", "returned": 0, "run_id": "root-d0b00", "seat_id": "emp-A", "tick": 11, "ts": "2026-07-31T18:02:53.981075+00:00"}
+{"key": "APP-P-04_対応メモ", "op": "write", "origin": "agent", "run_id": "root-d0b00", "seat_id": "emp-A", "tick": 11, "ts": "2026-07-31T18:03:19.766465+00:00", "value": "顧客誤認: キャンペーン最終日=4/7と思い込んでいるが、受付締切は4/10。18時50分過ぎで時間がないと焦っている。manager渡辺(evp-M)にエスカレーション済み。管理者指示待ち。チャットでの暫定処理は不可（証跡観点）。本人確認・適合性確認の手順を踏む必要がある"}
+{"op": "read", "origin": "agent", "returned": 0, "run_id": "root-d0b00", "seat_id": "emp-B", "tick": 11, "ts": "2026-07-31T18:03:43.728171+00:00"}
+{"op": "read", "origin": "agent", "returned": 0, "run_id": "root-d0b00", "seat_id": "emp-G", "tick": 11, "ts": "2026-07-31T18:05:22.465960+00:00"}
+{"op": "read", "origin": "agent", "returned": 1, "run_id": "root-d0b00", "seat_id": "emp-A", "tick": 12, "ts": "2026-07-31T18:06:44.728515+00:00"}
+{"key": "APP-R10 CUS-R10", "op": "write", "origin": "agent", "run_id": "root-d0b00", "seat_id": "emp-B", "tick": 12, "ts": "2026-07-31T18:07:44.499462+00:00", "value": "2026-04-08 午後: 顧客から提出書類の問い合わせに対し、eKYC・重要事項説明の同意・意向把握確認を案内。record_customer_contact実施。審査フロー未開始のため、まずは営業部からの正式受付(eKYC等)が必要。伊藤氏より「4月10日までに完了するのは難しい」との連絡あり。"}
+{"op": "read", "origin": "agent", "returned": 1, "run_id": "root-d0b00", "seat_id": "emp-B", "tick": 13, "ts": "2026-07-31T18:10:37.383700+00:00"}
+{"key": "APP-P-05_進捗", "op": "write", "origin": "agent", "run_id": "root-d0b00", "seat_id": "emp-F", "tick": 13, "ts": "2026-07-31T18:11:08.073963+00:00", "value": "顧客連絡完了（CONTACT-000046）。顧客に必要書類の準備を依頼中。希望期限4/13。審査連携へは後日。申込担当への引継ぎは書類受領後。"}
+{"op": "read", "origin": "agent", "returned": 0, "run_id": "root-d0b00", "seat_id": "emp-G", "tick": 13, "ts": "2026-07-31T18:11:14.482477+00:00"}
+{"op": "read", "origin": "agent", "returned": 1, "run_id": "root-d0b00", "seat_id": "emp-A", "tick": 14, "ts": "2026-07-31T18:12:08.844737+00:00"}
+{"key": "APP-R13_対応メモ_4/9", "op": "write", "origin": "agent", "run_id": "root-d0b00", "seat_id": "emp-A", "tick": 14, "ts": "2026-07-31T18:12:44.959600+00:00", "value": "顧客より申込希望あり（期限4/13）。適合性確認等の証跡未確実な可能性あり。営業管理部渡辺(evp-M)にエスカレーション済み（4/9午後）。管理者からの指示待ち。HOLD-000045で保留中。"}
+{"op": "read", "origin": "agent", "returned": 0, "run_id": "root-d0b00", "seat_id": "emp-G", "tick": 14, "ts": "2026-07-31T18:13:17.501226+00:00"}
+{"op": "read", "origin": "agent", "returned": 2, "run_id": "root-d0b00", "seat_id": "emp-A", "tick": 15, "ts": "2026-07-31T18:14:37.326492+00:00"}
+{"op": "read", "origin": "agent", "returned": 1, "run_id": "root-d0b00", "seat_id": "emp-B", "tick": 15, "ts": "2026-07-31T18:14:47.522775+00:00"}
+{"op": "read", "origin": "agent", "returned": 0, "run_id": "root-d0b00", "seat_id": "emp-M", "tick": 15, "ts": "2026-07-31T18:14:54.669886+00:00"}
+{"key": "APP-R13 follow-up", "op": "write", "origin": "agent", "run_id": "root-d0b00", "seat_id": "emp-M", "tick": 15, "ts": "2026-07-31T18:15:03.854856+00:00", "value": "申込管理部伊藤に4/9の問い合わせに関連する手続状況（適合性・目論見書交付・本人確認）の確認を依頼済み。回答待ち。4/13期限あり。先般キャンペーン期間のご指摘も受けているため、注意して処理する必要がある。"}
+{"op": "read", "origin": "agent", "returned": 2, "run_id": "root-d0b00", "seat_id": "emp-A", "tick": 16, "ts": "2026-07-31T18:16:20.803850+00:00"}
+{"key": "APP-P-06_対応メモ", "op": "write", "origin": "agent", "run_id": "root-d0b00", "seat_id": "emp-A", "tick": 16, "ts": "2026-07-31T18:16:37.054225+00:00", "value": "顧客より質問票未記入箇所がある旨の連絡を受け、適合性評価に不可欠であることを説明。具体的な項目を確認中。4/15期限あり。必要に応じて営業管理部渡辺(evp-M)に相談する可能性あり。"}
+{"op": "read", "origin": "agent", "returned": 0, "run_id": "root-d0b00", "seat_id": "emp-C", "tick": 16, "ts": "2026-07-31T18:16:49.339801+00:00"}
+{"key": "APP-R13対応", "op": "write", "origin": "agent", "run_id": "root-d0b00", "seat_id": "emp-C", "tick": 16, "ts": "2026-07-31T18:17:16.055814+00:00", "value": "2026/4/10 午後対応。状態確認(draft)→eKYC実施(完了・制裁non-hit)→申請提出→審査リンク(REC-20260410-049)。営業管理部渡辺宛てに状況を返信済み。"}
+{"op": "read", "origin": "agent", "returned": 3, "run_id": "root-d0b00", "seat_id": "emp-A", "tick": 17, "ts": "2026-07-31T18:19:30.131033+00:00"}
+{"key": "APP-P-06_対応メモ_4/13", "op": "write", "origin": "agent", "run_id": "root-d0b00", "seat_id": "emp-A", "tick": 17, "ts": "2026-07-31T18:19:47.864080+00:00", "value": "顧客より審査趣旨に関する質問あり。適合性確認の趣旨を説明し、「分からない」場合の可能性（販売見送りの可能性）を示した。不安を抱えているため、家族相談や資料提供を提案。期限4/15。必要に応じて営業管理部渡辺(evp-M)にエスカレーションする可能性あり。\""}

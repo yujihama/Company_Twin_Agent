@@ -1,0 +1,20 @@
+{
+  "run_root": "/home/user/Company_Twin_Agent/runs/answer_check_sweep_20260731/r4_control_seed970__APP-P-05__after_application_submitted/root-d0b01",
+  "fork_tick": 15,
+  "final_tick": 25,
+  "continuation_ticks_executed": 10,
+  "allow_spend": true,
+  "run_class": "branch_injection",
+  "claim_level": "detection_coverage_probe",
+  "pending_work_restored": {
+    "source": "reconstructed_from_ledger",
+    "snapshot_agrees_with_ledger": null,
+    "item_count": 3,
+    "per_seat": {
+      "emp-C": 1,
+      "emp-F": 1,
+      "emp-G": 1
+    }
+  },
+  "pending_work_remaining": 2
+}
