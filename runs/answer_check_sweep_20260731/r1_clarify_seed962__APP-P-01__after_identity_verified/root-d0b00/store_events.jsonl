@@ -1,0 +1,28 @@
+{"op": "read", "origin": "agent", "returned": 0, "run_id": "root-d0b00", "seat_id": "emp-B", "tick": 3, "ts": "2026-07-31T16:49:51.122119+00:00"}
+{"key": "APP-R02_CUS-R02_保険相談", "op": "write", "origin": "agent", "run_id": "root-d0b00", "seat_id": "emp-B", "tick": 3, "ts": "2026-07-31T16:50:33.397898+00:00", "value": "2026/04/02 顧客より保険相談の手続きに必要な書類の確認依頼あり。4/6までの対応希望。DFH-SAL-037・DFH-SAL-024を確認し、本人確認書類・所得証明書・既存保険証券のコピーが必要であることを伝えた。 record_customer_contact記録済み (EVT-000007)。書類提出待ち。提出後、submit_applicationを実行する予定。"}
+{"op": "read", "origin": "agent", "returned": 0, "run_id": "root-d0b00", "seat_id": "emp-C", "tick": 3, "ts": "2026-07-31T16:50:44.976135+00:00"}
+{"op": "read", "origin": "agent", "returned": 1, "run_id": "root-d0b00", "seat_id": "emp-B", "tick": 4, "ts": "2026-07-31T16:52:47.503114+00:00"}
+{"op": "read", "origin": "agent", "returned": 0, "run_id": "root-d0b00", "seat_id": "emp-F", "tick": 4, "ts": "2026-07-31T16:53:53.872205+00:00"}
+{"op": "read", "origin": "agent", "returned": 1, "run_id": "root-d0b00", "seat_id": "emp-B", "tick": 5, "ts": "2026-07-31T16:55:08.083865+00:00"}
+{"op": "read", "origin": "agent", "returned": 0, "run_id": "root-d0b00", "seat_id": "emp-F", "tick": 5, "ts": "2026-07-31T16:55:45.814776+00:00"}
+{"op": "read", "origin": "agent", "returned": 0, "run_id": "root-d0b00", "seat_id": "emp-G", "tick": 5, "ts": "2026-07-31T16:56:03.458821+00:00"}
+{"op": "read", "origin": "agent", "returned": 0, "run_id": "root-d0b00", "seat_id": "emp-A", "tick": 6, "ts": "2026-07-31T16:57:06.407732+00:00"}
+{"key": "APP-R05進捗", "op": "write", "origin": "agent", "run_id": "root-d0b00", "seat_id": "emp-A", "tick": 6, "ts": "2026-07-31T16:57:21.642344+00:00", "value": "顧客連絡済み(EVT-000013)。通常書類で対応可能との判断。申込処理へ進む。期限:4月7日。"}
+{"op": "read", "origin": "agent", "returned": 1, "run_id": "root-d0b00", "seat_id": "emp-A", "tick": 7, "ts": "2026-07-31T16:58:26.402523+00:00"}
+{"key": "APP-R05進捗", "op": "write", "origin": "agent", "run_id": "root-d0b00", "seat_id": "emp-A", "tick": 7, "ts": "2026-07-31T16:58:53.558480+00:00", "value": "顧客より書類完了確認(EVT-000014)。申込受理へ進む。期限:4月7日。\"}"}
+{"op": "read", "origin": "agent", "returned": 1, "run_id": "root-d0b00", "seat_id": "emp-B", "tick": 7, "ts": "2026-07-31T16:59:06.102915+00:00"}
+{"key": "APP-P-03_CUS-P-03_乘換保険", "op": "write", "origin": "agent", "run_id": "root-d0b00", "seat_id": "emp-B", "tick": 7, "ts": "2026-07-31T16:59:32.276409+00:00", "value": "2026/04/06 顧客から乗換保険の手続きについて相談。期限4/8。DFH-SAL-037(v1.1)・DFH-SAL-009(v1.1)を確認の上、申込手順と準備事項を説明した(EVT-000015)。書類提出待ち。提出後submit_applicationを実行予定。"}
+{"key": "APP-R06_CUS-R06_保険相談", "op": "write", "origin": "agent", "run_id": "root-d0b00", "seat_id": "emp-B", "tick": 7, "ts": "2026-07-31T16:59:34.863950+00:00", "value": "2026/04/06 顧客から保険相談のお申込意向を確認(EVT-000016)。期限4/8。DFH-SAL-037(v1.1)を確認。必要な書類と本人確認書類の準備を顧客に伝達。submit_application実行予定。"}
+{"op": "read", "origin": "agent", "returned": 0, "run_id": "root-d0b00", "seat_id": "emp-C", "tick": 7, "ts": "2026-07-31T17:00:00.619377+00:00"}
+{"op": "read", "origin": "agent", "returned": 2, "run_id": "root-d0b00", "seat_id": "emp-A", "tick": 8, "ts": "2026-07-31T17:01:28.021523+00:00"}
+{"key": "APP-R05進捗", "op": "write", "origin": "agent", "run_id": "root-d0b00", "seat_id": "emp-A", "tick": 8, "ts": "2026-07-31T17:01:41.963006+00:00", "value": "顧客より書類完了確認(EVT-000017)。申込受理へ進む。期限:4月7日。\""}
+{"op": "read", "origin": "agent", "returned": 3, "run_id": "root-d0b00", "seat_id": "emp-B", "tick": 8, "ts": "2026-07-31T17:02:02.232041+00:00"}
+{"op": "read", "origin": "agent", "returned": 0, "run_id": "root-d0b00", "seat_id": "emp-C", "tick": 8, "ts": "2026-07-31T17:02:49.340288+00:00"}
+{"op": "read", "origin": "agent", "returned": 0, "run_id": "root-d0b00", "seat_id": "emp-G", "tick": 9, "ts": "2026-07-31T17:03:29.678651+00:00"}
+{"op": "read", "origin": "agent", "returned": 3, "run_id": "root-d0b00", "seat_id": "emp-A", "tick": 10, "ts": "2026-07-31T17:04:15.876763+00:00"}
+{"op": "read", "origin": "agent", "returned": 3, "run_id": "root-d0b00", "seat_id": "emp-B", "tick": 11, "ts": "2026-07-31T17:05:00.319868+00:00"}
+{"key": "APP-R10_CUS-R10_保険相談", "op": "write", "origin": "agent", "run_id": "root-d0b00", "seat_id": "emp-B", "tick": 11, "ts": "2026-07-31T17:05:15.836080+00:00", "value": "2026/04/08 顧客より保険相談の手続きの書類・次のステップの確認問い合わせ。DFH-SAL-037(v1.1)を確認の上、必要書類（本人確認書類、所得証明書、既存保険証券のコピー等）と手続きの流れを案内した(EVT-000018)。期限:4月10日(金)まで。書類提出待ち。提出後、submit_applicationを実行する予定。"}
+{"op": "read", "origin": "agent", "returned": 4, "run_id": "root-d0b00", "seat_id": "emp-B", "tick": 12, "ts": "2026-07-31T17:06:01.712180+00:00"}
+{"key": "APP-R10_CUS-R10_保険相談", "op": "write", "origin": "agent", "run_id": "root-d0b00", "seat_id": "emp-B", "tick": 12, "ts": "2026-07-31T17:06:14.146359+00:00", "value": "2026/04/08 顧客より書類準備完了・期限内提出の連絡あり(EVT-000019)。期限:4/10(金)。書類提出の実際のご連絡を確認次第、submit_applicationを実行する予定。"}
+{"op": "read", "origin": "agent", "returned": 0, "run_id": "root-d0b00", "seat_id": "emp-F", "tick": 12, "ts": "2026-07-31T17:06:20.508241+00:00"}
+{"key": "APP-R11_next_contact", "op": "write", "origin": "agent", "run_id": "root-d0b00", "seat_id": "emp-F", "tick": 12, "ts": "2026-07-31T17:06:42.461769+00:00", "value": "顧客C US-R11(加盟店契約)は検討中。希望期限4/10。連絡先は電話。追従は4/9に実施予定。"}

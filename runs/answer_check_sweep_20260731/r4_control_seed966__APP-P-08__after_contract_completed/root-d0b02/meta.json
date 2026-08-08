@@ -1,0 +1,12 @@
+{
+  "run_id": "root-d0b02",
+  "created_at": "2026-07-31T18:32:29.257849+00:00",
+  "run_class": "branch_injection",
+  "claim_level": "detection_coverage_probe",
+  "source_run_root": "/home/user/Company_Twin_Agent/runs/answer_check_base_20260731/r4_control_seed966",
+  "source_ledger_sha256": "7113a5e233c72a1556118d01b9b2b390eb8f70d4cf319ff932a4632e7e8a4909",
+  "fork_tick": 24,
+  "fork_ordinal": 556,
+  "stage": "S2",
+  "seed": 966
+}

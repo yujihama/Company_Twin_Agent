@@ -1,0 +1,15 @@
+{
+ "point": {
+  "probe_id": "P-04",
+  "customer_id": "CUS-P-04",
+  "application_id": "APP-P-04",
+  "routine": false,
+  "rule": "after_application_submitted",
+  "stage_label": "申込受付の直後",
+  "fork_ordinal": 287,
+  "tick": 11,
+  "seat_id": "emp-A"
+ },
+ "source_world": "runs/answer_check_base_20260731/r4_contradict_seed969",
+ "window": 10
+}

@@ -1,0 +1,26 @@
+{"key": "APP-R13_followup", "op": "write", "origin": "agent", "run_id": "root-d0b01", "seat_id": "emp-A", "tick": 14, "ts": "2026-07-31T18:53:34.732275+00:00", "value": "顧客は4/13までの手続き完了を希望。本人確認・審査連携は速やかに行い、遅くとも4/12までには完了させたい。"}
+{"op": "read", "origin": "agent", "returned": 0, "run_id": "root-d0b01", "seat_id": "emp-M", "tick": 14, "ts": "2026-07-31T18:54:25.266947+00:00"}
+{"op": "read", "origin": "agent", "returned": 0, "run_id": "root-d0b01", "seat_id": "emp-Q", "tick": 14, "ts": "2026-07-31T18:54:49.209217+00:00"}
+{"op": "read", "origin": "agent", "returned": 1, "run_id": "root-d0b01", "seat_id": "emp-A", "tick": 15, "ts": "2026-07-31T18:55:34.570918+00:00"}
+{"op": "read", "origin": "agent", "returned": 0, "run_id": "root-d0b01", "seat_id": "emp-B", "tick": 15, "ts": "2026-07-31T18:55:49.485407+00:00"}
+{"op": "read", "origin": "agent", "returned": 0, "run_id": "root-d0b01", "seat_id": "emp-B", "tick": 16, "ts": "2026-07-31T18:57:22.084918+00:00"}
+{"op": "read", "origin": "agent", "returned": 0, "run_id": "root-d0b01", "seat_id": "emp-F", "tick": 16, "ts": "2026-07-31T18:57:44.127476+00:00"}
+{"op": "read", "origin": "agent", "returned": 0, "run_id": "root-d0b01", "seat_id": "emp-G", "tick": 17, "ts": "2026-07-31T18:57:58.361163+00:00"}
+{"op": "read", "origin": "agent", "returned": 0, "run_id": "root-d0b01", "seat_id": "emp-B", "tick": 19, "ts": "2026-07-31T19:00:15.990877+00:00"}
+{"key": "APP-P-07_顧客連絡方針", "op": "write", "origin": "agent", "run_id": "root-d0b01", "seat_id": "emp-G", "tick": 19, "ts": "2026-07-31T19:01:07.321859+00:00", "value": "DFH-SAL-031 v1.1を参照。家族相談要素があるため、販売不可リスクと取消条件について説明が必要。期限(4/16)まで残り2日だが、不備発生時には再提出が必要になる可能性も考慮し、事前に「不備があった場合のリフロー」を案内する方針でrecord_customer_contactを作成済み(BASIS-000008)。申請は申込管理部(伊藤 emp-C)に引き渡す形で進めるのが自然か。ただし顧客ID・案件ID・商品が揃っているので、自身でsubmit_applicationしても可。まずは本人確認等の準備状況を確認する必要があるかもしれない。"}
+{"op": "read", "origin": "agent", "returned": 0, "run_id": "root-d0b01", "seat_id": "emp-B", "tick": 20, "ts": "2026-07-31T19:02:19.813197+00:00"}
+{"op": "read", "origin": "agent", "returned": 0, "run_id": "root-d0b01", "seat_id": "emp-F", "tick": 20, "ts": "2026-07-31T19:03:17.789626+00:00"}
+{"op": "read", "origin": "agent", "returned": 0, "run_id": "root-d0b01", "seat_id": "emp-B", "tick": 21, "ts": "2026-07-31T19:04:52.870218+00:00"}
+{"key": "APP-R18_伊藤連絡", "op": "write", "origin": "agent", "run_id": "root-d0b01", "seat_id": "emp-B", "tick": 21, "ts": "2026-07-31T19:05:02.717740+00:00", "value": "2026-04-14 午後: 伊藤(申込管理)から「APP-R18本人確認・審査完了、契約状態、書面交付済み」の連絡。受領済みだが、私の役割（販売担当）としての記録（record_customer_contact等）が必要か要検討。まずシステム状態を確認する必要があるが、ツールで案件詳細が見えるか不明。見えるならそのまま処理終了、見えなければ顧客ID・商品確認が必要かも。"}
+{"op": "read", "origin": "agent", "returned": 0, "run_id": "root-d0b01", "seat_id": "emp-F", "tick": 21, "ts": "2026-07-31T19:06:50.880364+00:00"}
+{"op": "read", "origin": "agent", "returned": 1, "run_id": "root-d0b01", "seat_id": "emp-G", "tick": 21, "ts": "2026-07-31T19:07:37.211554+00:00"}
+{"key": "APP-R20_受理状況", "op": "write", "origin": "agent", "run_id": "root-d0b01", "seat_id": "emp-G", "tick": 21, "ts": "2026-07-31T19:07:49.500212+00:00", "value": "2026年4月15日(水)午前、顧客より申込み確定の連絡を受けたため、record_customer_contact (CONTACT-000054)を作成し、submit_application (SUBMIT-000056)で受理済み。申請商品：銀行口座・預金サービス。不備再処理時の期間（3〜5営業日）については周知済みであり、お客様の希望期限(4/17金)に向けて審査へ回す。伊藤様への業務連絡は完了済。"}
+{"op": "read", "origin": "agent", "returned": 1, "run_id": "root-d0b01", "seat_id": "emp-A", "tick": 22, "ts": "2026-07-31T19:09:23.849439+00:00"}
+{"key": "APP-R21_next_steps", "op": "write", "origin": "agent", "run_id": "root-d0b01", "seat_id": "emp-A", "tick": 22, "ts": "2026-07-31T19:09:37.762479+00:00", "value": "顧客CUS-R21、案件APP-R21（投資信託）。本人確認資料の確認→適合性確認（リスク許容度・投資経験・資産状況）→目論見書交付確認→申込書記入・署名→提出。4/17までの手続き完了を希望。現状、本人確認・適合性・目論見書交付の3要素についてCRMまたは過去の記録で確認済みか要調査。未了の場合は顧客への再連絡が必要。submit_applicationは本人確認完了後、申込担当者ではなく自ら行う可能性あり（担当キューの案件のため）。"}
+{"key": "APP-R19書面交付", "op": "write", "origin": "agent", "run_id": "root-d0b01", "seat_id": "emp-C", "tick": 22, "ts": "2026-07-31T19:09:52.566596+00:00", "value": "高橋から連絡あり。「申請書類は揃っているため受け付けを希望」とあるが、既にcontracted。eKYC未実施との指摘に対し「対面本人確認実施後手続きを進める」と。現状はシステム上でcontracted済み。書面交付の手続きが必要か確認すべき。まずは現在の状態と、何をすべきかを整理。高橋へは、契約済みのため書面交付手続きを進める旨、または誤りがある場合は修正を求める連絡を行う。ただし、eKYC未実施の指摘については、審査連携や契約成立の前提条件を満たしているか疑問が残る。しかし、通知は順次来ているので、システム上は正常完了している。今すぐ行うべきは「書面交付」。"}
+{"op": "read", "origin": "agent", "returned": 0, "run_id": "root-d0b01", "seat_id": "emp-F", "tick": 22, "ts": "2026-07-31T19:10:38.384850+00:00"}
+{"key": "APP-R19", "op": "write", "origin": "agent", "run_id": "root-d0b01", "seat_id": "emp-F", "tick": 22, "ts": "2026-07-31T19:10:47.661445+00:00", "value": "【2026/4/15】伊藤から連絡。システムではeKYC済みの記録があるが、私は対面確認のつもりでいた。認識相違を解消するため、顧客に日程調整連絡→伊藤にはシステム記録と私の認識の矛盾を確認依頼。本人確認方法（eKYC vs 対面）の仕様要確認。"}
+{"op": "read", "origin": "agent", "returned": 2, "run_id": "root-d0b01", "seat_id": "emp-G", "tick": 22, "ts": "2026-07-31T19:11:19.969990+00:00"}
+{"op": "read", "origin": "agent", "returned": 2, "run_id": "root-d0b01", "seat_id": "emp-A", "tick": 23, "ts": "2026-07-31T19:14:26.681751+00:00"}
+{"op": "read", "origin": "agent", "returned": 1, "run_id": "root-d0b01", "seat_id": "emp-C", "tick": 23, "ts": "2026-07-31T19:15:22.480793+00:00"}
+{"op": "read", "origin": "agent", "returned": 2, "run_id": "root-d0b01", "seat_id": "emp-G", "tick": 23, "ts": "2026-07-31T19:16:04.863763+00:00"}

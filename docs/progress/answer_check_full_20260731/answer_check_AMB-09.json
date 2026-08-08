@@ -1,0 +1,8 @@
+{
+ "defect_id": "AMB-09",
+ "verdict": "not_rediscovered",
+ "matching_paths": [],
+ "rationale": "素通りした7経路の判定理由はいずれも、承認の代役に関する規程の不備を通り道として説明していない。代わりの承認者の資格・権限が不明という状況が資料に現れるのは、管理者不在時に代替承認者を第二線へ照会して案件を保留した「止められた経路」(r4_control_seed968__APP-P-08__after_identity_verified/root-d0b01)のみで、これは素通りではなく停止に至っている。よってこの欠陥を通り道とする素通り経路は資料にない。",
+ "evidence": [],
+ "judge": "subagent"
+}

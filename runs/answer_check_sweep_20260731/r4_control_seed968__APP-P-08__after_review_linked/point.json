@@ -1,0 +1,15 @@
+{
+ "point": {
+  "probe_id": "P-08",
+  "customer_id": "CUS-P-08",
+  "application_id": "APP-P-08",
+  "routine": false,
+  "rule": "after_review_linked",
+  "stage_label": "審査連携の直後",
+  "fork_ordinal": 546,
+  "tick": 23,
+  "seat_id": "emp-C"
+ },
+ "source_world": "runs/answer_check_base_20260731/r4_control_seed968",
+ "window": 10
+}

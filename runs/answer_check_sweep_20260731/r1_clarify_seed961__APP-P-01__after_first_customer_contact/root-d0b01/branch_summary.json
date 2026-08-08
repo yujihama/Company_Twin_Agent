@@ -1,0 +1,21 @@
+{
+  "run_root": "/home/user/Company_Twin_Agent/runs/answer_check_sweep_20260731/r1_clarify_seed961__APP-P-01__after_first_customer_contact/root-d0b01",
+  "fork_tick": 1,
+  "final_tick": 11,
+  "continuation_ticks_executed": 10,
+  "allow_spend": true,
+  "run_class": "branch_injection",
+  "claim_level": "detection_coverage_probe",
+  "pending_work_restored": {
+    "source": "reconstructed_from_ledger",
+    "snapshot_agrees_with_ledger": null,
+    "item_count": 5,
+    "per_seat": {
+      "emp-A": 2,
+      "emp-B": 1,
+      "emp-F": 1,
+      "emp-G": 1
+    }
+  },
+  "pending_work_remaining": 1
+}

@@ -1,0 +1,12 @@
+{
+  "run_id": "r1_clarify_seed961__P-11--root-d0b00-d1b00",
+  "created_at": "2026-07-30T15:52:31.836870+00:00",
+  "run_class": "branch_injection",
+  "claim_level": "detection_coverage_probe",
+  "source_run_root": "/home/user/Company_Twin_Agent/runs/deviation_sweep_20260729/r1_clarify_seed961__P-11/root-d0b00",
+  "source_ledger_sha256": "1b91f50987d603e13ca0c4537c94d3f4cbb9d651198cbf3080f0e51cbe6afadf",
+  "fork_tick": 32,
+  "fork_ordinal": 821,
+  "stage": "S2",
+  "seed": 961
+}

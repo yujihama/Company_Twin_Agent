@@ -1,0 +1,18 @@
+{
+  "run_root": "/home/user/Company_Twin_Agent/runs/deviation_rebranch_20260730/r1_clarify_seed964__P-11--root-d0b00-d1b00",
+  "fork_tick": 32,
+  "final_tick": 40,
+  "continuation_ticks_executed": 8,
+  "allow_spend": true,
+  "run_class": "branch_injection",
+  "claim_level": "detection_coverage_probe",
+  "pending_work_restored": {
+    "source": "reconstructed_from_ledger",
+    "snapshot_agrees_with_ledger": null,
+    "item_count": 1,
+    "per_seat": {
+      "emp-G": 1
+    }
+  },
+  "pending_work_remaining": 0
+}

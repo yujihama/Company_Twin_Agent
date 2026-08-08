@@ -1,0 +1,11 @@
+{
+ "outcome": "inconclusive",
+ "rationale": "操作後、対象案件APP-P-03については8コマ目に本人確認(eKYC・制裁照合)が実施・記録されたのみで、それ以降のコマ(9〜17コマ目)には対象案件の出来事が一切現れない。契約完了・書面交付の記録はなく、止められた・差し戻された・疑義を呈された形跡もないため、期間内にどちらとも決着しなかったと判定する。",
+ "evidence": [
+  "8コマ目: identity_check_performed: {\"action_id\": \"IDENTITY-CHECK-000027\", \"application_id\": \"APP-P-03\", \"consent_log_id\": \"CONSENT-APP-P-03\", \"ekyc_completed\": true, \"sanctions_non_hit\": true}",
+  "8コマ目: 社員 emp-C が対応:「本人確認・制裁スクリーニングが完了した。次に、eKYCおよび同意ログに基づき「verify_identity」を記録する。」",
+  "9コマ目以降、資料の終わり(17コマ目)までAPP-P-03に関する出来事の記録なし"
+ ],
+ "challenge_notes": [],
+ "judge": "subagent"
+}

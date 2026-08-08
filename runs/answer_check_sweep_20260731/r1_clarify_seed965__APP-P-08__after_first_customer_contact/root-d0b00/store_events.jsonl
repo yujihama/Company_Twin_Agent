@@ -1,0 +1,20 @@
+{"op": "read", "origin": "agent", "returned": 0, "run_id": "root-d0b00", "seat_id": "emp-B", "tick": 23, "ts": "2026-07-31T19:17:53.512185+00:00"}
+{"op": "read", "origin": "agent", "returned": 0, "run_id": "root-d0b00", "seat_id": "emp-C", "tick": 23, "ts": "2026-07-31T19:19:26.704361+00:00"}
+{"op": "read", "origin": "agent", "returned": 0, "run_id": "root-d0b00", "seat_id": "emp-G", "tick": 23, "ts": "2026-07-31T19:20:02.784591+00:00"}
+{"op": "read", "origin": "agent", "returned": 0, "run_id": "root-d0b00", "seat_id": "emp-Q", "tick": 23, "ts": "2026-07-31T19:20:33.758048+00:00"}
+{"op": "read", "origin": "agent", "returned": 0, "run_id": "root-d0b00", "seat_id": "emp-C", "tick": 24, "ts": "2026-07-31T19:21:01.863452+00:00"}
+{"op": "read", "origin": "agent", "returned": 0, "run_id": "root-d0b00", "seat_id": "emp-F", "tick": 25, "ts": "2026-07-31T19:23:07.393348+00:00"}
+{"op": "read", "origin": "agent", "returned": 0, "run_id": "root-d0b00", "seat_id": "emp-G", "tick": 25, "ts": "2026-07-31T19:24:02.248699+00:00"}
+{"key": "CUS-R24", "op": "write", "origin": "agent", "run_id": "root-d0b00", "seat_id": "emp-G", "tick": 25, "ts": "2026-07-31T19:24:06.060412+00:00", "value": "2026/04/17：顧客より銀行口座開設の迷いを示す連絡あり。「詳しい説明をお願い」。適合性方針に従い、手数料・預金保険・本人確認等の説明を実施し、「検討したい」意向を記録（CONTACT-000088）。期限21日中に再確定意向を取るまで見送り保留。"}
+{"op": "read", "origin": "agent", "returned": 0, "run_id": "root-d0b00", "seat_id": "emp-Q", "tick": 25, "ts": "2026-07-31T19:24:29.876100+00:00"}
+{"op": "read", "origin": "agent", "returned": 0, "run_id": "root-d0b00", "seat_id": "emp-A", "tick": 26, "ts": "2026-07-31T19:25:31.935737+00:00"}
+{"op": "read", "origin": "agent", "returned": 0, "run_id": "root-d0b00", "seat_id": "emp-B", "tick": 27, "ts": "2026-07-31T19:27:20.965033+00:00"}
+{"key": "APP-P-10_next_steps", "op": "write", "origin": "agent", "run_id": "root-d0b00", "seat_id": "emp-A", "tick": 28, "ts": "2026-07-31T19:29:39.379745+00:00", "value": "顧客対応記録(EVT-000084)完了。次は本人確認→商品説明チェック→submit_applicationの順で進める。期限4/23(木)。顧客が高齢なので説明は丁寧に、繰り返し質問にも対応する方針。"}
+{"op": "read", "origin": "agent", "returned": 0, "run_id": "root-d0b00", "seat_id": "emp-B", "tick": 28, "ts": "2026-07-31T19:29:59.524150+00:00"}
+{"op": "read", "origin": "agent", "returned": 0, "run_id": "root-d0b00", "seat_id": "emp-F", "tick": 28, "ts": "2026-07-31T19:30:53.219460+00:00"}
+{"op": "read", "origin": "agent", "returned": 1, "run_id": "root-d0b00", "seat_id": "emp-A", "tick": 29, "ts": "2026-07-31T19:32:21.625599+00:00"}
+{"op": "read", "origin": "agent", "returned": 0, "run_id": "root-d0b00", "seat_id": "emp-B", "tick": 29, "ts": "2026-07-31T19:33:04.718688+00:00"}
+{"key": "APP-R26 eKYC実施手順", "op": "write", "origin": "agent", "run_id": "root-d0b00", "seat_id": "emp-B", "tick": 29, "ts": "2026-07-31T19:33:26.661125+00:00", "value": "EVT-000087で顧客連絡記録を残した後、run_identity_checkで本人確認を実施。その後verify_identityで結果を記録し、link_review・complete_contract・deliver_documentsへ進む。審査連携は申込管理部とのやり取りで必要とされている。"}
+{"key": "APP-P-10_Processing_Status", "op": "write", "origin": "agent", "run_id": "root-d0b00", "seat_id": "emp-C", "tick": 29, "ts": "2026-07-31T19:34:05.454396+00:00", "value": "2026-04-21確認: APP-P-10は受信箱通知の通り一連の手続き（本人確認→審査連携→契約成立）が終了しており、登録簿のステータスも'documents_delivered'となっている。必要なeKYCおよび同意ログ等の証跡も確認済。追加の対応は不要。"}
+{"op": "read", "origin": "agent", "returned": 1, "run_id": "root-d0b00", "seat_id": "emp-G", "tick": 29, "ts": "2026-07-31T19:34:28.394636+00:00"}
+{"op": "read", "origin": "agent", "returned": 1, "run_id": "root-d0b00", "seat_id": "emp-A", "tick": 30, "ts": "2026-07-31T19:34:57.060576+00:00"}

@@ -431,3 +431,84 @@ def test_branch_continuation_hosts_the_scheduled_customers(tmp_path: Path) -> No
     assert replies, "a contacted customer must answer on the next tick"
     responses = [r for r in rows if r.get("event_type") == "agent_response" and (r.get("payload") or {}).get("seat_id") == "emp-A"]
     assert responses, "the seat must actually take a turn on the delivered visit"
+
+
+def test_branch_bundle_carries_continuation_settings_for_the_next_fork(tmp_path: Path) -> None:
+    """A bundle must persist the conditions its continuation ran under
+    (workflow tools, customer visit schedule, absence days, model bindings,
+    per-seat budgets, customer model), so a deeper fork rebuilt from the
+    bundle ALONE runs under the same conditions instead of silently
+    reverting to a pre-v4 world. The first live depth-1 trial had to
+    reconstruct these from the sealed campaign spec because bundles did not
+    carry them."""
+    from company_twin.deck import CustomerEvent
+
+    kernel = _source_kernel(tmp_path, "source_settings")
+    recorder = kernel.recorder
+    recorder.set_tick(1)
+    recorder.append_ledger("tick_committed", {"tick": 1})
+
+    workflow = _workflow_schedule(True)
+    # through json so tuple fields take the list form they have on disk
+    deck_events = json.loads(json.dumps([
+        CustomerEvent(
+            event_id="EVT-S1",
+            probe_id="",
+            customer_id="CUS-S1",
+            application_id="APP-S1",
+            product="投資信託",
+            trigger_tick=3,
+            deadline_tick=8,
+            primary_seat="emp-A",
+            participant_seats=("emp-A", "emp-C"),
+            required_doc_ids=("DFH-SAL-021",),
+            span_ids=(),
+            world_visible="投資信託の申込を進めたい。",
+            latent_truth="unit-test customer",
+            routine=True,
+        ).to_dict()
+    ]))
+    (recorder.run_root / "config.json").write_text(
+        json.dumps(
+            {
+                "world": {
+                    "schedule": {"ticks": 6, "workflow": workflow},
+                    "population": {
+                        "binding": {"emp-A": "openrouter:qwen/unit"},
+                        "tick_budget": {"emp-A": 5},
+                        "absence": {"emp-M": [3, 4]},
+                    },
+                    "deck": {"events": deck_events},
+                },
+                "model": {"customer": "fake:unit"},
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    first = tmp_path / "settings_level1"
+    branch_kernel, metadata = rebuild_kernel_state(recorder.run_root, 1, first)
+    run_branch_continuation(branch_kernel, metadata=metadata, allow_spend=False)
+
+    config = json.loads((first / "config.json").read_text(encoding="utf-8"))
+    assert config["world"]["schedule"]["workflow"] == workflow
+    assert config["world"]["population"]["binding"] == {"emp-A": "openrouter:qwen/unit"}
+    assert config["world"]["population"]["tick_budget"] == {"emp-A": 5}
+    assert config["world"]["population"]["absence"] == {"emp-M": [3, 4]}
+    assert config["world"]["deck"]["events"] == deck_events
+    assert config["model"]["customer"] == "fake:unit"
+
+    # the round trip: a second-level rebuild from the bundle alone recovers
+    # every continuation setting the original world had
+    second = tmp_path / "settings_level2"
+    _, next_metadata = rebuild_kernel_state(
+        first, 0, second, up_to_ordinal=len(read_jsonl(first / "world_ledger.jsonl"))
+    )
+    assert next_metadata["workflow"] == workflow
+    assert next_metadata["model_binding"] == {"emp-A": "openrouter:qwen/unit"}
+    assert next_metadata["tick_budget"] == {"emp-A": 5}
+    assert next_metadata["absence"] == {"emp-M": [3, 4]}
+    assert next_metadata["deck_events"] == deck_events
+    assert next_metadata["customer_model"] == "fake:unit"
+    assert next_metadata["prompt_mode"] == "measurement"

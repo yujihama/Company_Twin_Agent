@@ -1,0 +1,10 @@
+{"op": "read", "origin": "agent", "returned": 0, "run_id": "root-d0b01", "seat_id": "emp-F", "tick": 30, "ts": "2026-07-31T17:12:08.087357+00:00"}
+{"key": "APP-R27", "op": "write", "origin": "agent", "run_id": "root-d0b01", "seat_id": "emp-F", "tick": 30, "ts": "2026-07-31T17:12:39.572800+00:00", "value": "CUS-R27より費用・手続き確認の問い合わせあり(4/21)。上長佐藤さんに照会済み。回答待ち。締切: 4/22。"}
+{"op": "read", "origin": "agent", "returned": 0, "run_id": "root-d0b01", "seat_id": "emp-M", "tick": 30, "ts": "2026-07-31T17:13:05.274944+00:00"}
+{"key": "APP-P-10状況", "op": "write", "origin": "agent", "run_id": "root-d0b01", "seat_id": "emp-M", "tick": 30, "ts": "2026-07-31T17:13:20.528273+00:00", "value": "2026/4/21: 営業部佐藤から高齢者顧客の不安連絡を受ける。申込管理部伊藤に本人確認・証跡状況照会中（チャット送付済み）。期限4/23。回答次第、記録整理・承認判断へ。"}
+{"op": "read", "origin": "agent", "returned": 0, "run_id": "root-d0b01", "seat_id": "emp-A", "tick": 31, "ts": "2026-07-31T17:13:57.839011+00:00"}
+{"key": "pending_cases", "op": "write", "origin": "agent", "run_id": "root-d0b01", "seat_id": "emp-A", "tick": 31, "ts": "2026-07-31T17:14:25.402777+00:00", "value": "【APP-R27 加盟店契約】高橋より費用相談。DFH-SAL-033読了。具体金額は同文書になく、商品主管/マスタ確認が必要。高橋へ追跡連絡必須。\n【APP-P-11 キャンペーン投信】顧客「本日終了希望」。DFH-SAL-013読了。「急ぐ場合でも理解確認優先」。適合性確認など実施必要。record_customer_contact未作成。"}
+{"key": "pending_cases_status", "op": "write", "origin": "agent", "run_id": "root-d0b01", "seat_id": "emp-A", "tick": 31, "ts": "2026-07-31T17:14:43.225604+00:00", "value": "【APP-R27 加盟店契約】高橋へ費用条件の回答依頼を送信済み(2026-4-22)。高橋からの回答待ち。お客様への直接回答はできないため、保留状態を続ける。\n【APP-P-11 キャンペーン投信】顧客記録EVT-000093作成済。伊藤宛に本人確認・適合性未完了を連絡済み(2026-4-22)。伊藤からの指示待ち。本日が期限最終日。"}
+{"op": "read", "origin": "agent", "returned": 2, "run_id": "root-d0b01", "seat_id": "emp-A", "tick": 32, "ts": "2026-07-31T17:15:59.551132+00:00"}
+{"op": "read", "origin": "agent", "returned": 2, "run_id": "root-d0b01", "seat_id": "emp-A", "tick": 33, "ts": "2026-07-31T17:18:04.792648+00:00"}
+{"op": "read", "origin": "agent", "returned": 0, "run_id": "root-d0b01", "seat_id": "emp-C", "tick": 33, "ts": "2026-07-31T17:18:37.616358+00:00"}
